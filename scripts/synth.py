@@ -178,19 +178,23 @@ def main() -> int:
     if os.path.isfile(rpt):
         text = open(rpt, encoding="utf-8", errors="replace").read()
         summary["resources"] = extract(text, {
-            "logic": r"Logic\s+\d+/\d+",
-            "register": r"Register\s+\d+/\d+",
-            "cls": r"CLS\s+\d+/\d+",
-            "violations": r"Total Number of Violations\s*:?\s*\d+",
+            "logic": r"Logic\s*\|\s*\d+/\d+",
+            "register": r"Register\s*\|\s*\d+/\d+",
+            "cls": r"CLS\s*\|\s*\d+/\d+",
+            "violations": r"Numbers of Setup Violated Endpoints>:(\d+)",
         })
     tr = os.path.join(pnr_dir, PROJECT_NAME + ".tr")
     if os.path.isfile(tr):
         text = open(tr, encoding="utf-8", errors="replace").read()
         summary["timing"] = extract(text, {
             "constraint": r"\d+\.\d+\s*ns",
-            "fmax": r"Fmax[^\n]{0,60}",
+            "fmax": r"Actual Fmax\s+([\d.]+)\(MHz\)",
         })
     fs = os.path.join(pnr_dir, PROJECT_NAME + ".fs")
+    if not os.path.isfile(fs):
+        gao_fs = os.path.join(pnr_dir, "ao_0.fs")   # GAO-instrumented build
+        if os.path.isfile(gao_fs):
+            fs = gao_fs
     if os.path.isfile(fs):
         import hashlib
         summary["bitstream_sha256"] = hashlib.sha256(open(fs, "rb").read()).hexdigest()

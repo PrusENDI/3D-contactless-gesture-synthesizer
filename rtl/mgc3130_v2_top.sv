@@ -525,6 +525,10 @@ logic [1:0]  dbg_read_table;
 logic [2:0]  dbg_bank_bits;
 logic [9:0]  dbg_read_index;
 logic [31:0] dbg_rejected;
+// Input-path liveness counters (read at 0xD0..0xD8).  A counter that never moves
+// proves the sensor never reported; a report counter that moves while the cursor
+// counter stays put points at the validity/cursor stage instead.
+logic [31:0] dbg_report_count, dbg_error_count, dbg_cursor_valid_count;
 logic [15:0] dbg_crc_final_captured, dbg_expected_crc_captured, dbg_apply_version_seen;
 logic [1:0]  dbg_apply_reject_reason;
 assign wt_index_load_src = cmd_valid && cmd_ready && (cmd_op == V2_OP_WRITE) &&
@@ -560,6 +564,21 @@ always_ff @(posedge clk_sys_100m or negedge rst_sys_n) begin
     end
 end
 
+
+    always_ff @(posedge clk_sys_100m or negedge rst_sys_n) begin
+        if (!rst_sys_n) begin
+            dbg_report_count       <= 32'd0;
+            dbg_error_count        <= 32'd0;
+            dbg_cursor_valid_count <= 32'd0;
+        end else begin
+            if (report_valid && dbg_report_count != 32'hFFFF_FFFF)
+                dbg_report_count <= dbg_report_count + 32'd1;
+            if (report_error && dbg_error_count != 32'hFFFF_FFFF)
+                dbg_error_count <= dbg_error_count + 32'd1;
+            if (audio_cursor_valid && dbg_cursor_valid_count != 32'hFFFF_FFFF)
+                dbg_cursor_valid_count <= dbg_cursor_valid_count + 32'd1;
+        end
+    end
     // Wavetable playback: WT_PLAY hands the uploader's read port to this engine and
     // routes its output straight to I2S, so the audio path is the table itself.
     assign wt_read_index_sel = mode_wt_play ? wt_play_index : wt_select_index;
@@ -730,6 +749,14 @@ end
                     8'hC4: rsp_data <= (V2_DEBUG_CSR != 0) ? {22'd0, dbg_wt_ptr} : 32'd0;
                     8'hC8: rsp_data <= (V2_DEBUG_CSR != 0) ? dbg_rejected : 32'd0;
                     8'hCC: rsp_data <= (V2_DEBUG_CSR != 0) ? {16'd0, dbg_crc_final_captured} : 32'd0;
+                    8'hD0: rsp_data <= (V2_DEBUG_CSR != 0) ? dbg_report_count : 32'd0;
+                    8'hD4: rsp_data <= (V2_DEBUG_CSR != 0) ? dbg_error_count : 32'd0;
+                    8'hD8: rsp_data <= (V2_DEBUG_CSR != 0) ? dbg_cursor_valid_count : 32'd0;
+                    8'hDC: rsp_data <= (V2_DEBUG_CSR != 0) ? {31'd0, reader_busy} : 32'd0;
+                    8'hE0: rsp_data <= (V2_DEBUG_CSR != 0) ? {24'd0, reader_error_code} : 32'd0;
+                    8'hE4: rsp_data <= (V2_DEBUG_CSR != 0) ? reader_debug_context : 32'd0;
+                    8'hE8: rsp_data <= (V2_DEBUG_CSR != 0) ? {16'd0, reader_debug_mask} : 32'd0;
+                    8'hEC: rsp_data <= (V2_DEBUG_CSR != 0) ? {24'd0, reader_debug_size} : 32'd0;
                     8'hA4: rsp_data <= (V2_DEBUG_CSR != 0) ? {30'd0, dbg_apply_reject_reason} : 32'd0;
                     8'hA8: rsp_data <= (V2_DEBUG_CSR != 0) ? {16'd0, dbg_expected_crc_captured} : 32'd0;
                     8'hAC: rsp_data <= (V2_DEBUG_CSR != 0) ? {16'd0, dbg_apply_version_seen} : 32'd0;

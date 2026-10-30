@@ -107,7 +107,7 @@ package v2_contract_pkg;
   localparam logic [7:0] V2_ADDR_TLM_FIRST    = 8'h80;
 localparam logic [7:0] V2_ADDR_TLM_LAST     = 8'h9C;
 localparam logic [7:0] V2_ADDR_DIAG_FIRST   = 8'hB0;
-  localparam logic [7:0] V2_ADDR_DIAG_LAST    = 8'hCC;
+  localparam logic [7:0] V2_ADDR_DIAG_LAST    = 8'hEC;
   localparam logic [7:0] V2_ADDR_TEST_FIRST   = 8'hA0;
   localparam logic [7:0] V2_ADDR_TEST_LAST    = 8'hAF;
 

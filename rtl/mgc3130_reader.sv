@@ -85,6 +85,9 @@ module mgc3130_reader #(
     reg command_active, transaction_active;
     reg tip_seen;
     reg [31:0] command_timer, frame_timer, delay_timer;
+    reg [31:0] ts_wait_timer;
+    reg        ts_polled;
+    localparam [31:0] TS_POLL_TIMEOUT = 32'd2_000_000;   // 25 ms at 80 MHz
 
     // Registered enables; read latency matches the official reference design.
     task write_register;
@@ -113,6 +116,7 @@ module mgc3130_reader #(
             ip_rd_en <= 0; ip_rd_addr <= 0;
             reg_read_data <= 0; ip_status <= 0; ts_oe <= 0;
             frame_length <= 0; rx_byte <= 0; tx_byte <= 0;
+            ts_wait_timer <= 32'd0; ts_polled <= 1'b0;
             last_message_id <= 0; operation <= 0;
             command_active <= 0; transaction_active <= 0;
             tip_seen <= 0; debug_error_context <= 0;
@@ -146,7 +150,20 @@ module mgc3130_reader #(
                         ts_oe <= 1; busy <= 1; transaction_active <= 1;
                         frame_timer <= 0; delay_timer <= 0;
                         rx_byte <= 0; frame_length <= 0;
+                        ts_wait_timer <= 32'd0;
                         state <= ST_TS_SETUP;
+                    end else if (ts_wait_timer >= TS_POLL_TIMEOUT) begin
+                        // The sensor did not request a transfer.  MGC3130 also answers
+                        // host-initiated reads, so probe anyway; this keeps the design
+                        // usable when TS is not wired, and is harmless when it is.
+                        ts_oe <= 1; busy <= 1; transaction_active <= 1;
+                        frame_timer <= 0; delay_timer <= 0;
+                        rx_byte <= 0; frame_length <= 0;
+                        ts_wait_timer <= 32'd0;
+                        ts_polled <= 1'b1;
+                        state <= ST_TS_SETUP;
+                    end else begin
+                        ts_wait_timer <= ts_wait_timer + 32'd1;
                     end
                 end
                 ST_TS_SETUP: begin

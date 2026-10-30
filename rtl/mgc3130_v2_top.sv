@@ -446,6 +446,8 @@ logic [9:0] wt_read_index_sel;
     logic uart_mux_valid;
     logic [7:0] uart_mux_byte;
     logic tlm_capture_valid, tlm_capture_ready, tlm_frame_valid, tlm_frame_ready, tlm_frame_last;
+logic [31:0] tlm_control;
+logic [31:0] tlm_div;
     logic [7:0] tlm_frame_byte, tlm_dropped;
     uart_rx #(.CLK_HZ(80_000_000), .BAUD(UART_BAUD)) u_uart_rx (
         .clk(clk_sys_100m), .rst(!rst_sys_n), .rx(uart_rx), .valid(uart_byte_valid),
@@ -713,24 +715,25 @@ end
                     V2_CSR_WT_VERSION: rsp_data <= {16'd0, wt_apply_version};
                     V2_CSR_WT_APPLY: rsp_data <= 32'd0;
                     // Read-only debug observability (V2_DEBUG_CSR), one quantity per register.
-                    //   0x80 const 0x5A5A_0002   0x84 state[1:0]
-                    //   0x88 accepted[31:0]      0x8C covered[31:0]
-                    //   0x90 covered_count[5:0]  0x94 wr_ptr[9:0]
-                    //   0x98 rejected[31:0]      0x9C crc_final_captured[15:0]
+                    //   0xB0 const 0x5A5A_0003   0xB4 state[1:0]
+                    //   0xB8 accepted[31:0]      0xBC covered[31:0]
+                    //   0xC0 covered_count[5:0]  0xC4 wr_ptr[9:0]
+                    //   0xC8 rejected[31:0]      0xCC crc_final_captured[15:0]
                     //   0xA4 apply_reject_reason[1:0]
                     //   0xA8 expected_crc_captured[15:0]
                     //   0xAC apply_version_seen[15:0]
-                    8'h80: rsp_data <= (V2_DEBUG_CSR != 0) ? 32'h5A5A_0003 : 32'd0;
-                    8'h84: rsp_data <= (V2_DEBUG_CSR != 0) ? {30'd0, dbg_state} : 32'd0;
-                    8'h88: rsp_data <= (V2_DEBUG_CSR != 0) ? dbg_wt_accepted : 32'd0;
-                    8'h8C: rsp_data <= (V2_DEBUG_CSR != 0) ? dbg_wt_covered : 32'd0;
-                    8'h90: rsp_data <= (V2_DEBUG_CSR != 0) ? {26'd0, dbg_wt_covered_count} : 32'd0;
-                    8'h94: rsp_data <= (V2_DEBUG_CSR != 0) ? {22'd0, dbg_wt_ptr} : 32'd0;
-                    8'h98: rsp_data <= (V2_DEBUG_CSR != 0) ? dbg_rejected : 32'd0;
-                    8'h9C: rsp_data <= (V2_DEBUG_CSR != 0) ? {16'd0, dbg_crc_final_captured} : 32'd0;
+                    8'hB0: rsp_data <= (V2_DEBUG_CSR != 0) ? 32'h5A5A_0003 : 32'd0;
+                    8'hB4: rsp_data <= (V2_DEBUG_CSR != 0) ? {30'd0, dbg_state} : 32'd0;
+                    8'hB8: rsp_data <= (V2_DEBUG_CSR != 0) ? dbg_wt_accepted : 32'd0;
+                    8'hBC: rsp_data <= (V2_DEBUG_CSR != 0) ? dbg_wt_covered : 32'd0;
+                    8'hC0: rsp_data <= (V2_DEBUG_CSR != 0) ? {26'd0, dbg_wt_covered_count} : 32'd0;
+                    8'hC4: rsp_data <= (V2_DEBUG_CSR != 0) ? {22'd0, dbg_wt_ptr} : 32'd0;
+                    8'hC8: rsp_data <= (V2_DEBUG_CSR != 0) ? dbg_rejected : 32'd0;
+                    8'hCC: rsp_data <= (V2_DEBUG_CSR != 0) ? {16'd0, dbg_crc_final_captured} : 32'd0;
                     8'hA4: rsp_data <= (V2_DEBUG_CSR != 0) ? {30'd0, dbg_apply_reject_reason} : 32'd0;
                     8'hA8: rsp_data <= (V2_DEBUG_CSR != 0) ? {16'd0, dbg_expected_crc_captured} : 32'd0;
                     8'hAC: rsp_data <= (V2_DEBUG_CSR != 0) ? {16'd0, dbg_apply_version_seen} : 32'd0;
+                    V2_CSR_TLM_CONTROL: rsp_data <= tlm_control;
                     V2_CSR_WT_STATUS: rsp_data <= {wt_crc_error ? V2_ERR_WT_CRC : 8'd0, 6'd0, wt_apply_busy, wt_shadow_valid,
                                                     wt_active_version};
                     default: rsp_data <= 32'd0;
@@ -821,6 +824,8 @@ end
                     wt_select_index <= wt_select_index + 10'd1;
                 if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_WT_LENGTH)
                     wt_length <= cmd_data[15:0];
+                if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_TLM_CONTROL)
+                    tlm_control <= cmd_data & V2_CSR_TLM_CONTROL_WRITE_MASK;
                 if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_WT_CRC)
                     wt_expected_crc <= cmd_data[15:0];
                 if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_WT_VERSION)
@@ -901,5 +906,13 @@ end
         .frame_valid(tlm_frame_valid), .frame_ready(tlm_frame_ready), .frame_byte(tlm_frame_byte),
         .frame_last(tlm_frame_last), .dropped_captures(tlm_dropped)
     );
-    assign tlm_capture_valid = sample_ce && audio_cursor_valid;
+    // TLM_CONTROL: bit0 enables the snapshot stream, [31:16] is the capture period in
+// audio samples (48 kHz), so a period of 2400 gives about 20 frames per second.
+// Without the divider the stream is 22 bytes x 48 kHz, forty times the UART rate.
+wire [31:0] tlm_period = (tlm_control[31:16] == 16'd0) ? 32'd2400 : {16'd0, tlm_control[31:16]};
+always_ff @(posedge clk_sys_100m or negedge rst_sys_n) begin
+    if (!rst_sys_n) tlm_div <= 32'd0;
+    else if (sample_ce) tlm_div <= (tlm_div >= tlm_period - 32'd1) ? 32'd0 : tlm_div + 32'd1;
+end
+assign tlm_capture_valid = tlm_control[0] && sample_ce && audio_cursor_valid && (tlm_div == 32'd0);
 endmodule

@@ -104,8 +104,10 @@ package v2_contract_pkg;
   localparam logic [7:0] V2_ADDR_PATCH_LAST   = 8'h5C;
   localparam logic [7:0] V2_ADDR_WT_FIRST     = 8'h60;
   localparam logic [7:0] V2_ADDR_WT_LAST      = 8'h7C;
-  localparam logic [7:0] V2_ADDR_DIAG_FIRST   = 8'h80;
-  localparam logic [7:0] V2_ADDR_DIAG_LAST    = 8'h9C;
+  localparam logic [7:0] V2_ADDR_TLM_FIRST    = 8'h80;
+localparam logic [7:0] V2_ADDR_TLM_LAST     = 8'h9C;
+localparam logic [7:0] V2_ADDR_DIAG_FIRST   = 8'hB0;
+  localparam logic [7:0] V2_ADDR_DIAG_LAST    = 8'hCC;
   localparam logic [7:0] V2_ADDR_TEST_FIRST   = 8'hA0;
   localparam logic [7:0] V2_ADDR_TEST_LAST    = 8'hAF;
 
@@ -331,7 +333,8 @@ package v2_contract_pkg;
             ((address >= V2_ADDR_LEGACY_FIRST && address <= V2_ADDR_LEGACY_LAST) ||
             (address >= V2_ADDR_PATCH_FIRST && address <= V2_ADDR_PATCH_LAST) ||
             (address >= V2_ADDR_WT_FIRST && address <= V2_ADDR_WT_LAST) ||
-            (address >= V2_ADDR_DIAG_FIRST && address <= V2_ADDR_DIAG_LAST))));
+            (address >= V2_ADDR_DIAG_FIRST && address <= V2_ADDR_DIAG_LAST) ||
+  (address >= V2_ADDR_TLM_FIRST && address <= V2_ADDR_TLM_LAST))));
   endfunction
   function automatic logic [1:0] v2_csr_access(input logic [7:0] address);
     if (address >= 8'hA0 && address <= 8'hAF) return V2_ACCESS_RW;

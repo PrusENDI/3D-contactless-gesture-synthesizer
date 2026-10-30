@@ -198,5 +198,10 @@
                        counter_width="2" counter="2" countinuous="0" func="0"
                        value0="" value1=""/>
         </MatchUnits>
-    </AoCore>
+        <Expressions type="Static">
+            <!-- Without this block the generator emits AO_EXPRESSION_0 = 1 (constant
+                 true), so the core triggers on the first sample after arming and the
+                 buffer holds an idle snapshot.  M0 selects MatchUnit 0. -->
+            <Expression>M0</Expression>
+        </Expressions>    </AoCore>
 </GAO_CONFIG>

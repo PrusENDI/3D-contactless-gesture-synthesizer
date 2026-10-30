@@ -1,0 +1,371 @@
+{
+    "command": {
+        "arguments": {
+            "cable": "FT2CH",
+            "gao_file": "gao/apply.rao",
+            "output_file": [
+                "artifacts/gao/apply_run1"
+            ],
+            "report_file": "gao.json"
+        },
+        "command_line": " C:\\Gowin\\Gowin_V1.9.12.04_x64\\IDE\\bin\\gao_sh.exe -gao gao/apply.rao -cable FT2CH -out artifacts/gao/apply_run1"
+    },
+    "gao_configuration": {
+        "ao_cores": [
+            {
+                "capture_amount": 2048,
+                "capture_initial_data": "false",
+                "capture_signals": [
+                    {
+                        "capture_enable": "true",
+                        "name": "u_v2/u_uart_rx/data[7:0]",
+                        "type": "bus"
+                    },
+                    {
+                        "capture_enable": "true",
+                        "name": "u_v2/u_uart_rx/valid",
+                        "type": "signal"
+                    },
+                    {
+                        "capture_enable": "true",
+                        "name": "u_v2/cmd_valid",
+                        "type": "signal"
+                    },
+                    {
+                        "capture_enable": "true",
+                        "name": "u_v2/cmd_ready",
+                        "type": "signal"
+                    },
+                    {
+                        "capture_enable": "true",
+                        "name": "u_v2/cmd_op[7:0]",
+                        "type": "bus"
+                    },
+                    {
+                        "capture_enable": "true",
+                        "name": "u_v2/cmd_address[7:0]",
+                        "type": "bus"
+                    },
+                    {
+                        "capture_enable": "true",
+                        "name": "u_v2/cmd_data[15:0]",
+                        "type": "bus"
+                    },
+                    {
+                        "capture_enable": "true",
+                        "name": "u_v2/wt_index_load_q",
+                        "type": "signal"
+                    },
+                    {
+                        "capture_enable": "true",
+                        "name": "u_v2/wt_crc_valid_q",
+                        "type": "signal"
+                    },
+                    {
+                        "capture_enable": "true",
+                        "name": "u_v2/wt_apply_valid_q",
+                        "type": "signal"
+                    },
+                    {
+                        "capture_enable": "true",
+                        "name": "u_v2/patch_crc_valid_q",
+                        "type": "signal"
+                    },
+                    {
+                        "capture_enable": "true",
+                        "name": "u_v2/wt_expected_crc[15:0]",
+                        "type": "bus"
+                    },
+                    {
+                        "capture_enable": "true",
+                        "name": "u_v2/u_wavetable_loader/state[1:0]",
+                        "type": "bus"
+                    },
+                    {
+                        "capture_enable": "true",
+                        "name": "u_v2/u_wavetable_loader/crc_final_captured[15:0]",
+                        "type": "bus"
+                    },
+                    {
+                        "capture_enable": "true",
+                        "name": "u_v2/wt_apply_done",
+                        "type": "signal"
+                    },
+                    {
+                        "capture_enable": "true",
+                        "name": "u_v2/wt_apply_ok",
+                        "type": "signal"
+                    },
+                    {
+                        "capture_enable": "true",
+                        "name": "u_v2/wt_apply_reason[1:0]",
+                        "type": "bus"
+                    },
+                    {
+                        "capture_enable": "true",
+                        "name": "u_v2/wt_apply_busy",
+                        "type": "signal"
+                    },
+                    {
+                        "capture_enable": "true",
+                        "name": "u_v2/wt_crc_error",
+                        "type": "signal"
+                    },
+                    {
+                        "capture_enable": "true",
+                        "name": "u_v2/wt_active_version[15:0]",
+                        "type": "bus"
+                    },
+                    {
+                        "capture_enable": "true",
+                        "name": "u_v2/rsp_valid",
+                        "type": "signal"
+                    },
+                    {
+                        "capture_enable": "true",
+                        "name": "u_v2/rsp_error[7:0]",
+                        "type": "bus"
+                    }
+                ],
+                "expressions": {
+                    "items": [
+                    ],
+                    "type": "Static"
+                },
+                "force_trigger_by_falling_edge": "false",
+                "implementation": 0,
+                "index": 0,
+                "match_units": [
+                    {
+                        "counter": 2,
+                        "counter_enable": "false",
+                        "counter_width": 2,
+                        "countinuous": "false",
+                        "enabled": "false",
+                        "function": 0,
+                        "index": 0,
+                        "match_type": 0,
+                        "value0": "",
+                        "value1": ""
+                    },
+                    {
+                        "counter": 2,
+                        "counter_enable": "false",
+                        "counter_width": 2,
+                        "countinuous": "false",
+                        "enabled": "false",
+                        "function": 0,
+                        "index": 1,
+                        "match_type": 0,
+                        "value0": "",
+                        "value1": ""
+                    },
+                    {
+                        "counter": 2,
+                        "counter_enable": "false",
+                        "counter_width": 2,
+                        "countinuous": "false",
+                        "enabled": "false",
+                        "function": 0,
+                        "index": 2,
+                        "match_type": 0,
+                        "value0": "",
+                        "value1": ""
+                    },
+                    {
+                        "counter": 2,
+                        "counter_enable": "false",
+                        "counter_width": 2,
+                        "countinuous": "false",
+                        "enabled": "false",
+                        "function": 0,
+                        "index": 3,
+                        "match_type": 0,
+                        "value0": "",
+                        "value1": ""
+                    },
+                    {
+                        "counter": 2,
+                        "counter_enable": "false",
+                        "counter_width": 2,
+                        "countinuous": "false",
+                        "enabled": "false",
+                        "function": 0,
+                        "index": 4,
+                        "match_type": 0,
+                        "value0": "",
+                        "value1": ""
+                    },
+                    {
+                        "counter": 2,
+                        "counter_enable": "false",
+                        "counter_width": 2,
+                        "countinuous": "false",
+                        "enabled": "false",
+                        "function": 0,
+                        "index": 5,
+                        "match_type": 0,
+                        "value0": "",
+                        "value1": ""
+                    },
+                    {
+                        "counter": 2,
+                        "counter_enable": "false",
+                        "counter_width": 2,
+                        "countinuous": "false",
+                        "enabled": "false",
+                        "function": 0,
+                        "index": 6,
+                        "match_type": 0,
+                        "value0": "",
+                        "value1": ""
+                    },
+                    {
+                        "counter": 2,
+                        "counter_enable": "false",
+                        "counter_width": 2,
+                        "countinuous": "false",
+                        "enabled": "false",
+                        "function": 0,
+                        "index": 7,
+                        "match_type": 0,
+                        "value0": "",
+                        "value1": ""
+                    },
+                    {
+                        "counter": 2,
+                        "counter_enable": "false",
+                        "counter_width": 2,
+                        "countinuous": "false",
+                        "enabled": "false",
+                        "function": 0,
+                        "index": 8,
+                        "match_type": 0,
+                        "value0": "",
+                        "value1": ""
+                    },
+                    {
+                        "counter": 2,
+                        "counter_enable": "false",
+                        "counter_width": 2,
+                        "countinuous": "false",
+                        "enabled": "false",
+                        "function": 0,
+                        "index": 9,
+                        "match_type": 0,
+                        "value0": "",
+                        "value1": ""
+                    },
+                    {
+                        "counter": 2,
+                        "counter_enable": "false",
+                        "counter_width": 2,
+                        "countinuous": "false",
+                        "enabled": "false",
+                        "function": 0,
+                        "index": 10,
+                        "match_type": 0,
+                        "value0": "",
+                        "value1": ""
+                    },
+                    {
+                        "counter": 2,
+                        "counter_enable": "false",
+                        "counter_width": 2,
+                        "countinuous": "false",
+                        "enabled": "false",
+                        "function": 0,
+                        "index": 11,
+                        "match_type": 0,
+                        "value0": "",
+                        "value1": ""
+                    },
+                    {
+                        "counter": 2,
+                        "counter_enable": "false",
+                        "counter_width": 2,
+                        "countinuous": "false",
+                        "enabled": "false",
+                        "function": 0,
+                        "index": 12,
+                        "match_type": 0,
+                        "value0": "",
+                        "value1": ""
+                    },
+                    {
+                        "counter": 2,
+                        "counter_enable": "false",
+                        "counter_width": 2,
+                        "countinuous": "false",
+                        "enabled": "false",
+                        "function": 0,
+                        "index": 13,
+                        "match_type": 0,
+                        "value0": "",
+                        "value1": ""
+                    },
+                    {
+                        "counter": 2,
+                        "counter_enable": "false",
+                        "counter_width": 2,
+                        "countinuous": "false",
+                        "enabled": "false",
+                        "function": 0,
+                        "index": 14,
+                        "match_type": 0,
+                        "value0": "",
+                        "value1": ""
+                    },
+                    {
+                        "counter": 2,
+                        "counter_enable": "false",
+                        "counter_width": 2,
+                        "countinuous": "false",
+                        "enabled": "false",
+                        "function": 0,
+                        "index": 15,
+                        "match_type": 0,
+                        "value0": "",
+                        "value1": ""
+                    }
+                ],
+                "module_name": "v2_board_top",
+                "sample_clock": "u_v2/clk_sys_100m",
+                "storage_depth": 2048,
+                "trigger_position": 512,
+                "trigger_signals": [
+                ],
+                "trigger_type": 0,
+                "window_num": 1
+            }
+        ],
+        "gao_file": "gao/apply.rao",
+        "mode": "Standard",
+        "version": "3.0"
+    },
+    "output": {
+        "capture_files": [
+        ],
+        "report": {
+            "format": "json",
+            "path": "gao.json"
+        }
+    },
+    "results": [
+        {
+            "error_code": "null",
+            "message": "ERROR: Output file already exists: artifacts/gao/apply_run1/apply_core0.csv. Use -overwrite to overwrite it.",
+            "status": "Failed"
+        }
+    ],
+    "session": {
+        "end_time": "2026-10-30T22:41:23.070",
+        "id": "20261030-224122",
+        "start_time": "2026-10-30T22:41:22.935"
+    },
+    "tool": {
+        "Copyright": "Copyright (C) 2014-2026 Gowin Semiconductor Corporation. All Rights Reserved",
+        "name": "Gowin Debug Tools",
+        "version": "V1.9.12.04 build(89079)"
+    }
+}

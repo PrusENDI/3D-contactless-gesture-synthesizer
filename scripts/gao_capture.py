@@ -50,9 +50,9 @@ def capture(rao: str, out_base: str, cable: str) -> str:
         os.makedirs(out_dir, exist_ok=True)
     cmd = [GAO_SH, "-gao", rao, "-cable", cable, "-out", out_base]
     print("run:", " ".join(cmd))
-    proc = subprocess.run(cmd, capture_output=True, text=True)
-    sys.stdout.write(proc.stdout)
-    sys.stderr.write(proc.stderr)
+    # Do not capture child stdio through pipes: the sandbox denies pipe creation,
+    # which made gao_sh look like it failed.  Let the tool write to our stdio.
+    proc = subprocess.run(cmd)
     if proc.returncode != 0:
         raise SystemExit("gao_capture: gao_sh failed with %d" % proc.returncode)
     for candidate in (out_base + ".csv", out_base):

@@ -186,5 +186,17 @@
             <Trigger index="14"/>
             <Trigger index="15"/>
         </Triggers>
+        <MatchUnits>
+            <!-- Without a MatchUnit the core has no match condition: it never
+                 triggers and the capture is only produced by the forced timeout,
+                 which lands on idle traffic.  Unit 0 matches the trigger signal
+                 equal to 1 (rising edge), matching the vendor example layout. -->
+            <MatchUnit index="0" enabled="1" match_type="1" counter_enable="0"
+                       counter_width="2" counter="2" countinuous="0" func="0"
+                       value0="1" value1="0" trigger="0"/>
+            <MatchUnit index="1" enabled="0" match_type="0" counter_enable="0"
+                       counter_width="2" counter="2" countinuous="0" func="0"
+                       value0="" value1=""/>
+        </MatchUnits>
     </AoCore>
 </GAO_CONFIG>

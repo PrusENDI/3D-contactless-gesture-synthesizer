@@ -56,7 +56,8 @@ $st = X 0x01 0x7C 0
 $ver = $st.Val -band 0xFFFF
 Log ("WT_STATUS=0x{0:X8} shadow_valid={1} version={2}" -f $st.Val, (($st.Val -shr 16) -band 1), $ver)
 
-Log 'sending APPLY (GAO trigger)'
+Log ("writing WT_VERSION={0} then APPLY" -f $ver)
+[void](X 0x02 0x74 ([uint32]$ver))
 $applyWord = [uint32]([uint64](Hex32 '80000000') -bor [uint64]$ver)
 $ap = X 0x02 0x78 $applyWord
 Start-Sleep -Milliseconds 120

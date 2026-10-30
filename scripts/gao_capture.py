@@ -67,76 +67,80 @@ def capture(rao: str, out_base: str, cable: str,
     proc = subprocess.run(cmd)
     if proc.returncode != 0:
         raise SystemExit("gao_capture: gao_sh failed with %d" % proc.returncode)
-    # gao_sh appends a per-core suffix (apply_run1_core0.csv), so glob the stem.`n    import glob`n    candidates = [csv_out, out_base] + sorted(glob.glob(os.path.splitext(csv_out)[0] + "*core*.csv"))`n    for candidate in candidates:
-        if os.path.isfile(candidate) and os.path.getsize(candidate) > 0:
-            return candidate
+    # gao_sh appends a per-core suffix (<stem>_core0.csv) and writes it late,
+    # so glob the stem and retry briefly.
+    import glob
+    import time as _time
+    candidates = [csv_out, out_base] + sorted(glob.glob(os.path.splitext(csv_out)[0] + "*core*.csv"))
+    for _attempt in range(10):
+        for candidate in candidates:
+            if os.path.isfile(candidate) and os.path.getsize(candidate) > 0:
+                return candidate
+        _time.sleep(1.0)
     raise SystemExit("gao_capture: gao_sh reported success but produced no capture file")
 
 def decode(csv_path: str, layout: list[tuple[str, int]]) -> None:
     """Decode Gowin's capture format into a change timeline.
 
-    The file starts with "Groups:" and one line per group ("<name> =, <bits...>"),
-    then one data row per sample: <index>, <value per group>.  Values are hex for
-    buses and 0/1 for single bits, so the group order defines the columns and the
-    .rao only tells us which group is which.
+    The file has a "Groups:" block that lists only the buses, then a "Data:"
+    section whose next line is the authoritative column header:
+        "time unit: us, <sig>, <sig>, ...,"
+    Each following row is "time, value, value, ...".  Buses are hex, single bits
+    are 0/1, so every field parses as hex.
     """
     with open(csv_path, encoding="utf-8-sig", errors="replace") as fh:
         lines = [ln.rstrip("\r\n") for ln in fh]
-    groups: list[str] = []
-    data_lines: list[str] = []
-    in_header = True
-    for ln in lines:
+
+    data_at = None
+    for i, ln in enumerate(lines):
+        if ln.strip().startswith("Data:"):
+            data_at = i
+            break
+    if data_at is None:
+        raise SystemExit("gao_capture: no 'Data:' section in %s" % csv_path)
+
+    header = [c.strip() for c in lines[data_at + 1].split(",")]
+    while header and header[-1] == "":
+        header.pop()
+    names = header[1:]          # first column is the time stamp
+    if not names:
+        raise SystemExit("gao_capture: empty column header")
+    print("columns: %d (%s ...)" % (len(names), names[0]))
+
+    rows: list[tuple[str, list[int]]] = []
+    for ln in lines[data_at + 2:]:
         if not ln.strip():
             continue
-        if in_header:
-            if ln.strip().lower().startswith("groups"):
-                continue
-            if "=" in ln and not ln.split(",")[0].strip().isdigit():
-                groups.append(ln.split("=")[0].strip())
-                continue
-            in_header = False
-        data_lines.append(ln)
-    if not data_lines:
-        raise SystemExit("gao_capture: no data rows in %s" % csv_path)
-    print("groups: %d, sample rows: %d" % (len(groups), len(data_lines)))
-
-    # Map each .rao probe onto the group with the same name; fall back to position.
-    name_to_col = {g: i for i, g in enumerate(groups)}
-    columns: list[tuple[str, int]] = []
-    for i, (name, _width) in enumerate(layout):
-        col = name_to_col.get(name)
-        if col is None:
-            col = i if i < len(groups) else None
-        columns.append((name, col))
-
-    prev: dict[str, int] = {}
-    changes = 0
-    for row_no, ln in enumerate(data_lines):
         fields = [f.strip() for f in ln.split(",")]
-        values: dict[str, int] = {}
-        for name, col in columns:
-            if col is None or col + 1 >= len(fields):
-                continue
-            raw = fields[col + 1]
-            try:
-                values[name] = int(raw, 16) if raw.lower().startswith("0x") or not raw.isdigit() else int(raw)
-                if raw and not raw.isdigit() and raw.lower() not in ("x", "z"):
-                    values[name] = int(raw, 16)
-            except ValueError:
-                values[name] = 0
-        if row_no == 0:
-            print("first sample:", {k.split('/')[-1]: hex(v) for k, v in values.items() if v})
+        if fields and fields[-1] == "":
+            fields.pop()
+        if len(fields) < 2:
+            continue
+        try:
+            values = [int(f, 16) if f not in ("", "x", "z") else 0 for f in fields[1:]]
+        except ValueError:
+            continue
+        rows.append((fields[0], values))
+    if not rows:
+        raise SystemExit("gao_capture: no sample rows")
+    print("samples: %d, time span: %s .. %s us" % (len(rows), rows[0][0], rows[-1][0]))
+
+    prev: list[int] | None = None
+    changes = 0
+    for stamp, values in rows:
+        if prev is None:
+            shown = {names[i]: hex(values[i]) for i in range(min(len(names), len(values))) if values[i]}
+            print("t=%s initial: %s" % (stamp, shown))
         else:
-            delta = {k: (prev[k], v) for k, v in values.items() if k in prev and prev[k] != v}
+            delta = [i for i in range(min(len(names), len(values), len(prev))) if values[i] != prev[i]]
             if delta:
                 changes += 1
-                print("sample %5s  %s" % (fields[0], ", ".join(
-                    "%s:%x->%x" % (k.split('/')[-1], a, b) for k, (a, b) in delta.items())))
+                text = ", ".join("%s:%x->%x" % (names[i].split("/")[-1], prev[i], values[i]) for i in delta)
+                print("t=%8s us  %s" % (stamp, text))
         prev = values
     print("total change points: %d" % changes)
     if changes == 0:
         raise SystemExit("gao_capture: no signal changed - wrong trigger or dead design")
-
 
 def main() -> int:
     ap = argparse.ArgumentParser()

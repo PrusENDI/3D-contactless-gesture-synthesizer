@@ -1,0 +1,678 @@
+{
+    "command": {
+        "arguments": {
+            "cable": "FT2CH",
+            "force_trigger_timeout": "40",
+            "gao_file": "gao/play.rao",
+            "output_file": [
+                "artifacts/gao/play_run1.csv"
+            ],
+            "overwrite": "true",
+            "report_file": "artifacts/gao/play_run1.json",
+            "stop_timeout": "120"
+        },
+        "command_line": " C:\\Gowin\\Gowin_V1.9.12.04_x64\\IDE\\bin\\gao_sh.exe -gao gao/play.rao -cable FT2CH -out artifacts/gao/play_run1.csv -report artifacts/gao/play_run1.json -force_trigger_timeout 40 -stop_timeout 120 -overwrite"
+    },
+    "events": [
+        {
+            "elapsed_seconds": 1,
+            "level": "INFO",
+            "message": "Capturing...",
+            "type": "capturing"
+        },
+        {
+            "elapsed_seconds": 2,
+            "level": "INFO",
+            "message": "Capturing...",
+            "type": "capturing"
+        },
+        {
+            "elapsed_seconds": 3,
+            "level": "INFO",
+            "message": "Capturing...",
+            "type": "capturing"
+        },
+        {
+            "elapsed_seconds": 4,
+            "level": "INFO",
+            "message": "Capturing...",
+            "type": "capturing"
+        },
+        {
+            "elapsed_seconds": 5,
+            "level": "INFO",
+            "message": "Capturing...",
+            "type": "capturing"
+        },
+        {
+            "elapsed_seconds": 6,
+            "level": "INFO",
+            "message": "Capturing...",
+            "type": "capturing"
+        },
+        {
+            "elapsed_seconds": 7,
+            "level": "INFO",
+            "message": "Capturing...",
+            "type": "capturing"
+        },
+        {
+            "elapsed_seconds": 8,
+            "level": "INFO",
+            "message": "Capturing...",
+            "type": "capturing"
+        },
+        {
+            "elapsed_seconds": 9,
+            "level": "INFO",
+            "message": "Capturing...",
+            "type": "capturing"
+        },
+        {
+            "elapsed_seconds": 10,
+            "level": "INFO",
+            "message": "Capturing...",
+            "type": "capturing"
+        },
+        {
+            "elapsed_seconds": 11,
+            "level": "INFO",
+            "message": "Capturing...",
+            "type": "capturing"
+        },
+        {
+            "elapsed_seconds": 12,
+            "level": "INFO",
+            "message": "Capturing...",
+            "type": "capturing"
+        },
+        {
+            "elapsed_seconds": 13,
+            "level": "INFO",
+            "message": "Capturing...",
+            "type": "capturing"
+        },
+        {
+            "elapsed_seconds": 14,
+            "level": "INFO",
+            "message": "Capturing...",
+            "type": "capturing"
+        },
+        {
+            "elapsed_seconds": 15,
+            "level": "INFO",
+            "message": "Capturing...",
+            "type": "capturing"
+        },
+        {
+            "elapsed_seconds": 16,
+            "level": "INFO",
+            "message": "Capturing...",
+            "type": "capturing"
+        },
+        {
+            "elapsed_seconds": 17,
+            "level": "INFO",
+            "message": "Capturing...",
+            "type": "capturing"
+        },
+        {
+            "elapsed_seconds": 18,
+            "level": "INFO",
+            "message": "Capturing...",
+            "type": "capturing"
+        },
+        {
+            "elapsed_seconds": 19,
+            "level": "INFO",
+            "message": "Capturing...",
+            "type": "capturing"
+        },
+        {
+            "elapsed_seconds": 20,
+            "level": "INFO",
+            "message": "Capturing...",
+            "type": "capturing"
+        },
+        {
+            "elapsed_seconds": 21,
+            "level": "INFO",
+            "message": "Capturing...",
+            "type": "capturing"
+        },
+        {
+            "elapsed_seconds": 22,
+            "level": "INFO",
+            "message": "Capturing...",
+            "type": "capturing"
+        },
+        {
+            "elapsed_seconds": 23,
+            "level": "INFO",
+            "message": "Capturing...",
+            "type": "capturing"
+        },
+        {
+            "elapsed_seconds": 24,
+            "level": "INFO",
+            "message": "Capturing...",
+            "type": "capturing"
+        },
+        {
+            "elapsed_seconds": 25,
+            "level": "INFO",
+            "message": "Capturing...",
+            "type": "capturing"
+        },
+        {
+            "elapsed_seconds": 26,
+            "level": "INFO",
+            "message": "Capturing...",
+            "type": "capturing"
+        },
+        {
+            "elapsed_seconds": 27,
+            "level": "INFO",
+            "message": "Capturing...",
+            "type": "capturing"
+        },
+        {
+            "elapsed_seconds": 28,
+            "level": "INFO",
+            "message": "Capturing...",
+            "type": "capturing"
+        },
+        {
+            "elapsed_seconds": 29,
+            "level": "INFO",
+            "message": "Capturing...",
+            "type": "capturing"
+        },
+        {
+            "elapsed_seconds": 30,
+            "level": "INFO",
+            "message": "Capturing...",
+            "type": "capturing"
+        },
+        {
+            "elapsed_seconds": 31,
+            "level": "INFO",
+            "message": "Capturing...",
+            "type": "capturing"
+        },
+        {
+            "elapsed_seconds": 32,
+            "level": "INFO",
+            "message": "Capturing...",
+            "type": "capturing"
+        },
+        {
+            "elapsed_seconds": 33,
+            "level": "INFO",
+            "message": "Capturing...",
+            "type": "capturing"
+        },
+        {
+            "elapsed_seconds": 34,
+            "level": "INFO",
+            "message": "Capturing...",
+            "type": "capturing"
+        },
+        {
+            "elapsed_seconds": 35,
+            "level": "INFO",
+            "message": "Capturing...",
+            "type": "capturing"
+        },
+        {
+            "elapsed_seconds": 36,
+            "level": "INFO",
+            "message": "Capturing...",
+            "type": "capturing"
+        },
+        {
+            "elapsed_seconds": 37,
+            "level": "INFO",
+            "message": "Capturing...",
+            "type": "capturing"
+        },
+        {
+            "elapsed_seconds": 38,
+            "level": "INFO",
+            "message": "Capturing...",
+            "type": "capturing"
+        },
+        {
+            "elapsed_seconds": 39,
+            "level": "INFO",
+            "message": "Capturing...",
+            "type": "capturing"
+        },
+        {
+            "elapsed_seconds": 40,
+            "level": "INFO",
+            "message": "Capturing...",
+            "type": "capturing"
+        },
+        {
+            "level": "INFO",
+            "message": "Force trigger timeout (40 s) reached.",
+            "timeout_seconds": "40",
+            "type": "force_trigger_timeout"
+        },
+        {
+            "level": "INFO",
+            "message": "Sending Force Trigger command...",
+            "type": "sending_force_trigger"
+        },
+        {
+            "capture_index": 1,
+            "core": 0,
+            "level": "INFO",
+            "message": "Capture Completed.",
+            "type": "capture_completed"
+        },
+        {
+            "level": "INFO",
+            "message": "Exporting capture data... (overwriting)",
+            "overwrite": "true",
+            "type": "data_export_started"
+        },
+        {
+            "level": "INFO",
+            "message": "Capture data export completed.",
+            "type": "data_export_completed"
+        },
+        {
+            "level": "INFO",
+            "message": "Session completed successfully.",
+            "type": "session_completed"
+        }
+    ],
+    "gao_configuration": {
+        "ao_cores": [
+            {
+                "capture_amount": 2048,
+                "capture_initial_data": "false",
+                "capture_signals": [
+                    {
+                        "capture_enable": "true",
+                        "name": "u_v2/u_uart_rx/data[7:0]",
+                        "type": "bus"
+                    },
+                    {
+                        "capture_enable": "true",
+                        "name": "u_v2/u_uart_rx/valid",
+                        "type": "signal"
+                    },
+                    {
+                        "capture_enable": "true",
+                        "name": "u_v2/cmd_valid",
+                        "type": "signal"
+                    },
+                    {
+                        "capture_enable": "true",
+                        "name": "u_v2/cmd_ready",
+                        "type": "signal"
+                    },
+                    {
+                        "capture_enable": "true",
+                        "name": "u_v2/cmd_op[7:0]",
+                        "type": "bus"
+                    },
+                    {
+                        "capture_enable": "true",
+                        "name": "u_v2/cmd_address[7:0]",
+                        "type": "bus"
+                    },
+                    {
+                        "capture_enable": "true",
+                        "name": "u_v2/cmd_data[15:0]",
+                        "type": "bus"
+                    },
+                    {
+                        "capture_enable": "true",
+                        "name": "u_v2/wt_index_load_q",
+                        "type": "signal"
+                    },
+                    {
+                        "capture_enable": "true",
+                        "name": "u_v2/wt_crc_valid_q",
+                        "type": "signal"
+                    },
+                    {
+                        "capture_enable": "true",
+                        "name": "u_v2/wt_apply_valid_q",
+                        "type": "signal"
+                    },
+                    {
+                        "capture_enable": "true",
+                        "name": "u_v2/patch_crc_valid_q",
+                        "type": "signal"
+                    },
+                    {
+                        "capture_enable": "true",
+                        "name": "u_v2/wt_expected_crc[15:0]",
+                        "type": "bus"
+                    },
+                    {
+                        "capture_enable": "true",
+                        "name": "u_v2/u_wavetable_loader/state[1:0]",
+                        "type": "bus"
+                    },
+                    {
+                        "capture_enable": "true",
+                        "name": "u_v2/u_wavetable_loader/crc_final_captured[15:0]",
+                        "type": "bus"
+                    },
+                    {
+                        "capture_enable": "true",
+                        "name": "u_v2/wt_apply_done",
+                        "type": "signal"
+                    },
+                    {
+                        "capture_enable": "true",
+                        "name": "u_v2/wt_apply_ok",
+                        "type": "signal"
+                    },
+                    {
+                        "capture_enable": "true",
+                        "name": "u_v2/wt_apply_reason[1:0]",
+                        "type": "bus"
+                    },
+                    {
+                        "capture_enable": "true",
+                        "name": "u_v2/wt_apply_busy",
+                        "type": "signal"
+                    },
+                    {
+                        "capture_enable": "true",
+                        "name": "u_v2/wt_crc_error",
+                        "type": "signal"
+                    },
+                    {
+                        "capture_enable": "true",
+                        "name": "u_v2/wt_active_version[15:0]",
+                        "type": "bus"
+                    },
+                    {
+                        "capture_enable": "true",
+                        "name": "u_v2/wt_play_index[9:0]",
+                        "type": "bus"
+                    },
+                    {
+                        "capture_enable": "true",
+                        "name": "u_v2/wt_play_sample[15:0]",
+                        "type": "bus"
+                    },
+                    {
+                        "capture_enable": "true",
+                        "name": "u_v2/wt_play_valid",
+                        "type": "signal"
+                    },
+                    {
+                        "capture_enable": "true",
+                        "name": "pcm5102a_din",
+                        "type": "signal"
+                    },
+                    {
+                        "capture_enable": "true",
+                        "name": "u_v2/rsp_valid",
+                        "type": "signal"
+                    },
+                    {
+                        "capture_enable": "true",
+                        "name": "u_v2/rsp_error[7:0]",
+                        "type": "bus"
+                    }
+                ],
+                "expressions": {
+                    "items": [
+                        "M0"
+                    ],
+                    "type": "Static"
+                },
+                "force_trigger_by_falling_edge": "false",
+                "implementation": 0,
+                "index": 0,
+                "match_units": [
+                    {
+                        "counter": 2,
+                        "counter_enable": "false",
+                        "counter_width": 2,
+                        "countinuous": "false",
+                        "enabled": "true",
+                        "function": 0,
+                        "index": 0,
+                        "match_type": 0,
+                        "trigger": 0,
+                        "value0": "1",
+                        "value1": "0"
+                    },
+                    {
+                        "counter": 2,
+                        "counter_enable": "false",
+                        "counter_width": 2,
+                        "countinuous": "false",
+                        "enabled": "false",
+                        "function": 0,
+                        "index": 1,
+                        "match_type": 0,
+                        "value0": "",
+                        "value1": ""
+                    },
+                    {
+                        "counter": 2,
+                        "counter_enable": "false",
+                        "counter_width": 2,
+                        "countinuous": "false",
+                        "enabled": "false",
+                        "function": 0,
+                        "index": 2,
+                        "match_type": 0,
+                        "value0": "",
+                        "value1": ""
+                    },
+                    {
+                        "counter": 2,
+                        "counter_enable": "false",
+                        "counter_width": 2,
+                        "countinuous": "false",
+                        "enabled": "false",
+                        "function": 0,
+                        "index": 3,
+                        "match_type": 0,
+                        "value0": "",
+                        "value1": ""
+                    },
+                    {
+                        "counter": 2,
+                        "counter_enable": "false",
+                        "counter_width": 2,
+                        "countinuous": "false",
+                        "enabled": "false",
+                        "function": 0,
+                        "index": 4,
+                        "match_type": 0,
+                        "value0": "",
+                        "value1": ""
+                    },
+                    {
+                        "counter": 2,
+                        "counter_enable": "false",
+                        "counter_width": 2,
+                        "countinuous": "false",
+                        "enabled": "false",
+                        "function": 0,
+                        "index": 5,
+                        "match_type": 0,
+                        "value0": "",
+                        "value1": ""
+                    },
+                    {
+                        "counter": 2,
+                        "counter_enable": "false",
+                        "counter_width": 2,
+                        "countinuous": "false",
+                        "enabled": "false",
+                        "function": 0,
+                        "index": 6,
+                        "match_type": 0,
+                        "value0": "",
+                        "value1": ""
+                    },
+                    {
+                        "counter": 2,
+                        "counter_enable": "false",
+                        "counter_width": 2,
+                        "countinuous": "false",
+                        "enabled": "false",
+                        "function": 0,
+                        "index": 7,
+                        "match_type": 0,
+                        "value0": "",
+                        "value1": ""
+                    },
+                    {
+                        "counter": 2,
+                        "counter_enable": "false",
+                        "counter_width": 2,
+                        "countinuous": "false",
+                        "enabled": "false",
+                        "function": 0,
+                        "index": 8,
+                        "match_type": 0,
+                        "value0": "",
+                        "value1": ""
+                    },
+                    {
+                        "counter": 2,
+                        "counter_enable": "false",
+                        "counter_width": 2,
+                        "countinuous": "false",
+                        "enabled": "false",
+                        "function": 0,
+                        "index": 9,
+                        "match_type": 0,
+                        "value0": "",
+                        "value1": ""
+                    },
+                    {
+                        "counter": 2,
+                        "counter_enable": "false",
+                        "counter_width": 2,
+                        "countinuous": "false",
+                        "enabled": "false",
+                        "function": 0,
+                        "index": 10,
+                        "match_type": 0,
+                        "value0": "",
+                        "value1": ""
+                    },
+                    {
+                        "counter": 2,
+                        "counter_enable": "false",
+                        "counter_width": 2,
+                        "countinuous": "false",
+                        "enabled": "false",
+                        "function": 0,
+                        "index": 11,
+                        "match_type": 0,
+                        "value0": "",
+                        "value1": ""
+                    },
+                    {
+                        "counter": 2,
+                        "counter_enable": "false",
+                        "counter_width": 2,
+                        "countinuous": "false",
+                        "enabled": "false",
+                        "function": 0,
+                        "index": 12,
+                        "match_type": 0,
+                        "value0": "",
+                        "value1": ""
+                    },
+                    {
+                        "counter": 2,
+                        "counter_enable": "false",
+                        "counter_width": 2,
+                        "countinuous": "false",
+                        "enabled": "false",
+                        "function": 0,
+                        "index": 13,
+                        "match_type": 0,
+                        "value0": "",
+                        "value1": ""
+                    },
+                    {
+                        "counter": 2,
+                        "counter_enable": "false",
+                        "counter_width": 2,
+                        "countinuous": "false",
+                        "enabled": "false",
+                        "function": 0,
+                        "index": 14,
+                        "match_type": 0,
+                        "value0": "",
+                        "value1": ""
+                    },
+                    {
+                        "counter": 2,
+                        "counter_enable": "false",
+                        "counter_width": 2,
+                        "countinuous": "false",
+                        "enabled": "false",
+                        "function": 0,
+                        "index": 15,
+                        "match_type": 0,
+                        "value0": "",
+                        "value1": ""
+                    }
+                ],
+                "module_name": "v2_board_top",
+                "sample_clock": "u_v2/clk_sys_100m",
+                "storage_depth": 2048,
+                "trigger_position": 512,
+                "trigger_signals": [
+                ],
+                "trigger_type": 0,
+                "window_num": 1
+            }
+        ],
+        "gao_file": "gao/play.rao",
+        "mode": "Standard",
+        "version": "3.0"
+    },
+    "output": {
+        "capture_files": [
+            {
+                "csv": [
+                    "artifacts/gao/play_run1_core0.csv"
+                ],
+                "overwrite": "true"
+            }
+        ],
+        "report": {
+            "format": "json",
+            "path": "artifacts/gao/play_run1.json"
+        }
+    },
+    "results": [
+        {
+            "error_code": "0",
+            "message": "Capture completed successfully.",
+            "status": "Success"
+        }
+    ],
+    "session": {
+        "end_time": "2026-10-30T23:40:40.936",
+        "id": "20261030-233959",
+        "start_time": "2026-10-30T23:39:59.158"
+    },
+    "tool": {
+        "Copyright": "Copyright (C) 2014-2026 Gowin Semiconductor Corporation. All Rights Reserved",
+        "name": "Gowin Debug Tools",
+        "version": "V1.9.12.04 build(89079)"
+    }
+}

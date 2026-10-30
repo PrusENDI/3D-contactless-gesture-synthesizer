@@ -60,7 +60,7 @@ package v2_contract_pkg;
   localparam logic [31:0] V2_VIBRATO_READBACK_PHASE_MASK=32'h0000FFFF;
   localparam logic [31:0] V2_VIBRATO_READBACK_DELTA_CENTS_MASK=32'hFFFF0000;
 
-  typedef enum logic [2:0] { IDLE, LIVE, RECORD, COMMIT, PLAY, ERROR } v2_mode_e;
+  typedef enum logic [2:0] { IDLE, LIVE, RECORD, COMMIT, PLAY, ERROR, WT_PLAY } v2_mode_e;
 
   // Packed MSB-first layout: reserved[95], then the named fields through sequence[15:0].
   // The reserved bit is frozen at zero by serializers; the named fields are directly accessible.
@@ -791,7 +791,7 @@ package v2_contract_pkg;
         v2_csr_access(address) != V2_ACCESS_WO) return 1'b0;
     if ((data & ~v2_csr_write_mask(address)) != 0) return 1'b0;
     case (address)
-      V2_CSR_MODE: return data <= 5;
+      V2_CSR_MODE: return data <= 6;
       V2_CSR_TRACK: return data <= 5;
       V2_CSR_BPM: return data >= V2_BPM_MIN && data <= V2_BPM_MAX;
       V2_CSR_THRESHOLDS: return data[15:0] < data[31:16];

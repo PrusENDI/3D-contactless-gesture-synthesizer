@@ -246,6 +246,11 @@ module mgc3130_v2_top #(
     wire mode_live = (mode_reg == LIVE);
     wire mode_record = (mode_reg == RECORD);
     wire mode_play = (mode_reg == PLAY);
+wire mode_wt_play = (mode_reg == WT_PLAY);
+logic [9:0] wt_play_index;
+logic signed [15:0] wt_play_sample;
+logic wt_play_valid;
+logic [9:0] wt_read_index_sel;
     v2_live_rule_engine #(.PIPELINE_NOTE(1)) u_live (
         .clk(clk_sys_100m), .rst_n(rst_sys_n), .frame_in_valid(cursor_frame_done),
         .frame_valid(cursor_frame_done && cursor_point_valid && (cursor_state != 2'd3)), .frame_degraded(degraded_frame),
@@ -428,8 +433,8 @@ module mgc3130_v2_top #(
         .fx_cutoff_q16(16'hffff), .fx_delay_samples(10'd0), .fx_feedback_q15(16'd0),
         .fx_reverb_mix_q15(16'd0), .fx_status_level(fx_status), .fx_clip(fx_clip)
     );
-    assign i2s_sample_valid = test_active ? test_sample_valid : voice_sample_valid;
-    assign i2s_sample = test_active ? test_sample : fx_sample;
+    assign i2s_sample_valid = mode_wt_play ? wt_play_valid : test_active ? test_sample_valid : voice_sample_valid;
+    assign i2s_sample = mode_wt_play ? wt_play_sample : test_active ? test_sample : fx_sample;
     i2s_pcm5102a_tx #(.CLK_HZ(80_000_000), .SAMPLE_HZ(48_000), .ACC_WIDTH(24)) u_i2s (
         .clk(clk_sys_100m), .rst(!rst_sys_n), .sample_valid(i2s_sample_valid),
         .sample_in(i2s_sample), .i2s_bck(pcm5102a_bck), .i2s_lrck(pcm5102a_lrck),
@@ -553,6 +558,15 @@ always_ff @(posedge clk_sys_100m or negedge rst_sys_n) begin
     end
 end
 
+    // Wavetable playback: WT_PLAY hands the uploader's read port to this engine and
+    // routes its output straight to I2S, so the audio path is the table itself.
+    assign wt_read_index_sel = mode_wt_play ? wt_play_index : wt_select_index;
+
+    v2_wt_playback u_wt_playback (
+        .clk(clk_sys_100m), .rst_n(rst_sys_n), .sample_ce(sample_ce),
+        .enable(mode_wt_play), .index(wt_play_index),
+        .sample(wt_read_sample), .out(wt_play_sample), .valid(wt_play_valid)
+    );
     v2_wavetable_loader #(.TABLES(3), .SAMPLES(1024), .USE_GOWIN_RAM(USE_GOWIN_RAM)) u_wavetable_loader (
         .clk(clk_sys_100m), .rst_n(rst_sys_n), .wt_write_valid(wt_write_valid),
         .wt_write_ready(wt_write_ready), .wt_table(wt_select_table), .wt_index(wt_select_index), .wt_index_load(wt_index_load_q),
@@ -561,7 +575,7 @@ end
         .wt_apply_ready(wt_apply_ready), .wt_apply_table(wt_select_table),
         .wt_apply_version(wt_apply_payload_q), .wt_version_reg(wt_apply_version), .loop_boundary(loop_boundary),
         .idle((mode_reg == IDLE) && !recording), .wt_read_table(wt_select_table),
-        .wt_read_index(wt_select_index), .wt_read_sample(wt_read_sample),
+        .wt_read_index(wt_read_index_sel), .wt_read_sample(wt_read_sample),
         .wt_active_valid(wt_active_valid), .wt_shadow_valid(wt_shadow_valid),
         .wt_apply_busy(wt_apply_busy), .wt_crc_error(wt_crc_error),
         .wt_active_version(wt_active_version), .wt_active_table(wt_active_table),
@@ -691,6 +705,9 @@ end
                                                     6'd0, wt_select_table};
                     V2_CSR_WT_INDEX: rsp_data <= {22'd0, wt_select_index};
                     V2_CSR_WT_DATA: rsp_data <= {16'd0, wt_read_sample};
+                    // In WT_PLAY the read port is owned by the playback engine, so a
+                    // WT_DATA read returns the sample currently being played; keep the
+                    // host readback in IDLE, where the port follows WT_INDEX.
                     V2_CSR_WT_LENGTH: rsp_data <= {16'd0, wt_length};
                     V2_CSR_WT_CRC: rsp_data <= {16'd0, wt_expected_crc};
                     V2_CSR_WT_VERSION: rsp_data <= {16'd0, wt_apply_version};

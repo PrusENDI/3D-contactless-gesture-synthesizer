@@ -1,91 +1,79 @@
-# mgc3130_clean — 干净的 V2 源码工程
+# mgc3130_clean 鈥?骞插噣鐨?V2 婧愮爜宸ョ▼
 
-FPGA：GW5A-LV25MG121NES（23,040 LUT 上限）。本目录是 V2 的**唯一源码基线**，
-由旧仓库 `mgc3130_uart/.worktrees/v2-integration` 的 `50acf2e` 剔洗生成。
-
-生成过程可重放，不是手工整理：
-
+FPGA锛欸W5A-LV25MG121NES锛?3,040 LUT 涓婇檺锛夈€傛湰鐩綍鏄?V2 鐨?*鍞竴婧愮爜鍩虹嚎**锛?鐢辨棫浠撳簱 `mgc3130_uart/.worktrees/v2-integration` 鐨?`50acf2e` 鍓旀礂鐢熸垚銆?
+鐢熸垚杩囩▼鍙噸鏀撅紝涓嶆槸鎵嬪伐鏁寸悊锛?
 ```bash
-python scripts/bootstrap.py --source "<旧仓库>/.worktrees/v2-integration"
+python scripts/bootstrap.py --source "<鏃т粨搴?/.worktrees/v2-integration"
 ```
 
-## 为什么要有这个目录
-
-旧目录积累了下面这些结构性缺陷，**每一条都会让"能编过"和"是对的"分叉**：
-
-| 旧目录状态 | 后果 |
+## 涓轰粈涔堣鏈夎繖涓洰褰?
+鏃х洰褰曠Н绱簡涓嬮潰杩欎簺缁撴瀯鎬х己闄凤紝**姣忎竴鏉￠兘浼氳"鑳界紪杩?鍜?鏄鐨?鍒嗗弶**锛?
+| 鏃х洰褰曠姸鎬?| 鍚庢灉 |
 |---|---|
-| `rtl/` 有 71 个 `.sv`，构建只用 30 个 | 任何 `rtl/*.sv` 通配编译都会引入无关文件 |
-| `mgc3130_v2_top` 被定义两次（80 MHz 与 100 MHz+DPB） | `vlog-2275` 只是**警告**，后编的静默覆盖前一个；实测 `CLKS_PER_BIT` 变 100、收到的字节变成 `f3 61 20 …` |
-| `v2_potts_commit_fsm` 也被定义两次 | 同上 |
-| 唯一的顶层级回归放在 `impl/`，而 `.gitignore` 排除 `impl/` | **没有被版本管理**，随时可能丢失 |
-| `scripts/` 有 78 个 `synth_*.tcl`，各自内嵌一份文件清单 | 源码和构建清单会漂移 |
-| 文件清单只存在于 Tcl 里 | 没有任何工具能回答"这次到底编了哪些文件" |
+| `rtl/` 鏈?71 涓?`.sv`锛屾瀯寤哄彧鐢?30 涓?| 浠讳綍 `rtl/*.sv` 閫氶厤缂栬瘧閮戒細寮曞叆鏃犲叧鏂囦欢 |
+| `mgc3130_v2_top` 琚畾涔変袱娆★紙80 MHz 涓?100 MHz+DPB锛?| `vlog-2275` 鍙槸**璀﹀憡**锛屽悗缂栫殑闈欓粯瑕嗙洊鍓嶄竴涓紱瀹炴祴 `CLKS_PER_BIT` 鍙?100銆佹敹鍒扮殑瀛楄妭鍙樻垚 `f3 61 20 鈥 |
+| `v2_potts_commit_fsm` 涔熻瀹氫箟涓ゆ | 鍚屼笂 |
+| 鍞竴鐨勯《灞傜骇鍥炲綊鏀惧湪 `impl/`锛岃€?`.gitignore` 鎺掗櫎 `impl/` | **娌℃湁琚増鏈鐞?*锛岄殢鏃跺彲鑳戒涪澶?|
+| `scripts/` 鏈?78 涓?`synth_*.tcl`锛屽悇鑷唴宓屼竴浠芥枃浠舵竻鍗?| 婧愮爜鍜屾瀯寤烘竻鍗曚細婕傜Щ |
+| 鏂囦欢娓呭崟鍙瓨鍦ㄤ簬 Tcl 閲?| 娌℃湁浠讳綍宸ュ叿鑳藉洖绛?杩欐鍒板簳缂栦簡鍝簺鏂囦欢" |
 
-本目录的每个不变式都有一个脚本在守：
+鏈洰褰曠殑姣忎釜涓嶅彉寮忛兘鏈変竴涓剼鏈湪瀹堬細
 
-1. **只有 `filelist.f` 一份文件清单**，仿真、闸门、综合三处共用。
-2. **只有一个顶层** `v2_board_top`（合成用），且它被显式声明在 `MANIFEST.json`。
-3. **目录里没有未使用的文件**：除顶层外，`filelist.f` 里每个模块都必须被实例化，否则闸门失败。
-4. **编译零警告是硬要求**：任何 `vlog` 警告（含 `vlog-2275` 同名覆盖）都判失败。
-5. **已知缺陷记进基线**：`sim_baseline.json` 列出当前已知失败的断言，新出现的失败才叫回归。
-
-## 三条命令
+1. **鍙湁 `filelist.f` 涓€浠芥枃浠舵竻鍗?*锛屼豢鐪熴€侀椄闂ㄣ€佺患鍚堜笁澶勫叡鐢ㄣ€?2. **鍙湁涓€涓《灞?* `v2_board_top`锛堝悎鎴愮敤锛夛紝涓斿畠琚樉寮忓０鏄庡湪 `MANIFEST.json`銆?3. **鐩綍閲屾病鏈夋湭浣跨敤鐨勬枃浠?*锛氶櫎椤跺眰澶栵紝`filelist.f` 閲屾瘡涓ā鍧楅兘蹇呴』琚疄渚嬪寲锛屽惁鍒欓椄闂ㄥけ璐ャ€?4. **缂栬瘧闆惰鍛婃槸纭姹?*锛氫换浣?`vlog` 璀﹀憡锛堝惈 `vlog-2275` 鍚屽悕瑕嗙洊锛夐兘鍒ゅけ璐ャ€?5. **宸茬煡缂洪櫡璁拌繘鍩虹嚎**锛歚sim_baseline.json` 鍒楀嚭褰撳墠宸茬煡澶辫触鐨勬柇瑷€锛屾柊鍑虹幇鐨勫け璐ユ墠鍙洖褰掋€?
+## 涓夋潯鍛戒护
 
 ```bash
-python scripts/gate.py              # 静态检查：重复模块 / 顶层唯一 / 死代码 / 包顺序
-python scripts/gate.py --compile    #   + ModelSim 编译，警告即失败
-python scripts/sim.py               # 编译并跑 RAM=0 与 RAM=1 两套回归，逐条比对基线
-python scripts/sim.py --trace       #   + 打印命令/APPLY/应答流（CSR_TRACE）
-python scripts/synth.py --run-id r1  # 生成 .gprj 并跑 syn + pnr，输出 synth_summary.json
+python scripts/gate.py              # 闈欐€佹鏌ワ細閲嶅妯″潡 / 椤跺眰鍞竴 / 姝讳唬鐮?/ 鍖呴『搴?python scripts/gate.py --compile    #   + ModelSim 缂栬瘧锛岃鍛婂嵆澶辫触
+python scripts/sim.py               # 缂栬瘧骞惰窇 RAM=0 涓?RAM=1 涓ゅ鍥炲綊锛岄€愭潯姣斿鍩虹嚎
+python scripts/sim.py --trace       #   + 鎵撳嵃鍛戒护/APPLY/搴旂瓟娴侊紙CSR_TRACE锛?python scripts/synth.py --run-id r1  # 鐢熸垚 .gprj 骞惰窇 syn + pnr锛岃緭鍑?synth_summary.json
 ```
 
-`sim.py` 退出码即结论：观察到的失败必须是 `sim_baseline.json` 的子集。
-修掉某个已知缺陷后跑 `python scripts/sim.py --update-baseline` 把它从基线里摘掉。
-
-## 目录
+`sim.py` 閫€鍑虹爜鍗崇粨璁猴細瑙傚療鍒扮殑澶辫触蹇呴』鏄?`sim_baseline.json` 鐨勫瓙闆嗐€?淇帀鏌愪釜宸茬煡缂洪櫡鍚庤窇 `python scripts/sim.py --update-baseline` 鎶婂畠浠庡熀绾块噷鎽樻帀銆?
+## 鐩綍
 
 ```
-filelist.f            唯一文件清单（顺序即依赖顺序）
-ip/filelist_ip.f      厂商 IP 清单，只给综合用
-MANIFEST.json         每个文件的 sha256 + 来源 commit + 相对旧仓库的补丁说明
-rtl/                  29 个 RTL + v2_board_top.sv（唯一合成顶层）
-ip/gowin_i2c_master/  Gowin I2C 核（加密 .vp + 顶层包装 + 两个 .vh 宏定义）
-tb/                   tb_top_csr_gate.sv（顶层级回归）、tb_sim_top.sv（GSR 绑定）、mon_csr_trace.sv
-constr/               mgc3130_v2.cst、mgc3130_v2_top_observable.sdc
+filelist.f            鍞竴鏂囦欢娓呭崟锛堥『搴忓嵆渚濊禆椤哄簭锛?ip/filelist_ip.f      鍘傚晢 IP 娓呭崟锛屽彧缁欑患鍚堢敤
+MANIFEST.json         姣忎釜鏂囦欢鐨?sha256 + 鏉ユ簮 commit + 鐩稿鏃т粨搴撶殑琛ヤ竵璇存槑
+rtl/                  29 涓?RTL + v2_board_top.sv锛堝敮涓€鍚堟垚椤跺眰锛?ip/gowin_i2c_master/  Gowin I2C 鏍革紙鍔犲瘑 .vp + 椤跺眰鍖呰 + 涓や釜 .vh 瀹忓畾涔夛級
+tb/                   tb_top_csr_gate.sv锛堥《灞傜骇鍥炲綊锛夈€乼b_sim_top.sv锛圙SR 缁戝畾锛夈€乵on_csr_trace.sv
+constr/               mgc3130_v2.cst銆乵gc3130_v2_top_observable.sdc
 scripts/              bootstrap.py / gate.py / sim.py / synth.py
-docs/BASELINE.md      当前数值与已知缺陷清单
-sim_logs/, .sim/      仿真输出（不入库）
-impl/                 综合输出（不入库）
-```
+docs/BASELINE.md      褰撳墠鏁板€间笌宸茬煡缂洪櫡娓呭崟
+sim_logs/, .sim/      浠跨湡杈撳嚭锛堜笉鍏ュ簱锛?impl/                 缁煎悎杈撳嚭锛堜笉鍏ュ簱锛?```
 
-## 厂商 IP 为什么单独一个清单
+## 鍘傚晢 IP 涓轰粈涔堝崟鐙竴涓竻鍗?
+`mgc3130_reader` 瀹炰緥鍖栫殑鏄?**`Gowin_I2C_Master`**鈥斺€旀ā鍧楀悕鐢?`ip/gowin_i2c_master/top_define.vh`
+閲岀殑 `` `define module_name `` 鍐冲畾锛屽疄鐜颁綋鏄姞瀵嗙殑 `I2C_MASTER.vp`銆傛紡鎺夊畠锛岀患鍚堜細鍋滃湪
+`ERROR (EX3937) : Instantiating unknown module 'Gowin_I2C_Master'`銆?
+瀹冧笉鑳借繘 `filelist.f`锛氬姞瀵嗙殑 `.vp` 鍠傜粰 ModelSim 浼氱洿鎺ョ紪璇戝け璐ワ紝鑰屼豢鐪熻矾寰勬牴鏈敤涓嶅埌瀹?锛坱estbench 璧?UART锛屼笉纰?I2C锛夈€傛墍浠?`scripts/synth.py` 浼氭妸 `ip/filelist_ip.f` 鎺掑湪
+`filelist.f` 涔嬪墠涓€璧峰啓杩?`.gprj`锛宍scripts/gate.py` 鍙垎鏋愯璁℃湰浣撱€?
+## 涓ゆ潯瀹规槗韪╃殑纭害鏉?
+**1. `rtl/` 閲屼笉璁稿嚭鐜扮浜屼釜 `module v2_board_top`锛屼篃涓嶈鍔犲洖 `mgc3130_v2_top_dpb.sv`銆?*
+ModelSim 瀵瑰悓鍚嶆ā鍧楀彧鎶?`vlog-2275` 璀﹀憡鐒跺悗瑕嗙洊銆俙gate.py` 浼氭嫤锛屼絾鎵嬪伐鎿嶄綔鏃惰鐭ラ亾銆?
+**2. 浠跨湡蹇呴』甯?`+define+V2_SIM`銆?*
+`rtl/v2_clock_gen.sv` 鍦?`V2_SIM` 涓嬫妸 `clk_sys_100m` 鐩存帴杩炲埌 `clk_in`銆佹妸 `pll_locked`
+鐩存帴杩炲埌 `rst_n`锛涗笉甯﹁繖涓畯锛屽櫒浠?PLL 鍘熻鍦ㄤ豢鐪熼噷涓嶅嚭閿侊紝`por_n` 姘歌繙涓嶈В澶嶄綅锛?鏁翠釜璁捐琛ㄧ幇涓?瀹屽叏涓嶅簲绛?銆俙scripts/sim.py` 宸茬粡榛樿甯︿笂銆?
+## 淇″彿鍛藉悕鐨勫巻鍙插寘琚憋紙涓嶆敼锛屼絾瑕佺煡閬擄級
 
-`mgc3130_reader` 实例化的是 **`Gowin_I2C_Master`**——模块名由 `ip/gowin_i2c_master/top_define.vh`
-里的 `` `define module_name `` 决定，实现体是加密的 `I2C_MASTER.vp`。漏掉它，综合会停在
-`ERROR (EX3937) : Instantiating unknown module 'Gowin_I2C_Master'`。
+`clk_sys_100m` 瀹為檯鏄?**80 MHz**锛圥LLA锛?0 MHz 脳 16 / 10锛夈€傝繖涓敊璇懡鍚嶅凡缁忛€犳垚杩囦竴娆?"娉㈢壒鐜囧亸 25%"鐨勮鍒わ紝`constr/*.sdc` 閲屽師鍏堝啓鐫€ "100 MHz" 鐨勬敞閲婁篃宸蹭竴骞舵洿姝ｃ€?閲嶅懡鍚嶄細瑙﹀強 30 涓枃浠讹紝鏀剁泭涓嶆姷椋庨櫓锛屽洜姝や繚鐣欏苟鍦ㄦ澹版槑銆?
+## 涓嶅湪鏈洰褰曠殑鍐呭
 
-它不能进 `filelist.f`：加密的 `.vp` 喂给 ModelSim 会直接编译失败，而仿真路径根本用不到它
-（testbench 走 UART，不碰 I2C）。所以 `scripts/synth.py` 会把 `ip/filelist_ip.f` 排在
-`filelist.f` 之前一起写进 `.gprj`，`scripts/gate.py` 只分析设计本体。
+`pc_receiver/`锛堜笂浣嶆満妯″瀷锛夈€乣artifacts/`锛堝巻鍙叉澘娴嬫棩蹇楋級銆乣docs/`锛堝绾︿笌瀹¤锛変粛鍦ㄦ棫浠撳簱銆?鏈洰褰曞彧璐熻矗"婧愮爜 + 鍙鐜扮殑鏋勫缓涓庨獙璇?銆?
+## 版本控制与调试方法
 
-## 两条容易踩的硬约束
+本目录自 2026-10-30 起是一个独立 git 仓库（此前只有 `MANIFEST.json` 的 sha256，没有 VCS 兜底）：
 
-**1. `rtl/` 里不许出现第二个 `module v2_board_top`，也不许加回 `mgc3130_v2_top_dpb.sv`。**
-ModelSim 对同名模块只报 `vlog-2275` 警告然后覆盖。`gate.py` 会拦，但手工操作时要知道。
+- 忽略项：`impl/`、`sim_logs/`、`.sim/`、`.gate/`、`artifacts/`、`work/`、`*.wlf`、`.synth_run*.txt`、`.sim_run*.txt`
+- 两个提交：初始干净树、忽略每次运行的临时日志
+- 首次在别的机器/账号克隆时需要 `git config --global --add safe.directory <本目录>`（本机目录属主是 Administrators）
 
-**2. 仿真必须带 `+define+V2_SIM`。**
-`rtl/v2_clock_gen.sv` 在 `V2_SIM` 下把 `clk_sys_100m` 直接连到 `clk_in`、把 `pll_locked`
-直接连到 `rst_n`；不带这个宏，器件 PLL 原语在仿真里不出锁，`por_n` 永远不解复位，
-整个设计表现为"完全不应答"。`scripts/sim.py` 已经默认带上。
+调试方法论已固化为用户级 skill `gowin-fpga-debug`
+（`~/.dsh/skills/gowin-fpga-debug/SKILL.md`），要点：
 
-## 信号命名的历史包袱（不改，但要知道）
+1. **不要用被测机制观测被测对象**（CSR 回读证明不了 CSR 时序）；
+2. 按症状选仪器：周期级 → GAO，帧级 → 主机 UART 闭环，长时计数 → 契约寄存器，可复现逻辑 → 双 RAM 仿真；
+3. GAO 全流程可脚本化：明文 `.rao` → `.gprj` 里 `type="file.gao"` → `gw_sh run all` 生成 `RTL_GAO/` 与 `ao_0.fs` → `gao_sh -gao ... -out ...` 抓取；
+4. 预算：1 块 BSRAM = 18,432 位，`深度 × 位宽` 必须装得下；2048×112 已验证占 13 块；
+5. 证据纪律：干净基线、ACK 全字段、原始日志、位流 sha256 + 内容 hash、未跑的项要写明。
 
-`clk_sys_100m` 实际是 **80 MHz**（PLLA：50 MHz × 16 / 10）。这个错误命名已经造成过一次
-"波特率偏 25%"的误判，`constr/*.sdc` 里原先写着 "100 MHz" 的注释也已一并更正。
-重命名会触及 30 个文件，收益不抵风险，因此保留并在此声明。
-
-## 不在本目录的内容
-
-`pc_receiver/`（上位机模型）、`artifacts/`（历史板测日志）、`docs/`（契约与审计）仍在旧仓库。
-本目录只负责"源码 + 可复现的构建与验证"。
+测试流程细节见 `docs/TEST-FLOW-GAO.md`。

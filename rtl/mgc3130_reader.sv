@@ -14,6 +14,7 @@ module mgc3130_reader #(
     output reg [31:0] debug_error_context,
     output reg [15:0] debug_output_mask,
     output reg [7:0] debug_message_size,
+    output wire [5:0] debug_state,
     // Raw SDK TouchInfo word, valid only alongside report_valid. Touch is
     // independent of XYZ validity; absent/malformed/error reports clear it.
     output reg [31:0] touch_info, output reg touch_valid
@@ -57,6 +58,7 @@ module mgc3130_reader #(
         ST_DELAY=17, ST_RECOVER=18, ST_RESET_HOLD=19,
         ST_WR_GAP=20, ST_WR_RETURN=21, ST_RD_GAP=22, ST_RD_CAPTURE=23;
     reg [5:0] state, return_state;
+    assign debug_state = state;
     reg [7:0] reg_read_data, ip_status;
     reg [7:0] frame [0:254]; // Size includes the four-byte header
     reg [7:0] frame_length, rx_byte, tx_byte, last_message_id;
@@ -152,18 +154,6 @@ module mgc3130_reader #(
                         rx_byte <= 0; frame_length <= 0;
                         ts_wait_timer <= 32'd0;
                         state <= ST_TS_SETUP;
-                    end else if (ts_wait_timer >= TS_POLL_TIMEOUT) begin
-                        // The sensor did not request a transfer.  MGC3130 also answers
-                        // host-initiated reads, so probe anyway; this keeps the design
-                        // usable when TS is not wired, and is harmless when it is.
-                        ts_oe <= 1; busy <= 1; transaction_active <= 1;
-                        frame_timer <= 0; delay_timer <= 0;
-                        rx_byte <= 0; frame_length <= 0;
-                        ts_wait_timer <= 32'd0;
-                        ts_polled <= 1'b1;
-                        state <= ST_TS_SETUP;
-                    end else begin
-                        ts_wait_timer <= ts_wait_timer + 32'd1;
                     end
                 end
                 ST_TS_SETUP: begin

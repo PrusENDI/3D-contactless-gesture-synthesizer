@@ -78,6 +78,7 @@ module mgc3130_v2_top #(
     logic [31:0] reader_debug_context;
     logic [15:0] reader_debug_mask;
     logic [7:0] reader_debug_size;
+logic [5:0] reader_state;
 
     generate
         if (USE_MGC_READER) begin : g_sensor
@@ -89,7 +90,7 @@ module mgc3130_v2_top #(
                 .y_position(y_position), .z_position(z_position), .gesture_code(gesture_code),
                 .report_error(report_error), .error_code(reader_error_code), .busy(reader_busy),
                 .debug_error_context(reader_debug_context), .debug_output_mask(reader_debug_mask),
-                .debug_message_size(reader_debug_size)
+                .debug_message_size(reader_debug_size), .debug_state(reader_state)
             );
         end else begin : g_sensor_stub
             assign mgc_sda = 1'bz; assign mgc_scl = 1'bz; assign mgc_ts = 1'bz;
@@ -114,6 +115,7 @@ module mgc3130_v2_top #(
                 assign gesture_code = 8'd0;
             end
             assign reader_error_code = 8'd0;
+            assign reader_state = 6'd0;
             assign reader_busy = 1'b0; assign reader_debug_context = 32'd0;
             assign reader_debug_mask = 16'd0; assign reader_debug_size = 8'd0;
         end
@@ -757,6 +759,8 @@ end
                     8'hE4: rsp_data <= (V2_DEBUG_CSR != 0) ? reader_debug_context : 32'd0;
                     8'hE8: rsp_data <= (V2_DEBUG_CSR != 0) ? {16'd0, reader_debug_mask} : 32'd0;
                     8'hEC: rsp_data <= (V2_DEBUG_CSR != 0) ? {24'd0, reader_debug_size} : 32'd0;
+                    8'hF0: rsp_data <= (V2_DEBUG_CSR != 0) ? {31'd0, mgc_ts} : 32'd0;
+                    8'hF4: rsp_data <= (V2_DEBUG_CSR != 0) ? {26'd0, reader_state} : 32'd0;
                     8'hA4: rsp_data <= (V2_DEBUG_CSR != 0) ? {30'd0, dbg_apply_reject_reason} : 32'd0;
                     8'hA8: rsp_data <= (V2_DEBUG_CSR != 0) ? {16'd0, dbg_expected_crc_captured} : 32'd0;
                     8'hAC: rsp_data <= (V2_DEBUG_CSR != 0) ? {16'd0, dbg_apply_version_seen} : 32'd0;

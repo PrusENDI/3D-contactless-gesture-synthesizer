@@ -1,0 +1,16 @@
+{
+  "recorded_from": "legacy tree 50acf2e, reproduced identically in the clean tree (RAM=0 and RAM=1)",
+  "ram_models": ["0", "1"],
+  "known_failing": [
+    "expected CRC reached the uploader",
+    "T2 reply error is BAD_DATA",
+    "T3 reply error is BAD_DATA",
+    "T4 retry committed"
+  ],
+  "known_failing_reason": {
+    "expected CRC reached the uploader": "Testbench premise is wrong, not the DUT. 0xA8 sits behind `V2_DEBUG_CSR`, which is off in the default configuration, so the register reads 0. Read WT_STATUS (0x7C) instead, or compile with -DV2_DEBUG_CSR.",
+    "T2 reply error is BAD_DATA": "R13. mgc3130_v2_top maps only wt_apply_reason==3 to V2_ERR_WT_CRC; reason 1 (version mismatch) and 2 (table incomplete) fall through to V2_ERR_NONE. The rejection itself is correct, only the reply code is wrong.",
+    "T3 reply error is BAD_DATA": "R13, same mapping defect: version-mismatch rejection is reported as error 0x00.",
+    "T4 retry committed": "R14, contract gap rather than a bug. After a successful APPLY the active bank flips and the shadow coverage is cleared, so replaying the same table is rejected with reason=2 'incomplete'. Decide between an idempotent replay and a distinct error code."
+  }
+}

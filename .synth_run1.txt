@@ -1,0 +1,30 @@
+run dir  : C:\weizijian\documents\gowin fpga\mgc3130_clean\impl\v2_board_top_clean1
+sources  : 30
+top      : v2_board_top
+exit     : 3221226505   wall 1.8 s
+XX  build did not reach its PASS marker
+    ERROR (EX5998) : Cannot open Verilog file 'C:\weizijian\documents\gowin fpga\rtl\v2_loop_scheduler.sv'
+    ERROR (EX5998) : Cannot open Verilog file 'C:\weizijian\documents\gowin fpga\rtl\v2_potts_commit_fsm.sv'
+    ERROR (EX5998) : Cannot open Verilog file 'C:\weizijian\documents\gowin fpga\rtl\v2_note_increment_rom.sv'
+    ERROR (EX5998) : Cannot open Verilog file 'C:\weizijian\documents\gowin fpga\rtl\v2_voice_state_bank.sv'
+    ERROR (EX5998) : Cannot open Verilog file 'C:\weizijian\documents\gowin fpga\rtl\v2_voice_engine_banked.sv'
+    ERROR (EX5998) : Cannot open Verilog file 'C:\weizijian\documents\gowin fpga\rtl\v2_fx_lite.sv'
+    ERROR (EX5998) : Cannot open Verilog file 'C:\weizijian\documents\gowin fpga\rtl\v2_patch_bank.sv'
+    ERROR (EX5998) : Cannot open Verilog file 'C:\weizijian\documents\gowin fpga\rtl\v2_wavetable_loader.sv'
+    ERROR (EX5998) : Cannot open Verilog file 'C:\weizijian\documents\gowin fpga\rtl\v2_clock_gen.sv'
+    ERROR (EX5998) : Cannot open Verilog file 'C:\weizijian\documents\gowin fpga\rtl\v2_reset_sync.sv'
+    ERROR (EX5998) : Cannot open Verilog file 'C:\weizijian\documents\gowin fpga\rtl\v2_sample_scheduler.sv'
+    ERROR (EX5998) : Cannot open Verilog file 'C:\weizijian\documents\gowin fpga\rtl\i2s_pcm5102a_tx.sv'
+    ERROR (EX5998) : Cannot open Verilog file 'C:\weizijian\documents\gowin fpga\rtl\uart_rx.sv'
+    ERROR (EX5998) : Cannot open Verilog file 'C:\weizijian\documents\gowin fpga\rtl\v2_uart_link.sv'
+    ERROR (EX5998) : Cannot open Verilog file 'C:\weizijian\documents\gowin fpga\rtl\v2_telemetry_snapshot.sv'
+    ERROR (EX5998) : Cannot open Verilog file 'C:\weizijian\documents\gowin fpga\rtl\mgc3130_reader.sv'
+    ERROR (EX5998) : Cannot open Verilog file 'C:\weizijian\documents\gowin fpga\rtl\mgc3130_v2_top.sv'
+    ERROR (EX5998) : Cannot open Verilog file 'C:\weizijian\documents\gowin fpga\rtl\v2_test_mode.sv'
+    ERROR (EX5998) : Cannot open Verilog file 'C:\weizijian\documents\gowin fpga\rtl\v2_board_top.sv'
+    Analyzing Verilog file 'C:\weizijian\documents\gowin fpga\rtl\uart_tx.sv'
+    GowinSynthesis finish
+    
+        while executing
+    "run syn"
+        (file "C:\weizijian\documents\gowin fpga\mgc3130_clean\impl\v2_board_top_clean1\synth.tcl" line 8)

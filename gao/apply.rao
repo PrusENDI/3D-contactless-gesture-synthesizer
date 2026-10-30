@@ -1,0 +1,190 @@
+<?xml version="1" encoding="UTF-8"?>
+<GAO_CONFIG>
+    <Version>3.0</Version>
+    <Mode>Standard</Mode>
+    <!--
+      APPLY/CRC capture for the V2 board build.
+
+      sample_clock  u_v2/clk_sys_100m   80 MHz system clock (the signal is named
+                                          *_100m for historical reasons; the PLL
+                                          actually produces 80 MHz)
+      storage_depth 2048                25.6 us window, enough for the 1024-cycle
+                                          CRC scan (~12.8 us) plus the result
+                                          handshake and the reply
+      trigger       rising edge of u_v2/wt_apply_valid_q, placed at 25% so most of
+                    the capture is after the trigger
+
+      Signal names are relative to module_name and must exist after synthesis.
+      Regenerate the bitstream whenever this probe set changes.
+    -->
+    <AoCore index="0" sample_clock="u_v2/clk_sys_100m" trig_type="0"
+             storage_depth="2048" window_num="1" capture_amount="2048"
+             implementation="0" trigger_pos="512" module_name="v2_board_top"
+             force_trigger_by_falling_edge="false" capture_init_data_enabled="false">
+        <SignalList>
+            <!-- UART receive path -->
+            <Bus capture_enable="true" name="u_v2/u_uart_rx/data[7:0]">
+                <Signal>u_v2/u_uart_rx/data[7]</Signal>
+                <Signal>u_v2/u_uart_rx/data[6]</Signal>
+                <Signal>u_v2/u_uart_rx/data[5]</Signal>
+                <Signal>u_v2/u_uart_rx/data[4]</Signal>
+                <Signal>u_v2/u_uart_rx/data[3]</Signal>
+                <Signal>u_v2/u_uart_rx/data[2]</Signal>
+                <Signal>u_v2/u_uart_rx/data[1]</Signal>
+                <Signal>u_v2/u_uart_rx/data[0]</Signal>
+            </Bus>
+            <Signal capture_enable="true">u_v2/u_uart_rx/valid</Signal>
+
+            <!-- command handshake and payload -->
+            <Signal capture_enable="true">u_v2/cmd_valid</Signal>
+            <Signal capture_enable="true">u_v2/cmd_ready</Signal>
+            <Bus capture_enable="true" name="u_v2/cmd_op[7:0]">
+                <Signal>u_v2/cmd_op[7]</Signal>
+                <Signal>u_v2/cmd_op[6]</Signal>
+                <Signal>u_v2/cmd_op[5]</Signal>
+                <Signal>u_v2/cmd_op[4]</Signal>
+                <Signal>u_v2/cmd_op[3]</Signal>
+                <Signal>u_v2/cmd_op[2]</Signal>
+                <Signal>u_v2/cmd_op[1]</Signal>
+                <Signal>u_v2/cmd_op[0]</Signal>
+            </Bus>
+            <Bus capture_enable="true" name="u_v2/cmd_address[7:0]">
+                <Signal>u_v2/cmd_address[7]</Signal>
+                <Signal>u_v2/cmd_address[6]</Signal>
+                <Signal>u_v2/cmd_address[5]</Signal>
+                <Signal>u_v2/cmd_address[4]</Signal>
+                <Signal>u_v2/cmd_address[3]</Signal>
+                <Signal>u_v2/cmd_address[2]</Signal>
+                <Signal>u_v2/cmd_address[1]</Signal>
+                <Signal>u_v2/cmd_address[0]</Signal>
+            </Bus>
+            <Bus capture_enable="true" name="u_v2/cmd_data[15:0]">
+                <Signal>u_v2/cmd_data[15]</Signal>
+                <Signal>u_v2/cmd_data[14]</Signal>
+                <Signal>u_v2/cmd_data[13]</Signal>
+                <Signal>u_v2/cmd_data[12]</Signal>
+                <Signal>u_v2/cmd_data[11]</Signal>
+                <Signal>u_v2/cmd_data[10]</Signal>
+                <Signal>u_v2/cmd_data[9]</Signal>
+                <Signal>u_v2/cmd_data[8]</Signal>
+                <Signal>u_v2/cmd_data[7]</Signal>
+                <Signal>u_v2/cmd_data[6]</Signal>
+                <Signal>u_v2/cmd_data[5]</Signal>
+                <Signal>u_v2/cmd_data[4]</Signal>
+                <Signal>u_v2/cmd_data[3]</Signal>
+                <Signal>u_v2/cmd_data[2]</Signal>
+                <Signal>u_v2/cmd_data[1]</Signal>
+                <Signal>u_v2/cmd_data[0]</Signal>
+            </Bus>
+
+            <!-- P1 staged one-shot pulses: the centre of the transaction-alignment question -->
+            <Signal capture_enable="true">u_v2/wt_index_load_q</Signal>
+            <Signal capture_enable="true">u_v2/wt_crc_valid_q</Signal>
+            <Signal capture_enable="true">u_v2/wt_apply_valid_q</Signal>
+            <Signal capture_enable="true">u_v2/patch_crc_valid_q</Signal>
+
+            <!-- what the uploader sees when those pulses arrive -->
+            <Bus capture_enable="true" name="u_v2/wt_expected_crc[15:0]">
+                <Signal>u_v2/wt_expected_crc[15]</Signal>
+                <Signal>u_v2/wt_expected_crc[14]</Signal>
+                <Signal>u_v2/wt_expected_crc[13]</Signal>
+                <Signal>u_v2/wt_expected_crc[12]</Signal>
+                <Signal>u_v2/wt_expected_crc[11]</Signal>
+                <Signal>u_v2/wt_expected_crc[10]</Signal>
+                <Signal>u_v2/wt_expected_crc[9]</Signal>
+                <Signal>u_v2/wt_expected_crc[8]</Signal>
+                <Signal>u_v2/wt_expected_crc[7]</Signal>
+                <Signal>u_v2/wt_expected_crc[6]</Signal>
+                <Signal>u_v2/wt_expected_crc[5]</Signal>
+                <Signal>u_v2/wt_expected_crc[4]</Signal>
+                <Signal>u_v2/wt_expected_crc[3]</Signal>
+                <Signal>u_v2/wt_expected_crc[2]</Signal>
+                <Signal>u_v2/wt_expected_crc[1]</Signal>
+                <Signal>u_v2/wt_expected_crc[0]</Signal>
+            </Bus>
+            <Bus capture_enable="true" name="u_v2/u_wavetable_loader/state[1:0]">
+                <Signal>u_v2/u_wavetable_loader/state[1]</Signal>
+                <Signal>u_v2/u_wavetable_loader/state[0]</Signal>
+            </Bus>
+            <Bus capture_enable="true" name="u_v2/u_wavetable_loader/crc_final_captured[15:0]">
+                <Signal>u_v2/u_wavetable_loader/crc_final_captured[15]</Signal>
+                <Signal>u_v2/u_wavetable_loader/crc_final_captured[14]</Signal>
+                <Signal>u_v2/u_wavetable_loader/crc_final_captured[13]</Signal>
+                <Signal>u_v2/u_wavetable_loader/crc_final_captured[12]</Signal>
+                <Signal>u_v2/u_wavetable_loader/crc_final_captured[11]</Signal>
+                <Signal>u_v2/u_wavetable_loader/crc_final_captured[10]</Signal>
+                <Signal>u_v2/u_wavetable_loader/crc_final_captured[9]</Signal>
+                <Signal>u_v2/u_wavetable_loader/crc_final_captured[8]</Signal>
+                <Signal>u_v2/u_wavetable_loader/crc_final_captured[7]</Signal>
+                <Signal>u_v2/u_wavetable_loader/crc_final_captured[6]</Signal>
+                <Signal>u_v2/u_wavetable_loader/crc_final_captured[5]</Signal>
+                <Signal>u_v2/u_wavetable_loader/crc_final_captured[4]</Signal>
+                <Signal>u_v2/u_wavetable_loader/crc_final_captured[3]</Signal>
+                <Signal>u_v2/u_wavetable_loader/crc_final_captured[2]</Signal>
+                <Signal>u_v2/u_wavetable_loader/crc_final_captured[1]</Signal>
+                <Signal>u_v2/u_wavetable_loader/crc_final_captured[0]</Signal>
+            </Bus>
+
+            <!-- R12 result handshake and the reply it drives -->
+            <Signal capture_enable="true">u_v2/wt_apply_done</Signal>
+            <Signal capture_enable="true">u_v2/wt_apply_ok</Signal>
+            <Bus capture_enable="true" name="u_v2/wt_apply_reason[1:0]">
+                <Signal>u_v2/wt_apply_reason[1]</Signal>
+                <Signal>u_v2/wt_apply_reason[0]</Signal>
+            </Bus>
+            <Signal capture_enable="true">u_v2/wt_apply_busy</Signal>
+            <Signal capture_enable="true">u_v2/wt_crc_error</Signal>
+            <Bus capture_enable="true" name="u_v2/wt_active_version[15:0]">
+                <Signal>u_v2/wt_active_version[15]</Signal>
+                <Signal>u_v2/wt_active_version[14]</Signal>
+                <Signal>u_v2/wt_active_version[13]</Signal>
+                <Signal>u_v2/wt_active_version[12]</Signal>
+                <Signal>u_v2/wt_active_version[11]</Signal>
+                <Signal>u_v2/wt_active_version[10]</Signal>
+                <Signal>u_v2/wt_active_version[9]</Signal>
+                <Signal>u_v2/wt_active_version[8]</Signal>
+                <Signal>u_v2/wt_active_version[7]</Signal>
+                <Signal>u_v2/wt_active_version[6]</Signal>
+                <Signal>u_v2/wt_active_version[5]</Signal>
+                <Signal>u_v2/wt_active_version[4]</Signal>
+                <Signal>u_v2/wt_active_version[3]</Signal>
+                <Signal>u_v2/wt_active_version[2]</Signal>
+                <Signal>u_v2/wt_active_version[1]</Signal>
+                <Signal>u_v2/wt_active_version[0]</Signal>
+            </Bus>
+            <Signal capture_enable="true">u_v2/rsp_valid</Signal>
+            <Bus capture_enable="true" name="u_v2/rsp_error[7:0]">
+                <Signal>u_v2/rsp_error[7]</Signal>
+                <Signal>u_v2/rsp_error[6]</Signal>
+                <Signal>u_v2/rsp_error[5]</Signal>
+                <Signal>u_v2/rsp_error[4]</Signal>
+                <Signal>u_v2/rsp_error[3]</Signal>
+                <Signal>u_v2/rsp_error[2]</Signal>
+                <Signal>u_v2/rsp_error[1]</Signal>
+                <Signal>u_v2/rsp_error[0]</Signal>
+            </Bus>
+        </SignalList>
+        <Triggers>
+            <Trigger index="0">
+                <SignalList>
+                    <Signal>u_v2/wt_apply_valid_q</Signal>
+                </SignalList>
+            </Trigger>
+            <Trigger index="1"/>
+            <Trigger index="2"/>
+            <Trigger index="3"/>
+            <Trigger index="4"/>
+            <Trigger index="5"/>
+            <Trigger index="6"/>
+            <Trigger index="7"/>
+            <Trigger index="8"/>
+            <Trigger index="9"/>
+            <Trigger index="10"/>
+            <Trigger index="11"/>
+            <Trigger index="12"/>
+            <Trigger index="13"/>
+            <Trigger index="14"/>
+            <Trigger index="15"/>
+        </Triggers>
+    </AoCore>
+</GAO_CONFIG>

@@ -1,0 +1,216 @@
+{
+  "generated_utc": "2026-10-30T13:43:59+00:00",
+  "source_repo": "C:\\weizijian\\documents\\gowin fpga\\mgc3130_uart\\.worktrees\\v2-integration",
+  "source_rev": "50acf2e",
+  "expected_top": "v2_board_top",
+  "files": [
+    {
+      "path": "rtl/v2_contract_pkg.sv",
+      "sha256": "bd9adf16e5c6d825dd6a3f6eb06f9d7f98e3eef45f1b84dd76c9115fcb625dfa",
+      "origin": "50acf2e:rtl/v2_contract_pkg.sv"
+    },
+    {
+      "path": "rtl/v2_input_pkg.sv",
+      "sha256": "1cbfd9a07966f6836a5978aa67973f56952c6028966205a749d75f2608ea2868",
+      "origin": "50acf2e:rtl/v2_input_pkg.sv"
+    },
+    {
+      "path": "rtl/v2_touch_info_decoder.sv",
+      "sha256": "544d273d6b1fddab0056311cf59d04504f919ba879fb74bb5be80ece84eacf1d",
+      "origin": "50acf2e:rtl/v2_touch_info_decoder.sv"
+    },
+    {
+      "path": "rtl/mgc3130_input_latch.sv",
+      "sha256": "9a31322855e55877f5361527f0188eda9a0c99246e046b5c7b16b3313335c010",
+      "origin": "50acf2e:rtl/mgc3130_input_latch.sv"
+    },
+    {
+      "path": "rtl/v2_input_calibration.sv",
+      "sha256": "26dc6cf875b47324f50e2ea2ab4b22b192ef5dd03883f64724316ab115e919b1",
+      "origin": "50acf2e:rtl/v2_input_calibration.sv"
+    },
+    {
+      "path": "rtl/v2_position_validity.sv",
+      "sha256": "476c0f052a8dd407fa9665e680a436a60c6afb09abf9348c4c7ed42bc3b7bc6c",
+      "origin": "50acf2e:rtl/v2_position_validity.sv"
+    },
+    {
+      "path": "rtl/v2_cursor_filter_timed.sv",
+      "sha256": "79b277152a3591c55591b9a75cca8d1caaf03630b3588ed77a2861406556f68d",
+      "origin": "50acf2e:rtl/v2_cursor_filter_timed.sv"
+    },
+    {
+      "path": "rtl/v2_live_rule_engine.sv",
+      "sha256": "c76ef2135b3aa08eeb9701ea4673b2578f91baf6c184e7fddc761c3f22c2a997",
+      "origin": "50acf2e:rtl/v2_live_rule_engine.sv"
+    },
+    {
+      "path": "rtl/v2_loop_event_recorder.sv",
+      "sha256": "d2b43c64ecae6e86b6d6e9b6a24dafd2302dd9797ff313047ed49039f0803045",
+      "origin": "50acf2e:rtl/v2_loop_event_recorder.sv"
+    },
+    {
+      "path": "rtl/v2_loop_event_store_dpb.sv",
+      "sha256": "7476a19065fe7cc32cdc3cde33c008e1c7491491b55d888f86d98e9c6fdf68f2",
+      "origin": "50acf2e:rtl/v2_loop_event_store_dpb.sv"
+    },
+    {
+      "path": "rtl/v2_loop_scheduler.sv",
+      "sha256": "58dc6555ae9588424d68861cd700a5a760a5cdcaf44c95048c0196eadfd726aa",
+      "origin": "50acf2e:rtl/v2_loop_scheduler.sv"
+    },
+    {
+      "path": "rtl/v2_potts_commit_fsm.sv",
+      "sha256": "5db93c1cf84808d35350f677b0501d461b8b280da4aad6c51a45b9e58d624453",
+      "origin": "50acf2e:rtl/v2_potts_commit_fsm.sv"
+    },
+    {
+      "path": "rtl/v2_note_increment_rom.sv",
+      "sha256": "0986e591b8a62d95c7935b25d37e0dd9b2e8b6369d7378ea72b4f7fc2089c9f9",
+      "origin": "50acf2e:rtl/v2_note_increment_rom.sv"
+    },
+    {
+      "path": "rtl/v2_voice_state_bank.sv",
+      "sha256": "f1fdcca39b10c17aab2e108f28c8b62654c82a68205b7709bb17b59bf9c03850",
+      "origin": "50acf2e:rtl/v2_voice_state_bank.sv"
+    },
+    {
+      "path": "rtl/v2_voice_engine_banked.sv",
+      "sha256": "67881121afcbc3fe259053d2de0e04580e0f021b5fdad134eddb5e9158831477",
+      "origin": "50acf2e:rtl/v2_voice_engine_banked.sv"
+    },
+    {
+      "path": "rtl/v2_fx_lite.sv",
+      "sha256": "62762cccb37791e17a9a39f997cbc4af09565e23a4fea934d095b1d4520ce731",
+      "origin": "50acf2e:rtl/v2_fx_lite.sv"
+    },
+    {
+      "path": "rtl/v2_patch_bank.sv",
+      "sha256": "68e2e940ef08c50d2b0d64ccd4ff9550cc8b512caaf114430588d6aed3aabbf8",
+      "origin": "50acf2e:rtl/v2_patch_bank.sv"
+    },
+    {
+      "path": "rtl/v2_wavetable_loader.sv",
+      "sha256": "f050f94ca35bbe0cc718b7df1c1994fee6fa08f34a9386dd5fb525895a962c90",
+      "origin": "50acf2e:rtl/v2_wavetable_loader.sv"
+    },
+    {
+      "path": "rtl/v2_clock_gen.sv",
+      "sha256": "8e5d5777679386283b9cf3c5bb2845883b6f96f032b5eb9173e008aff055eac7",
+      "origin": "50acf2e:rtl/v2_clock_gen.sv"
+    },
+    {
+      "path": "rtl/v2_reset_sync.sv",
+      "sha256": "4b772b9a0515d275c2cb9521108df958f481b9880d2d8ffeb634adaa8bcd72c9",
+      "origin": "50acf2e:rtl/v2_reset_sync.sv"
+    },
+    {
+      "path": "rtl/v2_sample_scheduler.sv",
+      "sha256": "750ad73914a5f58d07ec85c75e8d9246f328b00d21a6c0f36557a10275c4cc3d",
+      "origin": "50acf2e:rtl/v2_sample_scheduler.sv"
+    },
+    {
+      "path": "rtl/i2s_pcm5102a_tx.sv",
+      "sha256": "54452798fd8a9c50ac14ce8f2f5f84f109b1da94c902fd2497362e2e22ae2298",
+      "origin": "50acf2e:rtl/i2s_pcm5102a_tx.sv"
+    },
+    {
+      "path": "rtl/uart_rx.sv",
+      "sha256": "0f60e69e910f62f43af2acb354d9aec0ae9a070dc967a1993885666d167ec8b8",
+      "origin": "50acf2e:rtl/uart_rx.sv"
+    },
+    {
+      "path": "rtl/uart_tx.sv",
+      "sha256": "2f4befd27303306214f0b92cf21c753aaffb32849e128a0996465c0e2bd2a137",
+      "origin": "50acf2e:rtl/uart_tx.sv"
+    },
+    {
+      "path": "rtl/v2_uart_link.sv",
+      "sha256": "ba64ddeeaa1b1721b0f9baa8424b62b821c3c0eae210befa0b7c8ac373d9a8a0",
+      "origin": "50acf2e:rtl/v2_uart_link.sv"
+    },
+    {
+      "path": "rtl/v2_telemetry_snapshot.sv",
+      "sha256": "a1159bacc574cda51143c3c9adf0d7ef6b4f7aca2a8ecf182a6bdd11fa158e70",
+      "origin": "50acf2e:rtl/v2_telemetry_snapshot.sv"
+    },
+    {
+      "path": "rtl/mgc3130_reader.sv",
+      "sha256": "7b6c3883f06e02221abdd0d0f31cbbcd61373a70b4bc36d0827b654f8ed277e0",
+      "origin": "50acf2e:rtl/mgc3130_reader.sv"
+    },
+    {
+      "path": "rtl/mgc3130_v2_top.sv",
+      "sha256": "45ecbc9673bc02b457d313df3bcf712991a08cef0bd3e43115f4c5bfb2400bb0",
+      "origin": "50acf2e:rtl/mgc3130_v2_top.sv"
+    },
+    {
+      "path": "rtl/v2_test_mode.sv",
+      "sha256": "7f9491a3e816e9a39af5d2045cb152da43753d416c032c24174dc460ded31a96",
+      "origin": "50acf2e:rtl/v2_test_mode.sv"
+    },
+    {
+      "path": "rtl/v2_board_top.sv",
+      "sha256": "f48c3b384197115290166a14a20138d54001d0b8a9d819bff4898a08b2b161f3",
+      "origin": "50acf2e:sim/v2_top_fullpath_probe.sv (module renamed)"
+    },
+    {
+      "path": "tb/tb_top_csr_gate.sv",
+      "sha256": "5455b130b9d14972b64d3fdb33af21a92cad30b3f8d1eb7488058f819efa1c08",
+      "origin": "working-tree impl/ms_uartrx/tb_top_csr_gate.sv (was untracked)"
+    },
+    {
+      "path": "ip/gowin_i2c_master/I2C_MASTER.vp",
+      "sha256": "3e5246a08a8f8d1c131af86f69b40c912dcc07982fa625ba90fd725e244a1421",
+      "origin": "50acf2e:ip/gowin_i2c_master/I2C_MASTER.vp"
+    },
+    {
+      "path": "ip/gowin_i2c_master/I2C_MASTER_TOP.v",
+      "sha256": "2dd6413139103ac0e132865b97c6465e4fe0383903fe9e584b1f0d94944788a9",
+      "origin": "50acf2e:ip/gowin_i2c_master/I2C_MASTER_TOP.v"
+    },
+    {
+      "path": "ip/gowin_i2c_master/top_define.vh",
+      "sha256": "ba214fd5a2760a28d93c4ea869703f0b8f9d780124353b4de5cbfc4cedeaec1b",
+      "origin": "50acf2e:ip/gowin_i2c_master/top_define.vh"
+    },
+    {
+      "path": "ip/gowin_i2c_master/static_macro_define.vh",
+      "sha256": "f4f2859b9dcb836a0ae22c9a85fbcef4de9c78c57a572788ee5aa90b19b3faca",
+      "origin": "50acf2e:ip/gowin_i2c_master/static_macro_define.vh"
+    },
+    {
+      "path": "ip/gowin_i2c_master/README.md",
+      "sha256": "9d48cd0fe10d7e38456d6097d039c2ad6953f18c7b68be01026f6dd89c6b559b",
+      "origin": "50acf2e:ip/gowin_i2c_master/README.md"
+    },
+    {
+      "path": "constr/mgc3130_v2.cst",
+      "sha256": "a4c749b3d9a6dfe931aacf5363d2427aa6f7f23173a4180becc95757a5a8be0e",
+      "origin": "50acf2e:mgc3130_v2.cst"
+    },
+    {
+      "path": "constr/mgc3130_v2_top_observable.sdc",
+      "sha256": "568ce7a58b61d512aaf6048d4ccdabecc388a0ca0dfb999bb459010e0eac483c",
+      "origin": "50acf2e:mgc3130_v2_top_observable.sdc"
+    }
+  ],
+  "patches": [
+    {
+      "file": "rtl/mgc3130_v2_top.sv",
+      "reason": "declare patch_crc_payload_q and hoist the P1 declaration block above v2_patch_bank so the file compiles (vlog-2388 / vlog-2730)"
+    },
+    {
+      "file": "rtl/v2_board_top.sv",
+      "reason": "renamed from the probe wrapper; body unchanged"
+    },
+    {
+      "file": "tb/tb_top_csr_gate.sv",
+      "reason": "rxbuf read index aligned with the mod-256 write index; %0s -> %s so assertion names survive; assertion-name argument widened 256 -> 512 bits"
+    },
+    {
+      "file": "constr/mgc3130_v2_top_observable.sdc",
+      "reason": "corrected the stale '100 MHz' comment (PLL output is 80 MHz)"
+    }
+  ]
+}

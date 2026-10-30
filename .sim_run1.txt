@@ -1,0 +1,26 @@
+compiling 30 source files
+compile clean: 0 errors, 0 warnings
+
+--- GOWIN_RAM=0 ---
+  assertions passed : 10
+  assertions failed : 4
+  simulator exit    : 0   wall 138.3 s
+  XX  NEW failing assertions:
+        - xpected CRC reached the uploader
+        - T2 reply error is BAD_DATA
+        - T3 reply error is BAD_DATA
+        - T4 retry committed
+
+--- GOWIN_RAM=1 ---
+  assertions passed : 10
+  assertions failed : 4
+  simulator exit    : 0   wall 311.0 s
+  XX  NEW failing assertions:
+        - xpected CRC reached the uploader
+        - T2 reply error is BAD_DATA
+        - T3 reply error is BAD_DATA
+        - T4 retry committed
+
+RAM=0 vs RAM=1 identical: yes
+
+SIM: FAIL

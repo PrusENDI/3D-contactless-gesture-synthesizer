@@ -454,14 +454,14 @@ logic [9:0] wt_read_index_sel;
         .fx_cutoff_q16(16'hffff), .fx_delay_samples(10'd0), .fx_feedback_q15(16'd0),
         .fx_reverb_mix_q15(16'd0), .fx_status_level(fx_status), .fx_clip(fx_clip)
     );
-    assign i2s_sample_valid = mode_wt_play ? wt_play_valid : test_active ? test_sample_valid : voice_sample_valid;
+    assign i2s_sample_valid = (mode_wt_play || mode_live) ? wt_play_valid : test_active ? test_sample_valid : voice_sample_valid;
     // The voice path has no volume control yet; -12 dB keeps a sustained note at a
 // listenable level while the gain register is still missing.
 wire signed [15:0] fx_quiet = fx_sample >>> 2;
 // Same -12 dB the voice path uses: a full-scale table is far too loud, and
     // there is no gain register yet.
     wire signed [15:0] wt_quiet = (wt_play_sample >>> 3) - (wt_play_sample >>> 6) - (wt_play_sample >>> 7);  // = 0.1016x = -19.9 dB
-    assign i2s_sample = mode_wt_play ? wt_quiet : test_active ? test_sample : fx_quiet;
+    assign i2s_sample = (mode_wt_play || mode_live) ? wt_quiet : test_active ? test_sample : fx_quiet;
     i2s_pcm5102a_tx #(.CLK_HZ(80_000_000), .SAMPLE_HZ(48_000), .ACC_WIDTH(24)) u_i2s (
         .clk(clk_sys_100m), .rst(!rst_sys_n), .sample_valid(i2s_sample_valid),
         .sample_in(i2s_sample), .i2s_bck(pcm5102a_bck), .i2s_lrck(pcm5102a_lrck),
@@ -590,7 +590,7 @@ always_ff @(posedge clk_sys_100m or negedge rst_sys_n) begin
         wt_crc_valid_q    <= wt_crc_valid_src;
         wt_index_load_q   <= wt_index_load_src;
         patch_crc_valid_q <= patch_crc_valid_src;
-        if (wt_apply_valid_src) wt_apply_valid_q <= 1'b1; else if (wt_apply_done) wt_apply_valid_q <= 1'b0;
+        wt_apply_valid_q <= wt_apply_valid_src;   // one-cycle pulse: the commit bit is in the APPLY word, not here
         if (wt_apply_valid_src)
             wt_apply_payload_q <= cmd_data[15:0];
         if (patch_crc_valid_src)
@@ -632,16 +632,21 @@ end
 
     // Wavetable playback: WT_PLAY hands the uploader's read port to this engine and
     // routes its output straight to I2S, so the audio path is the table itself.
-    assign wt_read_index_sel = mode_wt_play ? wt_play_index : wt_select_index;
+    assign wt_read_index_sel = (mode_wt_play || mode_live) ? wt_play_index : wt_select_index;
 
     // The test note selects the phase increment; 0 keeps the legacy fixed walk
     // (one table point per sample = 46.875 Hz) so the old acceptance still holds.
     v2_note_increment_rom u_wt_note_increment(.note(thresholds_reg[7:0]), .increment(wt_note_increment));
-    assign wt_increment = (thresholds_reg[7:0] == 8'd0) ? 32'd4194304 : wt_note_increment;
+    // Single-voice LIVE table path: the note from the rule engine drives the same
+    // phase increment the WT_PLAY test note uses.
+    logic [31:0] live_note_increment;
+    v2_note_increment_rom u_live_note_increment(.note(live_active_note), .increment(live_note_increment));
+    assign wt_increment = mode_live ? live_note_increment :
+                          (thresholds_reg[7:0] == 8'd0) ? 32'd4194304 : wt_note_increment;
 
     v2_wt_playback u_wt_playback (
         .clk(clk_sys_100m), .rst_n(rst_sys_n), .sample_ce(sample_ce),
-        .enable(mode_wt_play), .increment(wt_increment), .index(wt_play_index),
+        .enable(mode_wt_play || (mode_live && live_active)), .increment(wt_increment), .index(wt_play_index),
         .sample(wt_read_sample), .out(wt_play_sample), .valid(wt_play_valid)
     );
     v2_wavetable_loader #(.TABLES(3), .SAMPLES(1024), .USE_GOWIN_RAM(USE_GOWIN_RAM)) u_wavetable_loader (

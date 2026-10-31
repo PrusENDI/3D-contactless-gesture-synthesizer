@@ -18,7 +18,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 New-Item -ItemType Directory -Force -Path (Split-Path $LogPath) | Out-Null
-function Log([string]$t) { $l = "{0:HH:mm:ss.fff} {1}" -f (Get-Date), $t; Write-Output $l; Add-Content -Path $LogPath -Value $l -Encoding utf8 }
+function Log([string]$t) { $l = "{0:HH:mm:ss.fff} {1}" -f (Get-Date), $t; Write-Host $l; Add-Content -Path $LogPath -Value $l -Encoding utf8 }
 
 function Get-Crc16([byte[]]$b) {
   $crc = 0xFFFF
@@ -85,6 +85,10 @@ function X([int]$Op, [int]$Addr, [uint32]$Data) {
   return [int]$r[19]
 }
 
+# Uploading while a table is playing gets NACKed: the loader owns the read port
+# and cmd_ready stays low. Force IDLE first; the host re-enters WT_PLAY after.
+$null = X 0x02 0x04 0
+Start-Sleep -Milliseconds 150
 $null = X 0x02 0x60 $Table          # WT_SELECT: table number
 $null = X 0x02 0x64 0               # WT_INDEX = 0
 for ($i = 0; $i -lt 1024; $i++) {

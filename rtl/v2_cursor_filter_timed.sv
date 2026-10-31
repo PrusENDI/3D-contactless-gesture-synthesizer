@@ -536,10 +536,14 @@ module v2_cursor_filter_timed #(
         end
 
         ST_MOTION_CLAMP: begin
-          next_x = cursor_x + step_x_q; next_y = cursor_y + step_y_q;
+          // Absolute mapping: the published cursor is this frame's mapped target.
+          // The old code moved by a clamped step, which is what made the output lag
+          // and diverge from the sensor position.
+          next_x = tx; next_y = ty;
           if (next_x < 0) next_x = 0; else if (next_x > Q16_ONE) next_x = Q16_ONE;
           if (next_y < 0) next_y = 0; else if (next_y > Q16_ONE) next_y = Q16_ONE;
           cursor_next_x <= next_x; cursor_next_y <= next_y;
+          step_x_q <= tx - cursor_x; step_y_q <= ty - cursor_y;
           fsm_state <= ST_OUTPUT;
         end
 

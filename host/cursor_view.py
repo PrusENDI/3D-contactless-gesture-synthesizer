@@ -111,6 +111,14 @@ def run_window(port, seconds: float, flip: str = "y") -> None:
     size = 512
     canvas = tk.Canvas(root, width=size, height=size, bg="#101014", highlightthickness=0)
     canvas.pack()
+    # 1:1 reference: the four corners of the 0..65535 sensor area.
+    for (cx, cy, tag) in ((0, 0, "0,0"), (size - 1, 0, "65535,0"),
+                          (0, size - 1, "0,65535"), (size - 1, size - 1, "65535,65535")):
+        canvas.create_oval(cx - 2, cy - 2, cx + 2, cy + 2, fill="#555555", outline="")
+        canvas.create_text(cx + 6 if cx == 0 else cx - 6, cy + 8 if cy == 0 else cy - 8,
+                           text=tag, fill="#555555", anchor="w" if cx == 0 else "e")
+    canvas.create_line(size // 2, 0, size // 2, size, fill="#222222")
+    canvas.create_line(0, size // 2, size, size // 2, fill="#222222")
     label = tk.Label(root, text="waiting for telemetry", fg="#cccccc", bg="#101014")
     label.pack(fill="x")
     state = {"dot": None, "trail": [], "frames": 0, "last": time.time()}
@@ -135,7 +143,8 @@ def run_window(port, seconds: float, flip: str = "y") -> None:
             canvas.delete("dot")
             canvas.create_oval(px - 5, py - 5, px + 5, py + 5, fill="#ffcc33", outline="", tags="dot")
             state["frames"] += 1
-            label.config(text="seq=%d  x=%d  y=%d  z=%d  frames=%d" % (seq, x, y, z, state["frames"]))
+            label.config(text="seq=%d  x=%d (0x%04X) px=%d  y=%d (0x%04X) px=%d  z=%d  frames=%d" % (
+                seq, x, x, px, y, y, py, z, state["frames"]))
         if deadline and time.time() > deadline and state["frames"]:
             root.destroy()
             return

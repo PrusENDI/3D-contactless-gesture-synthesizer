@@ -1,0 +1,184 @@
+<?xml version="1" encoding="UTF-8"?>
+<GAO_CONFIG>
+    <Version>3.0</Version>
+    <Mode>Standard</Mode>
+    <!--
+      APPLY/CRC capture for the V2 board build.
+
+      sample_clock  u_v2/clk_sys_100m   80 MHz system clock (the signal is named
+                                          *_100m for historical reasons; the PLL
+                                          actually produces 80 MHz)
+      storage_depth 2048                25.6 us window, enough for the 1024-cycle
+                                          CRC scan (~12.8 us) plus the result
+                                          handshake and the reply
+      trigger       rising edge of u_v2/wt_apply_valid_q, placed at 25% so most of
+                    the capture is after the trigger
+
+      Signal names are relative to module_name and must exist after synthesis.
+      Regenerate the bitstream whenever this probe set changes.
+    -->
+    <AoCore index="0" sample_clock="u_v2/clk_sys_100m" trig_type="0"
+             storage_depth="2048" window_num="1" capture_amount="2048"
+             implementation="0" trigger_pos="512" module_name="v2_board_top"
+             force_trigger_by_falling_edge="false" capture_init_data_enabled="false">
+        <SignalList>
+            <Signal capture_enable="true">u_v2/report_valid</Signal>
+            <Signal capture_enable="true">u_v2/frame_xyz_valid</Signal>
+            <Signal capture_enable="true">u_v2/frame_touch</Signal>
+            <Signal capture_enable="true">u_v2/calibration_strobe</Signal>
+            <Signal capture_enable="true">u_v2/cursor_point_valid</Signal>
+            <Bus capture_enable="true" name="u_v2/frame_cal_z[31:0]">
+                <Signal>u_v2/frame_cal_z[31]</Signal>
+                <Signal>u_v2/frame_cal_z[30]</Signal>
+                <Signal>u_v2/frame_cal_z[29]</Signal>
+                <Signal>u_v2/frame_cal_z[28]</Signal>
+                <Signal>u_v2/frame_cal_z[27]</Signal>
+                <Signal>u_v2/frame_cal_z[26]</Signal>
+                <Signal>u_v2/frame_cal_z[25]</Signal>
+                <Signal>u_v2/frame_cal_z[24]</Signal>
+                <Signal>u_v2/frame_cal_z[23]</Signal>
+                <Signal>u_v2/frame_cal_z[22]</Signal>
+                <Signal>u_v2/frame_cal_z[21]</Signal>
+                <Signal>u_v2/frame_cal_z[20]</Signal>
+                <Signal>u_v2/frame_cal_z[19]</Signal>
+                <Signal>u_v2/frame_cal_z[18]</Signal>
+                <Signal>u_v2/frame_cal_z[17]</Signal>
+                <Signal>u_v2/frame_cal_z[16]</Signal>
+                <Signal>u_v2/frame_cal_z[15]</Signal>
+                <Signal>u_v2/frame_cal_z[14]</Signal>
+                <Signal>u_v2/frame_cal_z[13]</Signal>
+                <Signal>u_v2/frame_cal_z[12]</Signal>
+                <Signal>u_v2/frame_cal_z[11]</Signal>
+                <Signal>u_v2/frame_cal_z[10]</Signal>
+                <Signal>u_v2/frame_cal_z[9]</Signal>
+                <Signal>u_v2/frame_cal_z[8]</Signal>
+                <Signal>u_v2/frame_cal_z[7]</Signal>
+                <Signal>u_v2/frame_cal_z[6]</Signal>
+                <Signal>u_v2/frame_cal_z[5]</Signal>
+                <Signal>u_v2/frame_cal_z[4]</Signal>
+                <Signal>u_v2/frame_cal_z[3]</Signal>
+                <Signal>u_v2/frame_cal_z[2]</Signal>
+                <Signal>u_v2/frame_cal_z[1]</Signal>
+                <Signal>u_v2/frame_cal_z[0]</Signal>
+            </Bus>
+            <Bus capture_enable="true" name="u_v2/x_position[15:0]">
+                <Signal>u_v2/x_position[15]</Signal>
+                <Signal>u_v2/x_position[14]</Signal>
+                <Signal>u_v2/x_position[13]</Signal>
+                <Signal>u_v2/x_position[12]</Signal>
+                <Signal>u_v2/x_position[11]</Signal>
+                <Signal>u_v2/x_position[10]</Signal>
+                <Signal>u_v2/x_position[9]</Signal>
+                <Signal>u_v2/x_position[8]</Signal>
+                <Signal>u_v2/x_position[7]</Signal>
+                <Signal>u_v2/x_position[6]</Signal>
+                <Signal>u_v2/x_position[5]</Signal>
+                <Signal>u_v2/x_position[4]</Signal>
+                <Signal>u_v2/x_position[3]</Signal>
+                <Signal>u_v2/x_position[2]</Signal>
+                <Signal>u_v2/x_position[1]</Signal>
+                <Signal>u_v2/x_position[0]</Signal>
+            </Bus>
+            <Bus capture_enable="true" name="u_v2/y_position[15:0]">
+                <Signal>u_v2/y_position[15]</Signal>
+                <Signal>u_v2/y_position[14]</Signal>
+                <Signal>u_v2/y_position[13]</Signal>
+                <Signal>u_v2/y_position[12]</Signal>
+                <Signal>u_v2/y_position[11]</Signal>
+                <Signal>u_v2/y_position[10]</Signal>
+                <Signal>u_v2/y_position[9]</Signal>
+                <Signal>u_v2/y_position[8]</Signal>
+                <Signal>u_v2/y_position[7]</Signal>
+                <Signal>u_v2/y_position[6]</Signal>
+                <Signal>u_v2/y_position[5]</Signal>
+                <Signal>u_v2/y_position[4]</Signal>
+                <Signal>u_v2/y_position[3]</Signal>
+                <Signal>u_v2/y_position[2]</Signal>
+                <Signal>u_v2/y_position[1]</Signal>
+                <Signal>u_v2/y_position[0]</Signal>
+            </Bus>
+            <Bus capture_enable="true" name="u_v2/z_position[15:0]">
+                <Signal>u_v2/z_position[15]</Signal>
+                <Signal>u_v2/z_position[14]</Signal>
+                <Signal>u_v2/z_position[13]</Signal>
+                <Signal>u_v2/z_position[12]</Signal>
+                <Signal>u_v2/z_position[11]</Signal>
+                <Signal>u_v2/z_position[10]</Signal>
+                <Signal>u_v2/z_position[9]</Signal>
+                <Signal>u_v2/z_position[8]</Signal>
+                <Signal>u_v2/z_position[7]</Signal>
+                <Signal>u_v2/z_position[6]</Signal>
+                <Signal>u_v2/z_position[5]</Signal>
+                <Signal>u_v2/z_position[4]</Signal>
+                <Signal>u_v2/z_position[3]</Signal>
+                <Signal>u_v2/z_position[2]</Signal>
+                <Signal>u_v2/z_position[1]</Signal>
+                <Signal>u_v2/z_position[0]</Signal>
+            </Bus>
+            <Bus capture_enable="true" name="u_v2/reader_state[5:0]">
+                <Signal>u_v2/reader_state[5]</Signal>
+                <Signal>u_v2/reader_state[4]</Signal>
+                <Signal>u_v2/reader_state[3]</Signal>
+                <Signal>u_v2/reader_state[2]</Signal>
+                <Signal>u_v2/reader_state[1]</Signal>
+                <Signal>u_v2/reader_state[0]</Signal>
+            </Bus>
+            <Bus capture_enable="true" name="u_v2/reader_debug_size[7:0]">
+                <Signal>u_v2/reader_debug_size[7]</Signal>
+                <Signal>u_v2/reader_debug_size[6]</Signal>
+                <Signal>u_v2/reader_debug_size[5]</Signal>
+                <Signal>u_v2/reader_debug_size[4]</Signal>
+                <Signal>u_v2/reader_debug_size[3]</Signal>
+                <Signal>u_v2/reader_debug_size[2]</Signal>
+                <Signal>u_v2/reader_debug_size[1]</Signal>
+                <Signal>u_v2/reader_debug_size[0]</Signal>
+            </Bus>
+            <Bus capture_enable="true" name="u_v2/cursor_fsm_state[4:0]">
+                <Signal>u_v2/cursor_fsm_state[4]</Signal>
+                <Signal>u_v2/cursor_fsm_state[3]</Signal>
+                <Signal>u_v2/cursor_fsm_state[2]</Signal>
+                <Signal>u_v2/cursor_fsm_state[1]</Signal>
+                <Signal>u_v2/cursor_fsm_state[0]</Signal>
+            </Bus>
+        </SignalList>
+        <Triggers>
+            <Trigger index="0">
+                <SignalList>
+                    <Signal>u_v2/report_valid</Signal>
+                </SignalList>
+            </Trigger>
+            <Trigger index="1"/>
+            <Trigger index="2"/>
+            <Trigger index="3"/>
+            <Trigger index="4"/>
+            <Trigger index="5"/>
+            <Trigger index="6"/>
+            <Trigger index="7"/>
+            <Trigger index="8"/>
+            <Trigger index="9"/>
+            <Trigger index="10"/>
+            <Trigger index="11"/>
+            <Trigger index="12"/>
+            <Trigger index="13"/>
+            <Trigger index="14"/>
+            <Trigger index="15"/>
+        </Triggers>
+        <MatchUnits>
+            <!-- Without a MatchUnit the core has no match condition: it never
+                 triggers and the capture is only produced by the forced timeout,
+                 which lands on idle traffic.  Unit 0 matches the trigger signal
+                 equal to 1 (rising edge), matching the vendor example layout. -->
+            <MatchUnit index="0" enabled="1" match_type="0" counter_enable="0"
+                       counter_width="2" counter="2" countinuous="0" func="0"
+                       value0="1" value1="0" trigger="0"/>
+            <MatchUnit index="1" enabled="0" match_type="0" counter_enable="0"
+                       counter_width="2" counter="2" countinuous="0" func="0"
+                       value0="" value1=""/>
+        </MatchUnits>
+        <Expressions type="Static">
+            <!-- Without this block the generator emits AO_EXPRESSION_0 = 1 (constant
+                 true), so the core triggers on the first sample after arming and the
+                 buffer holds an idle snapshot.  M0 selects MatchUnit 0. -->
+            <Expression>M0</Expression>
+        </Expressions>    </AoCore>
+</GAO_CONFIG>

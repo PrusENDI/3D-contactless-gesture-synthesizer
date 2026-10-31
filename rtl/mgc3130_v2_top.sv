@@ -225,7 +225,9 @@ logic [5:0] reader_state;
     logic [15:0] cursor_pitch, cursor_velocity, cursor_depth;
     logic [1:0] cursor_state;
 logic [4:0] cursor_fsm_state;
-logic [15:0] cursor_last_z = frame_cal_z[15:0];
+// Latched on every accepted frame: a declaration initialiser runs once at time 0
+// and would freeze the value, which is exactly what an earlier probe misread.
+logic signed [31:0] cursor_last_z;
     logic cursor_point_valid, cursor_rebased, cursor_stable_valid;
     logic signed [31:0] audio_cursor_x, audio_cursor_y, audio_cursor_z;
     logic [15:0] audio_pitch, audio_velocity, audio_depth, audio_sequence;
@@ -606,6 +608,11 @@ end
                 dbg_degraded_count <= dbg_degraded_count + 32'd1;
         end
     end
+    always_ff @(posedge clk_sys_100m or negedge rst_sys_n) begin
+        if (!rst_sys_n) cursor_last_z <= 32'sd0;
+        else if (calibration_strobe) cursor_last_z <= frame_cal_z;
+    end
+
     // Wavetable playback: WT_PLAY hands the uploader's read port to this engine and
     // routes its output straight to I2S, so the audio path is the table itself.
     assign wt_read_index_sel = mode_wt_play ? wt_play_index : wt_select_index;
@@ -780,7 +787,7 @@ end
                     8'hD4: rsp_data <= (V2_DEBUG_CSR != 0) ? dbg_error_count : 32'd0;
                     8'hD8: rsp_data <= (V2_DEBUG_CSR != 0) ? dbg_cursor_valid_count : 32'd0;
                     8'hDC: rsp_data <= (V2_DEBUG_CSR != 0) ? {31'd0, reader_busy} : 32'd0;
-                    8'hE0: rsp_data <= (V2_DEBUG_CSR != 0) ? {16'd0, cursor_last_z} : 32'd0;
+                    8'hE0: rsp_data <= (V2_DEBUG_CSR != 0) ? cursor_last_z : 32'd0;
                     8'hE4: rsp_data <= (V2_DEBUG_CSR != 0) ? {27'd0, cursor_fsm_state} : 32'd0;
                     8'hE8: rsp_data <= (V2_DEBUG_CSR != 0) ? dbg_xyz_count : 32'd0;
                     8'hEC: rsp_data <= (V2_DEBUG_CSR != 0) ? dbg_frame_count : 32'd0;

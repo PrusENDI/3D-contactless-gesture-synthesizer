@@ -27,13 +27,14 @@ function Read-Csr([int]$Addr) {
 
 $names = @(0x01,0x02,0x04,0x08,0x10,0x20,0x40)
 $labels = @('INVALID','SATURATED','GAP','EPOCH','CLAMP','PROFILE','ARITH')
-Log 'time  reports frame fsm  last_z point cursor reason'
+Log 'CSR map: 0xD0=reports 0xEC=valid_frame 0xE4=cursor_fsm_state 0xE0=frame_cal_z(full 32) 0xF8=point 0xD8=cursor 0xFC=reason'
+Log 'time  reports frame fsm  z(pointwise) point cursor reason'
 for ($i = 0; $i -lt $Seconds; $i++) {
     $r = Read-Csr 0xFC
     $bits = @()
     for ($k = 0; $k -lt $names.Count; $k++) { if ($r -band $names[$k]) { $bits += $labels[$k] } }
     $why = if ($bits.Count) { $bits -join '+' } else { 'none' }
-    Log ("{0,3}s  rep={1,6} frame={2,6} fsm={3,2}  z=0x{4:X4} point={5,5} cursor={6,5}  reason=0x{7:X2} {8}" -f `
+    Log ("{0,3}s  rep={1,6} frame={2,6} fsm={3,2}  z=0x{4:X8} point={5,5} cursor={6,5}  reason=0x{7:X2} {8}" -f `
         $i, (Read-Csr 0xD0), (Read-Csr 0xEC), (Read-Csr 0xE4), (Read-Csr 0xE0), (Read-Csr 0xF8), (Read-Csr 0xD8), $r, $why)
     Start-Sleep -Milliseconds 700
 }

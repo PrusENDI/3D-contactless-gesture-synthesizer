@@ -13,6 +13,7 @@ rtl/v2_position_validity.sv
 rtl/v2_cursor_filter_timed.sv
 rtl/v2_tick_gen.sv
 rtl/v2_wt_position.sv
+rtl/v2_wt_mix.sv
 rtl/v2_live_rule_engine.sv
 rtl/v2_loop_event_recorder.sv
 rtl/v2_loop_event_store_dpb.sv

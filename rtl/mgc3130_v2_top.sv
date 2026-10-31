@@ -703,6 +703,13 @@ end
         .pos(wt_pos), .frame_a(wt_frame_a), .frame_b(wt_frame_b), .frac(wt_frac)
     );
 
+    // Frame crossfade.  Task 2 instantiates it on zero inputs; the read-channel
+    // wiring arrives with the top integration task.
+    logic signed [15:0] wt_sample_a, wt_sample_b, wt_mix_out;
+    v2_wt_mix u_wt_mix (
+        .a(wt_sample_a), .b(wt_sample_b), .frac(wt_frac), .out(wt_mix_out)
+    );
+
     v2_wt_playback u_wt_playback (
         .clk(clk_sys_100m), .rst_n(rst_sys_n), .sample_ce(sample_ce),
         .enable(mode_wt_play || (mode_live && live_gate)), .increment(wt_increment), .index(wt_play_index),

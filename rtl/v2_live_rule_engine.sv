@@ -39,7 +39,11 @@ module v2_live_rule_engine #(
   logic [7:0] candidate_note, candidate_velocity, candidate_flags;
   logic [15:0] candidate_timbre;
   logic candidate_due, bad_frame, gate_now, edge_cross;
-  logic arp_off_pending, arp_on_pending;
+  // Two-state arpeggiator: each tick queues OFF (if a note is on) then ON. A small
+  // FSM replaces the pending flags so the pipeline depth cannot double-fire an event.
+  typedef enum logic [1:0] { ARP_IDLE = 2'd0, ARP_OFF = 2'd1, ARP_ON = 2'd2 } arp_state_t;
+  arp_state_t arp_state;
+  logic arp_pair;   // the queued OFF must be followed by an ON (tick), not a release
   logic [7:0] arp_note;
   logic edge_pending, arm_now;
   logic note_change_ok;
@@ -137,10 +141,10 @@ module v2_live_rule_engine #(
     end
     if (arp_mode) begin
       // Step arpeggiator: OFF is queued ahead of ON so a pitch change is a pair.
-      if (arp_off_pending) begin
+      if (arp_state == ARP_OFF) begin
         candidate_valid = 1'b1; candidate_type = V2_EV_NOTE_OFF;
         candidate_note = active_note; candidate_flags = 8'd0;
-      end else if (arp_on_pending) begin
+      end else if (arp_state == ARP_ON) begin
         candidate_valid = 1'b1; candidate_type = V2_EV_NOTE_ON;
         candidate_note = arp_note;
         candidate_flags = rule_touch ? V2_FLAG_TOUCH : V2_FLAG_BOW;
@@ -226,17 +230,20 @@ module v2_live_rule_engine #(
         fault_code <= V2_FAULT_INVALID;
       end
       if (arp_mode) begin
-        if (tick_pulse && !(event_valid && !event_ready)) begin
-          arp_note <= map_note(rule_y);
-          arp_on_pending <= 1'b1;
-          if (active) arp_off_pending <= 1'b1;
+        if (tick_pulse && !(event_valid && !event_ready) && arp_state == ARP_IDLE) begin
+          arp_note  <= map_note(rule_y);
+          arp_pair  <= active;
+          arp_state <= active ? ARP_OFF : ARP_ON;
+        end else if (!gate_now && arp_state == ARP_IDLE && active) begin
+          arp_pair  <= 1'b0;          // release: no ON follows
+          arp_state <= ARP_OFF;
         end
-        if (!gate_now && active && !arp_off_pending) arp_off_pending <= 1'b1;
-        if (!gate_now) arp_on_pending <= 1'b0;
       end
-      if (emit_candidate_valid && !(event_valid && !event_ready)) begin
-        if (emit_candidate_type == V2_EV_NOTE_OFF) arp_off_pending <= 1'b0;
-        if (emit_candidate_type == V2_EV_NOTE_ON)  arp_on_pending  <= 1'b0;
+      // Advance on the packed event. emit_candidate_type is the registered candidate,
+      // i.e. exactly the state that produced the event one cycle earlier.
+      if (arp_mode && emit_candidate_valid && !(event_valid && !event_ready)) begin
+        if (emit_candidate_type == V2_EV_NOTE_OFF)      arp_state <= arp_pair ? ARP_ON : ARP_IDLE;
+        else if (emit_candidate_type == V2_EV_NOTE_ON)  begin arp_state <= ARP_IDLE; arp_pair <= 1'b0; end
         packed_event = 96'd0;
         packed_event[94:91] = emit_candidate_type;
         packed_event[90:88] = TRACK[2:0];

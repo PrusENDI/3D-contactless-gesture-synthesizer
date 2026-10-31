@@ -78,19 +78,29 @@ def parse_frames(buffer: bytearray) -> list[tuple[int, int, int, int]]:
     return out
 
 
-def run_console(port, seconds: float) -> None:
+def apply_flip(x: int, y: int, flip: str) -> tuple[int, int]:
+    """The sensor axes can be mirrored by the physical mounting; flip here."""
+    if flip in ("x", "both"):
+        x = 65535 - x
+    if flip in ("y", "both"):
+        y = 65535 - y
+    return x, y
+
+
+def run_console(port, seconds: float, flip: str = "both") -> None:
     buf = bytearray()
     deadline = time.time() + seconds
     last = None
     while time.time() < deadline:
         buf += port.read(max(1, port.in_waiting))
         for seq, x, y, z in parse_frames(buf):
+            x, y = apply_flip(x, y, flip)
             if (x, y) != last:
                 print("seq=%5d  x=%5d  y=%5d  z=%5d   %s" % (seq, x, y, z, " " * (x * 40 // 65536) + "*"))
                 last = (x, y)
 
 
-def run_window(port, seconds: float) -> None:
+def run_window(port, seconds: float, flip: str = "both") -> None:
     import tkinter as tk
 
     root = tk.Tk()
@@ -109,6 +119,7 @@ def run_window(port, seconds: float) -> None:
         buf += port.read(max(1, port.in_waiting))
         frames = parse_frames(buf)
         for seq, x, y, z in frames:
+            x, y = apply_flip(x, y, flip)
             px = int(x * (size - 1) / 65535)
             py = int(y * (size - 1) / 65535)
             state["trail"].append((px, py))
@@ -137,6 +148,8 @@ def main() -> int:
     ap.add_argument("--baud", type=int, default=1_000_000)
     ap.add_argument("--seconds", type=float, default=0, help="0 means run until closed")
     ap.add_argument("--console-only", action="store_true")
+    ap.add_argument("--flip", choices=["none", "x", "y", "both"], default="both",
+                    help="mirror the axes; the sensor mounting decides the sign")
     args = ap.parse_args()
 
     try:
@@ -148,9 +161,9 @@ def main() -> int:
     enable_telemetry(port)
     try:
         if args.console_only:
-            run_console(port, args.seconds or 10)
+            run_console(port, args.seconds or 10, args.flip)
         else:
-            run_window(port, args.seconds)
+            run_window(port, args.seconds, args.flip)
     finally:
         port.close()
     return 0

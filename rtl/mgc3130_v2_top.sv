@@ -646,7 +646,7 @@ end
 
     v2_wt_playback u_wt_playback (
         .clk(clk_sys_100m), .rst_n(rst_sys_n), .sample_ce(sample_ce),
-        .enable(mode_wt_play || (mode_live && live_active)), .increment(wt_increment), .index(wt_play_index),
+        .enable(mode_wt_play || (mode_live && live_gate)), .increment(wt_increment), .index(wt_play_index),
         .sample(wt_read_sample), .out(wt_play_sample), .valid(wt_play_valid)
     );
     v2_wavetable_loader #(.TABLES(3), .SAMPLES(1024), .USE_GOWIN_RAM(USE_GOWIN_RAM)) u_wavetable_loader (

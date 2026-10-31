@@ -83,26 +83,29 @@ module v2_live_rule_engine #(
   // Only these eight notes exist in the voice engine note ROM.
   function automatic [7:0] map_note(input logic [15:0] value);
     begin
-      if      (value < 16'd16530) map_note = 8'd55;   // G3
-      else if (value < 16'd19028) map_note = 8'd57;   // A3
-      else if (value < 16'd24024) map_note = 8'd60;   // C4
-      else if (value < 16'd26522) map_note = 8'd62;   // D4
-      else if (value < 16'd34016) map_note = 8'd64;   // E4
-      else if (value < 16'd39012) map_note = 8'd67;   // G4
-      else if (value < 16'd41510) map_note = 8'd69;   // A4
+      // Full-range pentatonic: the old table packed every note into y=11535..54002,
+      // so 25% of the travel sat on G3 and 37% on C5. 1 semitone = 3855 counts,
+      // thresholds are the midpoints between adjacent note centres (design doc §2.1).
+      if      (value < 16'd3855)  map_note = 8'd55;   // G3
+      else if (value < 16'd13493) map_note = 8'd57;   // A3
+      else if (value < 16'd23130) map_note = 8'd60;   // C4
+      else if (value < 16'd30840) map_note = 8'd62;   // D4
+      else if (value < 16'd40478) map_note = 8'd64;   // E4
+      else if (value < 16'd50115) map_note = 8'd67;   // G4
+      else if (value < 16'd59753) map_note = 8'd69;   // A4
       else                        map_note = 8'd72;   // C5
     end
   endfunction
   function automatic [31:0] note_boundary(input logic [7:0] note);
     begin
       case (note)
-      8'd55: note_boundary = 32'd16530;
-      8'd57: note_boundary = 32'd19028;
-      8'd60: note_boundary = 32'd24024;
-      8'd62: note_boundary = 32'd26522;
-      8'd64: note_boundary = 32'd34016;
-      8'd67: note_boundary = 32'd39012;
-      8'd69: note_boundary = 32'd41510;
+      8'd55: note_boundary = 32'd3855;
+      8'd57: note_boundary = 32'd13493;
+      8'd60: note_boundary = 32'd23130;
+      8'd62: note_boundary = 32'd30840;
+      8'd64: note_boundary = 32'd40478;
+      8'd67: note_boundary = 32'd50115;
+      8'd69: note_boundary = 32'd59753;
       8'd72: note_boundary = 32'd65535;
       default: note_boundary = 32'd0;
       endcase

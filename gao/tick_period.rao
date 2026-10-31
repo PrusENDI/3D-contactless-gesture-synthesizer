@@ -1,0 +1,58 @@
+<?xml version="1" encoding="UTF-8"?>
+<GAO_CONFIG>
+    <Version>3.0</Version>
+    <Mode>Standard</Mode>
+    <!--
+      Tick period measurement.
+
+      sample_clock  u_v2/pcm5102a_lrck   the I2S frame clock (48 kHz by design)
+      storage_depth 4096                 ~85 ms window at 48 kHz, enough to see two
+                                         ticks even at 16 Hz (62.5 ms apart)
+      trigger       tick_pulse rising
+
+      Decode: count the rows between tick_pulse rows.
+        3000 rows -> sample_ce runs at twice the I2S frame rate (96 kHz)
+        6000 rows -> sample_ce equals the frame rate (48 kHz)
+    -->
+    <AoCore index="0" sample_clock="u_v2/pcm5102a_lrck" trig_type="0"
+             storage_depth="4096" window_num="1" capture_amount="4096"
+             implementation="0" trigger_pos="256" module_name="v2_board_top"
+             force_trigger_by_falling_edge="false" capture_init_data_enabled="false">
+        <SignalList>
+            <Signal capture_enable="true">u_v2/tick_pulse</Signal>
+            <Signal capture_enable="true">u_v2/i2s_sample_valid</Signal>
+            <Bus capture_enable="true" name="u_v2/tick_now[6:0]">
+                <Signal>u_v2/tick_now[6]</Signal>
+                <Signal>u_v2/tick_now[5]</Signal>
+                <Signal>u_v2/tick_now[4]</Signal>
+                <Signal>u_v2/tick_now[3]</Signal>
+                <Signal>u_v2/tick_now[2]</Signal>
+                <Signal>u_v2/tick_now[1]</Signal>
+                <Signal>u_v2/tick_now[0]</Signal>
+            </Bus>
+        </SignalList>
+        <Triggers>
+            <Trigger index="0">
+                <SignalList>
+                    <Signal>u_v2/tick_pulse</Signal>
+                </SignalList>
+            </Trigger>
+            <Trigger index="1"/><Trigger index="2"/><Trigger index="3"/>
+            <Trigger index="4"/><Trigger index="5"/><Trigger index="6"/>
+            <Trigger index="7"/><Trigger index="8"/><Trigger index="9"/>
+            <Trigger index="10"/><Trigger index="11"/><Trigger index="12"/>
+            <Trigger index="13"/><Trigger index="14"/><Trigger index="15"/>
+        </Triggers>
+        <MatchUnits>
+            <MatchUnit index="0" enabled="1" match_type="0" counter_enable="0"
+                       counter_width="2" counter="2" countinuous="0" func="0"
+                       value0="1" value1="0" trigger="0"/>
+            <MatchUnit index="1" enabled="0" match_type="0" counter_enable="0"
+                       counter_width="2" counter="2" countinuous="0" func="0"
+                       value0="" value1=""/>
+        </MatchUnits>
+        <Expressions type="Static">
+            <Expression>M0</Expression>
+        </Expressions>
+    </AoCore>
+</GAO_CONFIG>

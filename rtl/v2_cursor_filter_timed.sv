@@ -76,6 +76,8 @@ module v2_cursor_filter_timed #(
   parameter integer Z_ENGAGE       = 30000,
   parameter integer Z_RELEASE      = 36000,
   parameter integer MAX_STEP_Q16   = 4096,
+    // Z no longer modulates the follow rate; it only drives velocity (depth).
+    parameter integer ALPHA_FIXED    = 65536,
   parameter integer SETTLE_TICKS   = 2
 ) (
   input logic clk, input logic rst_n,
@@ -408,14 +410,9 @@ module v2_cursor_filter_timed #(
         end
 
         ST_ALPHA_MZ: begin
-          if (mz <= Z_LOW) begin alpha_mz <= ALPHA_HIGH_Q16; fsm_state <= ST_IIR_PREP; end
-          else if (mz >= Z_HIGH) begin alpha_mz <= ALPHA_LOW_Q16; fsm_state <= ST_IIR_PREP; end
-          else begin
-            div_dividend <= (mz - Z_LOW) << 16;
-            div_divisor <= Z_HIGH - Z_LOW;
-            div_start <= 1'b1;
-            fsm_state <= ST_WAIT_ALPHA_MZ;
-          end
+          // Fixed follow rate: hand height no longer changes how fast the cursor moves.
+          alpha_mz <= ALPHA_FIXED;
+          fsm_state <= ST_IIR_PREP;
         end
 
         ST_WAIT_ALPHA_MZ: begin
@@ -452,14 +449,8 @@ module v2_cursor_filter_timed #(
         end
 
         ST_ALPHA_NZ: begin
-          if (nz <= Z_LOW) begin alpha_motion <= ALPHA_HIGH_Q16; fsm_state <= ST_DEPTH; end
-          else if (nz >= Z_HIGH) begin alpha_motion <= ALPHA_LOW_Q16; fsm_state <= ST_DEPTH; end
-          else begin
-            div_dividend <= (nz - Z_LOW) << 16;
-            div_divisor <= Z_HIGH - Z_LOW;
-            div_start <= 1'b1;
-            fsm_state <= ST_WAIT_ALPHA_NZ;
-          end
+          alpha_motion <= ALPHA_FIXED;
+          fsm_state <= ST_DEPTH;
         end
 
         ST_WAIT_ALPHA_NZ: begin

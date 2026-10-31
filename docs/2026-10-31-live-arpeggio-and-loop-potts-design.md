@@ -1,288 +1,290 @@
-# LIVE 琶音 + LOOP 变分：设计文档（2026-10-31）
+# LIVE 步进琶音 + LOOP 定长轮廓：设计文档（rev3）
 
 状态：**待批准**（批准前不改 RTL）
 仓库：`mgc3130_clean`（master @ `45ca44f`）
-依据：`docs/live-realtime-mapping-183da4e.md`、`mgc3130_uart@183da4e` 的
+依据：`docs/live-realtime-mapping-183da4e.md`、`mgc3130_uart@183da4e`
 `docs/system-design-summary-2026-10-25.md`、`tools/synthwave_loop.py@5312d84`
+
+rev3 变更：LIVE 改为**方案 C（每 tick 强制发一个音）**；LOOP 改为**固定 128 tick 只录轮廓**、
+两个模式由上位机分别选择、互不混用。rev2 里"LIVE 事件入 store""容量 32""第二圈覆盖第一圈"
+等条目随之删除。
 
 ## 1. 意图
 
-一次演奏分成两层，各自承担它擅长的东西：
+两个模式，两套职责，由上位机（`MODE` CSR `0x04`）选择，互不混用：
 
-- **LIVE = 连续琶音**。手一动就出声，音高随 y 变化，每个音的起点落在 16 分音符网格上。
-  它要的是**即时反馈和可听性**，不是旋律质量。
-- **LOOP = 变分分段**。录下每 tick 的 y，COMMIT 时用 Potts 从原始轨迹重算整圈旋律。
-  它要的是**旋律质量**，可以离线、可以慢。
+| 模式 | 做什么 | 声音 |
+| --- | --- | --- |
+| **LIVE** | 步进琶音：每 tick 一个音，音高 = 该 tick 的 y | 实时出声，永远合拍 |
+| **RECORD** | 只录 128 tick 的 y 轮廓，不录事件 | 静音（见 §6.5） |
+| **PLAY** | 循环播放 COMMIT 产出的 Potts 事件表 | loop |
 
-这样 10 ms 级的延迟要求和全局最优的旋律质量不再互相拉扯：一个在实时路径，一个在提交路径。
+"演奏"和"作曲"因此彻底分开：LIVE 只负责手感与实时性，RECORD+COMMIT 只负责旋律质量。
 
 ## 2. 目标
 
-| 编号 | 目标 | 判定方式 |
+| 编号 | 目标 | 判定 |
 | --- | --- | --- |
-| G1 | LIVE 在 BPM=100 下最多 6.67 音/秒，音起点都在 tick 边界 | GAO / 仿真统计换音间隔 |
-| G2 | LIVE 起音延迟 ≤ 1 帧（7.2 ms） | GAO 测 `cursor_frame_done → live_event_valid` |
-| G3 | LOOP 的音高与边界由 Potts 从**每 tick 的 y** 重算 | 与 PC 参考同一输入的事件表对照 |
-| G4 | 事件 tick 字段是 7 bit 音乐 tick，loop 能循环播放 | UART 读回 + 播放 |
-| G5 | 全部判据机器可查（§9） | `scripts/*` 产出物 |
+| G1 | LIVE 严格 1 音/tick（120 BPM → 8 音/秒），起点全在 tick 边界 | GAO 数 128 tick 内的 `NOTE_ON` |
+| G2 | LIVE 起音延迟 ≤ 1 tick（120 BPM = 125 ms） | GAO 测 tick_pulse → event_valid |
+| G3 | LOOP 音高与边界由 Potts 从**每 tick 的 y** 重算 | 与 PC 参考同输入对照（§15-Q2） |
+| G4 | 录满 128 tick 后 COMMIT 可发布，PLAY 能循环 | GAO 抓写存事件流 + 播放 |
+| G5 | 判据机器可查（§9） | `scripts/*` 产出物 |
+
+> **G2 的含义变了**：C 是网格化演奏，起音最多滞后 1 tick（125 ms），不是 10 ms。
+> 验收口径应写成"网格化、≤1 tick"，不能再说 ≤10 ms。
 
 ## 3. 非目标
 
-- 不做接触门控（`touch`），不做弓向门控（`bow`）——用户明确排除"接触发声"。
-- 不做运动门（"停手即静音"）——LIVE 要连续演奏。
-- 不改 FX、波表链路、测试模式、声部数（32）。
-- 不做 LIVE 多声部：LIVE 只有一条 lead。
-- 不改 PC UI 逻辑，只改参考实现的 y 映射常量（§6.4）。
+- 不做接触门控、弓向门控、运动门（用户已排除；C 也不需要）。
+- 不做 overdub / 叠录：一圈就是一录。
+- 不改 FX、波表、测试模式、声部数（32）。
+- 不做 LIVE 多声部。
+- 不新增 CSR 地址（λ 借用 `THRESHOLDS`，见 §8.2）。
 
-## 4. 反目标（技术上做成了也算失败）
+## 4. 反目标
 
-- LIVE 每秒超过 6.67 个音——那就退回"机器枪"。
-- LIVE 与 LOOP 用两套音高坐标——那 PC 对照失去意义。
-- 把 Potts 放进实时路径——延迟必然破坏 G2。
-- 用 CSR 回读证明实时性——只能 GAO 或仿真。
+- LIVE 一个 tick 发两个音，或音起点落在网格外。
+- LIVE 与 LOOP 用两套音高坐标。
+- 把 Potts 放进实时路径。
+- 用 CSR 回读证明实时性（只能 GAO/仿真）。
+- RECORD 期间把事件写进 loop store（容量只有 32/轨，见 §5.3）。
 
 ## 5. 方案与取舍
 
-### 5.1 LIVE 的三条路
+### 5.1 LIVE：选 C
 
-| 方案 | 起音延迟 | 换音延迟 | 资源 | 结论 |
+| 方案 | 起音 | 换音 | 资源 | 结论 |
 | --- | --- | --- | --- | --- |
-| A 纯 tick 同步（每 tick 采样 y） | ≤150 ms | ≤150 ms | ~150 LUT | 合拍，但第一次出声"慢半拍" |
-| **B 帧级即时起音 + tick 边界换音** | **≤7 ms** | ≤150 ms | ~200 LUT | **采用** |
-| C 步进琶音器（每 tick 强制发一个音） | 1 tick | 1 tick | ~150 LUT | 手速不影响节奏，演奏感最弱 |
+| A 纯 tick 同步（有变化才发） | ≤1 tick | ≤1 tick | ~150 LUT | 手停住就没有声音活动 |
+| B 帧级即时起音 + tick 换音 | ≤7 ms | ≤1 tick | ~200 LUT | 需要帧级路径 |
+| **C 步进琶音器（每 tick 发一音）** | ≤1 tick | 1 tick | **~120 LUT** | **采用** |
 
-选 B：它保住了"手一动就响"的反馈，同时把换音压在网格上，因此既像乐器又像琶音。
-持续移动时 A 与 B 几乎等价，差别只在每个乐句的第一个音。
+C 的取舍：手退化成"音高选择器"，节奏完全由机器提供；换来的是**永不冷场**、实现最简、
+和 loop 严格同网格。C 不需要帧级起音路径，也不需要滞回时机推理——每 tick 直接按当前 y 定音。
 
-### 5.2 LOOP 的两条路
+### 5.2 LOOP：只录轮廓（方案 Y）
 
-| 方案 | 喂给 Potts 的 | 新增 | 结论 |
-| --- | --- | --- | --- |
-| X 录已弹事件（音符号） | `live_event_data[71:64]` | 无 | 只能挪边界，**改不了音高** |
-| **Y 录每 tick 的 y（轮廓）** | 16 bit 原始 y | **1 BSRAM** | **采用**：音高与边界都从轨迹重算 |
+喂给 Potts 的是每 tick 的 `cursor_y`（16 bit），不是已弹事件。这样音高和边界都从原始轨迹重算。
 
-选 Y：X 的输入已经是 8 个离散值，Potts 再多聪明也只能合并，做不出"loop 比 live 更好听"。
+### 5.3 为什么"只录轮廓 + 定长"是关键简化
+
+| 原来的阻塞 | 现在 |
+| --- | --- |
+| store 每轨只有 32 个事件槽，128 tick 连续琶音放不下 | **不存事件**，只存轮廓；store 只装 Potts 结果（12–17 个，硬上限 32） |
+| append-only、后圈覆盖前圈、overdub 语义 | **一圈就是一录**，无叠录，无覆盖语义 |
+| COMMIT 要不要保留现场演奏 | 不需要：RECORD 期不产生可存事件 |
+| loop 长度不定 | **固定 128 tick = 8 小节**（120 BPM 下 16 s） |
 
 ## 6. 详细设计
 
-### 6.1 tick 发生器 `v2_tick_gen`（新模块）
+### 6.1 tick 发生器 `v2_tick_gen`（新）
 
 ```
-samples_per_tick = 720_000 / BPM          // 48 kHz × 60 s / (BPM × 4)
+samples_per_tick = 720_000 / BPM        // 48 kHz × 60 / (BPM × 4)
 ```
-
-- `BPM` 来自 CSR `0x08`（契约里已定义、top 里还没有实现），默认 100。
-- 除法**只在 BPM 写入时做一次**：顺序除法器（24 bit ÷ 16 bit，24 拍），结果存 `samples_per_tick[23:0]`。
-  余数丢弃，最大误差 1 采样（0.014%），可以接受。
-- 运行期：`sample_ce` 计数到 `samples_per_tick` → `tick_pulse`，同时 `tick[6:0] += 1`（模 128）。
-- BPM 范围限制 40..240，写入时钳位。
 
 | 项 | 值 |
 | --- | --- |
-| 100 BPM | 7200 采样 = 150 ms |
-| 90 / 120 / 128 BPM | 8000 / 6000 / 5625 采样 |
-| Loop | 8 小节 × 16 tick = 128 tick = 19.2 s @100 BPM |
-| 估计面积 | ~100 LUT，0 DSP，0 BSRAM |
+| BPM | 契约：60..240，默认 **120**，值在 `[31:16]`；越界由 `v2_uart_link` 拒收（BAD_DATA），板内不钳位 |
+| 120 BPM | 6000 采样 = **125 ms/tick**；128 tick = **16 s** |
+| 100 BPM | 7200 采样 = 150 ms/tick；128 tick = 19.2 s |
+| 除法 | 只在 BPM 写入时做一次（24 ÷ 16 bit，24 拍），余数丢弃（≤0.014%） |
+| 面积 | ~100 LUT |
 
-**这是前置条件**：没有它，后面所有"tick"都不成立。当前 top 用 `sample_index[6:0]` 当 tick，
-128 个采样就是一"圈"，只有 2.7 ms。
+BPM 写入时**重置 tick 计数**。现状用 `sample_index[6:0]` 当 tick（128 采样 = 2.7 ms），必须先换掉。
 
-### 6.2 LIVE 琶音规则（改写 `v2_live_rule_engine`）
-
-**删除**：左边界 arming（`left_edge` 现在被硬接 `1'b1`）、`edge_cross` 重击、
-死的 `note_change_ok` 判据、每帧的 `EV_CONTROL`（z 变化）事件、`MIN_EVENT_TICKS` 采样计数。
-
-**保留**：`map_note`（表要修正，见 §6.4）、`active/active_note`、事件握手。
-
-**新增两条规则**：
+### 6.2 LIVE 步进琶音（改写 `v2_live_rule_engine`）
 
 ```
-// 1) 即时起音（帧级）
-if (!active && gate)  → NOTE_ON(map_note(y))        // ≤1 帧
-
-// 2) 网格换音（tick 级，每 tick 至多一次）
 on tick_pulse:
-    cand = map_note(y_sampled)
-    if (active && cand != active_note && hysteresis_ok(y_sampled, active_note, cand))
-        → NOTE_OFF(active_note) 然后 NOTE_ON(cand)   // 同一 tick，顺序固定 OFF→ON
+    cand = map_note(y_now)
+    if (active) → NOTE_OFF(active_note)
+    → NOTE_ON(cand, velocity)
+    active_note <= cand
 ```
 
-- `gate = cursor_engaged`（Z 距离门），沿用现状；不做接触、不做运动门。
-- `y_sampled` = tick 边界时锁存的 `cursor_y`。
-- 同音高保持不重发（不产生 `note_off/on` 对）。
-- 力度沿用现有 `cursor_velocity[7:0]`（光标模块已经给出 proximity + speed 的合成）。
-- 事件 `tick` 字段 = 7 bit 音乐 tick。
+- 每 tick 恰好一对 OFF/ON；音高相同也照发（这就是步进琶音的"重复敲"）。
+- `y_now` = tick 边界时的 `cursor_y`。
+- `gate = cursor_engaged`（Z 距离门）：gate 落时不发新音，并发一次 `NOTE_OFF`。
+- **删除**：左边界 arming、`edge_cross`、死的 `note_change_ok`、每帧 `EV_CONTROL`、
+  `MIN_EVENT_TICKS`（网格本身就是时间限）。
+- NOTE_OFF **不受 `bad_frame` 阻塞**：现状 `.frame_valid(cursor_frame_done && cursor_engaged)`
+  让 `active && !gate` 不可达 → 音会永远挂着。修正为"只看 gate 电平"，并加 2 s 卡音超时兜底。
 
-**行为后果**：手在感应区内扫动 → 每 tick 至多一个音，音高随 y 阶梯上升/下降 = 琶音；
-手停住 → 一个长音；手离开 → gate 落，NOTE_OFF。没有休止，因为不需要。
+### 6.3 事件语义
 
-### 6.3 事件语义：LIVE 路径去掉 `REVOICE`
+LIVE 不再用 `EV_REVOICE`。现状它打包新音高，而声部引擎按"找已经在弹这个新音高的声部"匹配，
+恒不匹配、静默丢弃 → 音高永远不更新。
 
-现状的 bug：规则引擎在 `EV_REVOICE` 里打包**新音高**，而声部引擎按
-"找已经在弹这个新音高的声部"去匹配（`note[i] == event_data[71:64]`），
-正在响的声部持的是旧音高，所以恒不匹配、静默丢弃。结果音高只能靠下一次
-NOTE_ON 更新。
+C 每 tick 都发 `NOTE_OFF` + `NOTE_ON`，天然绕过该缺陷，且**不需要改 32 声部引擎**。
+调度器 pass 顺序（pass0=OFF，pass1=ON）保证同 tick 内 OFF 先于 ON。
 
-**决定**：LIVE 不再发 `REVOICE`，改发 `NOTE_OFF(old)` + `NOTE_ON(new)`。
+### 6.4 音高坐标与量化
 
-理由：
-- 不动 32 声部引擎，风险最小；
-- 每个音重新起音，正是琶音想要的；
-- `v2_loop_scheduler` 已经支持显式 `NOTE_OFF`（pass 0），存储/回放不用改；
-- 事件率翻倍也无所谓：最多 13.3 事件/秒。
+**Y 全量程，1 半音 = 3855 counts（65535/17）**，量化用**最近邻**（与 PC `_nearest_scale` 一致）。
+下表是**音级中心**，`map_note` 的门槛是相邻中心的中点：
 
-**同一 tick 内 OFF 先于 ON** 由调度器保证，不靠写入顺序：
-`v2_loop_scheduler` 按 pass 处理（pass0 = NOTE_OFF，pass1 = NOTE_ON，pass2 = CONTROL）。
-规则引擎只需保证两个事件带同一个 7 bit tick。
-
-### 6.4 音高坐标与量化表
-
-**决定：板上用 Y 全量程，1 半音 = 3855 counts。**
-
-现状三个问题：
-1. RTL 的 `map_axis()` 只做 `+32768`，**没有 PC 的 0.648 压缩**，全量程 0..65535；
-2. `map_note` 的 7 个边界与"线性音高 + 五声量化"不一致（实际宽度 2/1/2/1/3/2/1/5 半音，
-   应为 2/3/2/2/3/2/3）；
-3. 两者叠加导致中音区偏低 1–3 个半音、C5 独占最上面 5 个半音。
-
-新表（截断式，音级从自己的中心开始；PC 参考同步改成 `CURSOR_Y_RANGE=(0,65535)`）：
-
-| 音 | 中心/起始 y | 滞回 |
+| 音 | 中心 c_k | 门槛 |
 | --- | --- | --- |
-| 55 G3 | 0 | 250 |
-| 57 A3 | 7710 | 250 |
-| 60 C4 | 19275 | 250 |
-| 62 D4 | 26985 | 250 |
-| 64 E4 | 34695 | 250 |
-| 67 G4 | 46260 | 250 |
-| 69 A4 | 53970 | 250 |
-| 72 C5 | 65535 | — |
+| 55 G3 | 0 | — |
+| 57 A3 | 7710 | 3855 |
+| 60 C4 | 19275 | 13493 |
+| 62 D4 | 26985 | 23130 |
+| 64 E4 | 34695 | 30840 |
+| 67 G4 | 46260 | 40478 |
+| 69 A4 | 53970 | 50115 |
+| 72 C5 | 65535 | 59753 |
 
-`map_note(y)` = 落到包含 y 的区间；换音需离开当前音中心 250 counts（约 0.065 半音）。
+C 模式没有换音滞回（每 tick 直接按最近邻定音），所以 §6.4 的 250 counts 滞回**只用于 Potts 的分段约束**，不用于 LIVE。
+（这一条消除了 rev2 里"同一张表当两个用"的矛盾。）
 
-选全量程而不压缩的理由：画布是 PC 的概念，板上只关心 y→音高；全量程免掉一个乘法器，
-而且分辨率从 2498 提到 3855 counts/半音。
+PC 参考须同步改成 `CURSOR_Y_RANGE=(0,65535)`（见 §15-Q2）。
 
-### 6.5 轮廓录制 `v2_contour_recorder`（新模块）
-
-- 128 × 16 bit RAM 存 `cursor_y`，配 `valid[127:0]` 掩码（无手/无效帧为 0）。
-- 写：RECORD 期间每个 `tick_pulse` 写一个点，索引 = `tick[6:0]`。
-- 1 BSRAM（128×16 装得进 1024×18），~30 LUT 胶合。
-- 与事件录制并行（事件仍录，供 LIVE 回放/诊断）。
-
-### 6.6 COMMIT：分块 Potts（改 `v2_potts_commit_fsm` + 顶层）
-
-板上 `HORIZON=32`，128 tick 要分 4 块：
+### 6.5 轮廓录制 `v2_contour_recorder`（新）
 
 ```
-chunk k = 0..3:  BASE = 32k (k=0) / 32k-4 (k>0)        // 4 tick 重叠
-                 窗口 = [BASE, BASE+32)
-                 只提交 start ≥ 32k 的段               // 首段属于上一块
-                 事件 tick = BASE + trace_start
+MODE=RECORD → 等下一个 tick==0 → 连续 128 个 tick 写 y[i] 与 valid[i] → contour_full
 ```
 
-改动点：
-1. `contour[seg_t]` → `contour[BASE + seg_t]`；`rest_mask` 同样加 BASE。
-2. 音级表从 5 个扩到 8 个（`note(k)` 加 55/69/72，`d==4` 的收尾判据改成 `d==7`）。
-3. 误差项从"音符号差平方"改成"y 与音级中心差平方"，定点见 §7。
-4. 新增 `BASE` 输入与事件打包时的绝对 tick。
-5. 顶层新增提交序列器：4 次 start/done，把事件写进 loop store。
+- 128 × 16 bit RAM + 128 bit valid 掩码，1 BSRAM。
+- 无手/无效帧写 valid=0，COMMIT 时当 `rest_mask`。
+- **不记录事件**，也不发声：RECORD 期静音（要监听只能靠上位机，见 §15-Q3）。
+- 未录满就退出 RECORD（host 改 MODE）→ 丢弃本次，`contour_full=0`。
 
-### 6.7 路由：Potts → loop store
+### 6.6 COMMIT：Potts（形态待定，§15-Q1）
 
-现状：Potts 的事件直接送声部（`mode` 非 live 非 play 时）。
-目标：COMMIT 后写进 loop store 的 lead 轨，再由 `v2_loop_scheduler` 循环播放。
+| 形态 | 做法 | 代价 |
+| --- | --- | --- |
+| A 分块 | 128 tick 分 5 块，`BASE` 每次前进 **28**（左重叠 4），丢弃跨界的首段 | 序列器 ~80 LUT，接缝需验收 |
+| B 一次跑完 | `HORIZON=128`，DP 表搬到 DPB（7 bit 地址） | ~+1 DPB lane，COMMIT 数十毫秒 |
 
-改动：store 的写口加一级 mux（平时接 `u_recorder`，COMMIT 时接 Potts），
-以及一个"COMMIT 期间占用写口"的仲裁信号。事件 track 位由 FSM 置 0（lead）。
+（rev2 写的 4 块是错的：每块只能提交 28 个新 tick，128 需要 5 块，否则留下 4 tick 空洞。）
 
-## 7. 定点约定（Potts 误差项）
+两种形态都要改：
+1. `contour[seg_t]` → `contour[BASE + seg_t]`（B 形态 BASE=0）；
+2. 音级表 5 → 8（`note(k)` 补 55/69/72，收尾判据 `d==4` → `d==7`）；
+3. 误差项改成 `(y − c_k)` 平方，定点见 §7；
+4. 事件打包写绝对 tick。
 
-轮廓值 = `y`（0..65535），音级中心 `c_k` 见 §6.4 表。
+### 6.7 COMMIT → store 时序
 
 ```
-delta = (y - c_k) >> 6          // 11 bit 有符号，量程 ±1023
-err   = delta * delta            // ≤ 1,046,529，20 bit
-λ     = lambda_q16               // 与 err 同单位
+0x28 COMMIT
+  → PREPARE（复制 active → shadow，等 write_ready）
+  → CLEAR_TRACK(lead)
+  → Potts（A: 5 次 / B: 1 次）→ 事件写 shadow 的 lead 轨（≤32）
+  → COMMIT_REQUEST（切 bank，在 loop 边界生效）
+  → host 写 MODE=PLAY
 ```
 
-单位换算：1 半音 = 3855 counts → `3855>>6 = 60` → 1 半音² = 3600 LSB。
-PC 的 λ=6 → 板上 `lambda_q16 = 21600`（0x5460）。
+现状一次 `0x28` 同时触发 `loop_ctrl_op=3` 和 `potts_start`；非 PLAY 模式下要等 16–19 s 的 loop
+边界，等不到就丢影子 bank。序列器必须显式等待并暴露 fault。
 
-`dp` 累加仍是 32 bit，饱和在 `0x3FFFFFFF`（现有 `sat()` 不变）。
+## 7. 定点约定
 
-## 8. 寄存器与接口变更
+```
+delta = (y - c_k) >> 6      // 11 bit 有符号
+err   = delta * delta        // ≤1,046,529
+λ     = lambda_q16           // 同单位
+```
 
-| CSR | 变更 |
-| --- | --- |
-| `0x08 BPM` | **新实现**：16 bit，钳位 40..240，写入时重算 `samples_per_tick` |
-| `0x28 COMMIT` | 语义扩展：触发 4 块序列，完成后 `potts_done` |
-| 新增 `0x2C` 之后任一空位（建议 `0x5C` 已被 patch 占用，用 `0xA4`） | `lambda_q16`（16 bit），默认 21600 |
-| `0x34 POSITION` / 遥测 | 增加 `tick[6:0]` 与 `live_active_note`（可选） |
+1 半音 = 3855 counts → `3855>>6 = 60` → 1 半音² = 3600 LSB。PC 的 λ=6 → `lambda_q16 = 21600`。
 
-事件契约（96 bit）**不变**，只是 LIVE 不再用 `REVOICE`，并把 `[87:80]` 写成音乐 tick。
+## 8. 寄存器与接口
 
-## 9. 验收判据（全部可机器检查）
+### 8.1 BPM
 
-1. **tick 周期**：BPM=100，连续 128 个 `tick_pulse` 跨 921 600 采样 ±1。
-2. **琶音速率**：一段从 y=0 线性升到 65535、持续 128 tick 的激励，产出恰好 7 次换音
-   （8 个音级），间隔都 ≥1 tick。
-3. **同音不重发**：y 固定 32 tick，LIVE 事件数 = 0（除首次 NOTE_ON）。
-4. **起音延迟**：`cursor_frame_done` 到 `live_event_valid` ≤ 1 帧（7.2 ms）。
-5. **REVOICE 消失**：LIVE 路径不再出现 `EV_REVOICE`（grep 事件流）。
-6. **COMMIT 一致性**：仿真里用 `HORIZON=128` 跑一遍作金标准，与 4×32 分块结果逐事件比较；
-   差异必须为 0，否则把差异写进文档并给出理由。
-7. **循环落位**：录 2 圈，读回事件 tick 集合应为 `{0..127}` 的子集，且第二圈覆盖第一圈。
-8. **可听性**：一段正弦手势（1 Hz）产出 ≥8 个音且音高单调跟随（不能只在波峰出音）。
+`0x08`，值 `[31:16]`，60..240，默认 120，越界拒收，写入后重置 tick 计数。
+
+### 8.2 λ
+
+不新增地址（`0xA4` 已被只读 `dbg_apply_reject_reason` 占用）。放
+`V2_CSR_THRESHOLDS(0x30)` 的 `[31:16]`，默认 21600。
+
+### 8.3 velocity
+
+现状 `velocity_in = cursor_velocity[7:0]` 是 Q16 值的低字节，会回绕、非单调。
+改为 **256×8 bit ROM**：输入 `cursor_velocity[15:8]`，输出单调映射到 MIDI 32..122。
+
+### 8.4 可观测性
+
+`potts_done` / commit 状态无 CSR 可读（见 §15-Q3）。
+
+## 9. 验收判据
+
+1. **tick 周期**：120 BPM，128 个 `tick_pulse` 跨 768 000 采样 ±1（16 s）。
+2. **严格 1 音/tick**：128 tick 内 `NOTE_ON` 计数 = 128，任意两个相隔 = 1 tick。
+3. **音高跟随**：y 从 0 线性升到 65535 的 128 tick，音高序列单调，且恰好经过 8 个音级。
+4. **同音重复**：y 固定 32 tick → 32 个同音高事件（不是 1 个长音）。
+5. **不卡音**：发过 NOTE_ON 后把手移出感应区，下一次 tick 收到 NOTE_OFF。
+6. **RECORD 定长**：录满 128 tick 后 `contour_full=1`；中途退出则丢弃。
+7. **COMMIT 发布**：COMMIT 后 PLAY 的事件集 = Potts 输出（4–32 个/圈），每圈相同。
+8. **可听性**：1 Hz 正弦手势录 8 小节，Potts 输出 ≥8 个音且音高单调跟随。
 
 ## 10. 验证计划
 
 | 层 | 命令 | 判据 |
 | --- | --- | --- |
-| L0 静态 | `python scripts/gate.py` | 无重名模块、单一顶层、filelist 一致 |
-| L1 编译 | `python scripts/gate.py --compile` | 0 error / 0 warning |
-| L2 仿真 | `python scripts/sim.py` + 新增 `tb_live_arpeggio`、`tb_potts_chunk` | 失败是基线子集；新增用例全过 |
-| L3 构建 | `python scripts/synth.py --run-id arp1` | syn + P&R 通过，**记录违约端点数为 0**，位流 sha256 |
-| L4 板级协议 | `host/board_*.ps1` | BPM 写入/读回、COMMIT、事件表读回，N 轮 + 负例 |
-| L5 波形 | `python scripts/gao_capture.py` | 抓 16 个连续 tick 的 `live_event_*`，验证换音只在边界 |
+| L0 | `python scripts/gate.py` | 无重名模块、单一顶层 |
+| L1 | `gate.py --compile` | 0 error / 0 warning |
+| L2 | `sim.py` + 新增 `tb_live_arp`、`tb_potts_commit` | 基线子集；新增全过 |
+| L3 | `synth.py --run-id arp1` | syn + P&R，**违约端点 0**，位流 sha256 |
+| L4 | `host/board_*.ps1` | BPM 写/读回、RECORD 定长、COMMIT、PLAY |
+| L5 | `gao_capture.py` | 16 个连续 tick 的 `live_event_*`，证明 1 音/tick 与边界对齐 |
 
-L4/L5 必须记录：基线寄存器、位流 sha256、源 commit、未跑项清单。
+L3/L4/L5 使用 `PRESERVE_LOOP_PLANE=0 / PRESERVE_POTTS_PLANE=0` 的功能位流
+（现在这两个开关把触发源换成 `sample_index` 探针，CSR COMMIT 不会启动 Potts），
+面积必须在同一配置下重测。
 
-## 11. 资源预算（估算，须由 `synth.py` 实测）
+## 11. 资源预算（估算，须实测）
 
 | 变更 | LUT | DSP | BSRAM |
 | --- | --- | --- | --- |
-| `v2_tick_gen` + BPM 寄存器 + 除法器 | +100 | – | – |
-| LIVE 规则改写（删 arm/edge，加 tick 采样） | −40 | – | – |
-| 轮廓 RAM + 胶合 | +30 | – | **+1** |
-| Potts 扩到 8 音级 + 平方器 + BASE | +100 | **+1** | – |
-| COMMIT 序列器 | +80 | – | – |
-| **合计** | **≈ +270** | **+1** | **+1** |
+| `v2_tick_gen` + BPM | +100 | – | – |
+| LIVE 改 C（删 arm/edge/arc 逻辑） | −80 | – | – |
+| 轮廓 RAM | +30 | – | +1 |
+| Potts 8 音级 + 平方器 | +100 | +1 | – |
+| COMMIT 序列器（A 形态） | +80 | – | – |
+| velocity ROM | +20 | – | – |
+| **合计** | **≈ +250** | **+1** | **+1** |
 
-余量：CLS 549 空闲、LUT 3263 空闲、BSRAM 20 空闲。可行，但没有第二次机会——
-任何额外功能都要先砍别的东西。
+余量：CLS 491（11029/11520）、LUT 3024、BSRAM 20。CLS 会到 97% 附近。
 
 ## 12. 风险
 
-1. **DSP**：平方器可能不止 +1，需在 L3 实测；不够就用移位加法（多 ~100 LUT）。
-2. **分块接缝**：4 块拼接与全局 DP 的差异目前未知；§9.6 就是为量化它而设。
-3. **旧文档的"41 µs"不可信**：FSM 的 SEGMENT 状态对每个 cell 重扫段内所有点，复杂度 O(H³·K)，
-   估算 H=128 约 3×10⁷ 拍（80 MHz 下数十毫秒），H=32 约 1×10⁶ 拍（约 1 ms/块）。以实测为准。
-4. **PC 与板上的坐标分叉**：本次把 PC 改成全量程，会破它现有的测试与历史采集的可比性；
-   旧采集需要重算。
-5. **CLS 紧**：95.2% 已用，新增 270 LUT 后约 96–97%，P&R 可能开始变慢或违例。
+1. DSP：平方器可能不止 +1，L3 实测；不够用移位加法。
+2. 分块接缝（A 形态）：与全局 DP 的差异未知；验收要求"可解释"，不要求逐事件相等。
+3. 旧文档的"41 µs"不可信：FSM 是 O(H³·K)，H=128 数十毫秒，H=32 约 1 ms/块。
+4. PC 与板上坐标分叉：改全量程会破 `mgc3130_uart` 的现有测试与旧采集。
+5. CLS 97%：P&R 可能变慢或违例。
+6. C 模式没有力度起伏的第二种来源：velocity 只用 Z/speed（§8.3），节奏完全均匀。
 
-## 13. 留给实现者的决定
+## 13. 留给实现者
 
-- tick 发生器的除法器复用光标里的 `u_div` 还是独立一个（耦合 vs 面积）。
-- 轮廓 RAM 用 BSRAM 还是 DPB（DPB 已被 Potts 占 3 块）。
-- COMMIT 序列器的状态机形态（4 块串行，还是允许 32 tick 一步跑完）。
-- 是否保留 `EV_CONTROL` 在其它路径（遥测仍需要 z，但不必走事件流）。
+- tick 除法器复用光标 `u_div` 还是独立。
+- 轮廓 RAM 用 BSRAM 还是 DPB。
+- COMMIT 序列器状态机划分。
+- velocity ROM 用 LUT RAM 还是 BSRAM。
+- RECORD 期是否需要 tick 计数复位到 0（与 loop 相位对齐）。
 
-## 14. 我替你定下的（请复核）
+## 14. 我替你定下的
 
-1. **16 分音符为一格**（1 tick = 150 ms @100 BPM），与 PC 参考一致。
-2. **LIVE 用 NOTE_OFF+NOTE_ON 代替 REVOICE**（不动声部引擎）。
-3. **板上音高用 Y 全量程**（1 半音 = 3855 counts），PC 参考同步。
-4. **同音高不重发**（保持长音），不做每 tick 重击。
-5. 文档放 `docs/` 平铺目录，跟随本仓库现有习惯（而非 `docs/superpowers/specs/`）。
+1. LIVE = C，每 tick 强制一音，音高相同也重发。
+2. 同 tick 内 `NOTE_OFF` + `NOTE_ON`，不用 `REVOICE`。
+3. LOOP 固定 **8 小节 = 128 tick**，只录轮廓，一圈一录，无叠录。
+4. 音高用 Y 全量程、最近邻、1 半音 = 3855 counts；滞回只用于 Potts。
+5. RECORD 期静音；不把事件写进 store。
+6. 文档放 `docs/` 平铺目录。
+
+## 15. 待你定的三件事
+
+**Q1 — Potts 形态**：A 5 块分块（+80 LUT，接缝要验收）还是 B `HORIZON=128` 一次跑完
+（+1 DPB lane，COMMIT 数十毫秒）？我倾向 B。
+
+**Q2 — PC 金标准与老仓库**：`v2_potts_reference.py`（5 音级、音符号域）还是
+`synthwave_loop.py`（8 音级、半音域）？把轮廓换成 y 需要连误差项一起改，且改全量程会破
+`mgc3130_uart` 的测试——允许改老仓库吗？
+
+**Q3 — 事件表要不要 CSR 可读**：现在没有读口（store 端口 A 被调度器占用、端口 B 只写），
+STATUS 也没有 commit 完成位。加读回窗口（未计入预算），还是接受 GAO + 仿真作为证据？

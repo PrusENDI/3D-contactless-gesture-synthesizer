@@ -269,7 +269,8 @@ logic signed [31:0] cursor_last_z;
     logic [15:0] bpm_auto_q;
     logic        bpm_auto_we, bpm_auto_we_d, bpm_auto_d;
     wire  [23:0] bpm_scaled = ({8'd0, cursor_x[15:0]} << 7) - ({8'd0, cursor_x[15:0]} << 3);
-    // Range as requested: 30..60 BPM. bpm_scaled = cursor_x * 120, so >>17 halves it.\n    wire  [15:0] bpm_auto   = 16'd30 + {1'b0, bpm_scaled[23:17]};
+    // Range as requested: 30..60 BPM. bpm_scaled = cursor_x * 120, so >>17 halves it.
+    wire  [15:0] bpm_auto   = 16'd30 + {1'b0, bpm_scaled[23:17]};
     logic        bpm_we_q;
     wire         bpm_write;
     logic        tick_pulse;

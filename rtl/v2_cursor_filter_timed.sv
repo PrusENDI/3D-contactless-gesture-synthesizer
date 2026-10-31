@@ -53,8 +53,8 @@ module v2_cursor_filter_timed #(
   // clear while the board boots, exactly like the PC's force-calibration step.
   logic have_neutral;
   logic signed [31:0] neutral_x, neutral_y;
-  assign mapped_x = (frame_x - neutral_x) + 32'sd32768;
-  assign mapped_y = (frame_y - neutral_y) + 32'sd32768;
+  assign mapped_x = frame_x + 32'sd32768;
+  assign mapped_y = frame_y + 32'sd32768;
 
   // The telemetry field is 16 bits: clamp instead of letting a value above 65535
   // wrap around to zero, which looked like the cursor jumping across the screen.
@@ -90,11 +90,6 @@ module v2_cursor_filter_timed #(
       frame_output_valid <= frame_in_valid;
       point_valid <= 1'b0;
       if (frame_in_valid) begin
-        if (!have_neutral) begin
-          neutral_x <= frame_x;
-          neutral_y <= frame_y;
-          have_neutral <= 1'b1;
-        end
         // Engage hysteresis on proximity so the gate cannot chatter.
         if (frame_z <= Z_ENGAGE) engaged <= 1'b1;
         else if (frame_z >= Z_RELEASE) engaged <= 1'b0;

@@ -131,8 +131,8 @@ def run_window(port, seconds: float, flip: str = "y") -> None:
         frames = parse_frames(buf)
         for seq, x, y, z in frames:
             x, y = apply_flip(x, y, flip)
-            px = int(x * (size - 1) / 65535)
-            py = int(y * (size - 1) / 65535)
+            px = max(0, min(size - 1, int(x * (size - 1) / 65535)))
+            py = max(0, min(size - 1, int(y * (size - 1) / 65535)))
             state["trail"].append((px, py))
             if len(state["trail"]) > 400:
                 state["trail"].pop(0)

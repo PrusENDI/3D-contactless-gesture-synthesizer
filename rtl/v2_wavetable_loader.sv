@@ -80,6 +80,19 @@ module v2_wavetable_loader #(
     input logic [1:0] wt_read_table,
     input logic [9:0] wt_read_index,
     output logic signed [15:0] wt_read_sample,
+    // Second read channel for the 3-frame morph.  Channel 0/1 select a table each
+    // and share the phase index; the select is registered so the output mux
+    // matches the DPB read that is one cycle behind.  Reading the same table on
+    // both channels is legal (same address); different indices on the same table
+    // are not, and are not arbitrated.
+    input  logic [1:0] wt_rd_table0,
+    input  logic [9:0] wt_rd_index0,
+    input  logic [1:0] wt_rd_table1,
+    input  logic [9:0] wt_rd_index1,
+    output logic signed [15:0] wt_rd_sample0,
+    output logic signed [15:0] wt_rd_sample1,
+    output logic        wt_rd_valid0,
+    output logic        wt_rd_valid1,
     output logic wt_active_valid,
     output logic wt_shadow_valid,
     output logic wt_apply_busy,
@@ -190,6 +203,26 @@ module v2_wavetable_loader #(
     assign wt_active_table = wt_read_table;
     assign wt_read_sample = (wt_read_table < TABLES)
         ? mem_rd_data[wt_read_table][active_bank[wt_read_table]] : 16'sd0;
+    // The two morph channels use a registered select so the mux follows the
+    // address that produced this cycle's mem_rd_data.
+    logic [1:0] rd_t0_q, rd_t1_q;
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            rd_t0_q <= 2'd0;
+            rd_t1_q <= 2'd0;
+        end else begin
+            rd_t0_q <= wt_rd_table0;
+            rd_t1_q <= wt_rd_table1;
+        end
+    end
+    assign wt_rd_sample0 = (rd_t0_q < TABLES)
+        ? mem_rd_data[rd_t0_q][active_bank[rd_t0_q]] : 16'sd0;
+    assign wt_rd_sample1 = (rd_t1_q < TABLES)
+        ? mem_rd_data[rd_t1_q][active_bank[rd_t1_q]] : 16'sd0;
+    assign wt_rd_valid0 = (rd_t0_q < TABLES)
+        ? (covered_count[rd_t0_q][active_bank[rd_t0_q]] == BLOCKS) : 1'b0;
+    assign wt_rd_valid1 = (rd_t1_q < TABLES)
+        ? (covered_count[rd_t1_q][active_bank[rd_t1_q]] == BLOCKS) : 1'b0;
     assign wt_active_valid = (wt_read_table < TABLES)
         ? (covered_count[wt_read_table][active_bank[wt_read_table]] == BLOCKS) : 1'b0;
     assign wt_shadow_valid = (wt_read_table < TABLES)
@@ -213,6 +246,16 @@ module v2_wavetable_loader #(
         if (wt_read_table < TABLES) begin
             mem_rd_en[wt_read_table][active_bank[wt_read_table]] = 1'b1;
             mem_rd_addr[wt_read_table][active_bank[wt_read_table]] = wt_read_index;
+        end
+        // Morph channels are driven last so a morph read wins over the host read
+        // when both address the same table.
+        if (wt_rd_table0 < TABLES) begin
+            mem_rd_en[wt_rd_table0][active_bank[wt_rd_table0]] = 1'b1;
+            mem_rd_addr[wt_rd_table0][active_bank[wt_rd_table0]] = wt_rd_index0;
+        end
+        if ((wt_rd_table1 < TABLES) && (wt_rd_table1 != wt_rd_table0)) begin
+            mem_rd_en[wt_rd_table1][active_bank[wt_rd_table1]] = 1'b1;
+            mem_rd_addr[wt_rd_table1][active_bank[wt_rd_table1]] = wt_rd_index1;
         end
         if (wt_write_valid && wt_write_ready) begin
             mem_wr_en[wt_table][~active_bank[wt_table]] = 1'b1;

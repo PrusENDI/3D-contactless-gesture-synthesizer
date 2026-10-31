@@ -706,6 +706,7 @@ end
     // Frame crossfade.  Task 2 instantiates it on zero inputs; the read-channel
     // wiring arrives with the top integration task.
     logic signed [15:0] wt_sample_a, wt_sample_b, wt_mix_out;
+    logic wt_rd_valid0, wt_rd_valid1;
     v2_wt_mix u_wt_mix (
         .a(wt_sample_a), .b(wt_sample_b), .frac(wt_frac), .out(wt_mix_out)
     );
@@ -724,6 +725,12 @@ end
         .wt_apply_version(wt_apply_payload_q), .wt_version_reg(wt_apply_version), .loop_boundary(loop_boundary),
         .idle((mode_reg == IDLE) && !recording), .wt_read_table(wt_select_table),
         .wt_read_index(wt_read_index_sel), .wt_read_sample(wt_read_sample),
+        // Both morph channels idle on the selected table until the integration
+        // task drives them from position; this keeps the read data identical.
+        .wt_rd_table0(wt_select_table), .wt_rd_index0(wt_read_index_sel),
+        .wt_rd_table1(wt_select_table), .wt_rd_index1(wt_read_index_sel),
+        .wt_rd_sample0(wt_sample_a), .wt_rd_sample1(wt_sample_b),
+        .wt_rd_valid0(wt_rd_valid0), .wt_rd_valid1(wt_rd_valid1),
         .wt_active_valid(wt_active_valid), .wt_shadow_valid(wt_shadow_valid),
         .wt_apply_busy(wt_apply_busy), .wt_crc_error(wt_crc_error),
         .wt_active_version(wt_active_version), .wt_active_table(wt_active_table),

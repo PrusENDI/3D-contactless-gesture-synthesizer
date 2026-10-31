@@ -54,8 +54,8 @@ module mgc3130_input_latch (
                     v2_sequence <= sequence_counter;
                 end
                 v2_timestamp_ticks <= free_timestamp_ticks;
-                v2_raw_x <= $signed({1'b0,x_position}) - 17'sd32768;
-                v2_raw_y <= $signed({1'b0,y_position}) - 17'sd32768;
+      v2_raw_x <= {{1{x_position[15]}}, x_position};   // sign-extend the signed sensor word
+      v2_raw_y <= {{1{y_position[15]}}, y_position};   // sign-extend the signed sensor word
                 v2_raw_z <= {1'b0,z_position};
                 v2_frame_valid <= 1'b1;
                 v2_gap <= report_error;

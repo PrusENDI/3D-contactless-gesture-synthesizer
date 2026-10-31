@@ -229,7 +229,7 @@ module v2_cursor_filter_timed #(
 
   task automatic load_direct;
     begin
-      in_x <= frame_x; in_y <= frame_y; in_z <= frame_z;
+      in_x <= frame_x + 32'sd32768; in_y <= frame_y + 32'sd32768; in_z <= frame_z;
       in_valid <= frame_valid; in_saturated <= frame_saturated; in_gap <= frame_gap;
       in_degraded <= frame_degraded; in_left_edge <= left_edge;
       in_reason <= calibration_reason; in_sequence <= frame_sequence; in_timestamp <= frame_timestamp;
@@ -238,7 +238,7 @@ module v2_cursor_filter_timed #(
 
   task automatic load_queue_head;
     begin
-      in_x <= q_x[q_head]; in_y <= q_y[q_head]; in_z <= q_z[q_head];
+      in_x <= q_x[q_head] + 32'sd32768; in_y <= q_y[q_head] + 32'sd32768; in_z <= q_z[q_head];
       in_valid <= q_valid[q_head]; in_saturated <= q_saturated[q_head]; in_gap <= q_gap[q_head];
       in_degraded <= q_degraded[q_head]; in_left_edge <= q_left_edge[q_head];
       in_reason <= q_reason[q_head]; in_sequence <= q_sequence[q_head]; in_timestamp <= q_timestamp[q_head];

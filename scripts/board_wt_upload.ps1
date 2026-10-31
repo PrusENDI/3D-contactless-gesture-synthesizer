@@ -12,6 +12,10 @@ param(
   [Parameter(Mandatory = $true)][string]$Bin,
   [int]$Table = 0,
   [int]$Version = 1,
+  # Optional final WT_SELECT write after a successful APPLY.  The morph flow
+  # uploads three tables and only the last call passes the morph word, because
+  # every upload has to start from WT_SELECT=table.
+  [long]$PostSelect = -1,
   [switch]$DryRun,
   [string]$LogPath = 'artifacts/board/wt_upload.log'
 )
@@ -58,6 +62,7 @@ Log ("table crc=0x{0:X4} table={1} version={2} apply=0x{3:X8}" -f $tableCrc, $Ta
 if ($DryRun) {
   Log ("DRY RUN: 1 x WT_INDEX + 1024 x WT_DATA + WT_CRC + WT_VERSION + WT_APPLY = 1028 commands")
   Log ("DRY RUN: first sample=0x{0:X4} last sample=0x{1:X4}" -f $samples[0], $samples[1023])
+  if ($PostSelect -ge 0) { Log ("DRY RUN: post WT_SELECT=0x{0:X8}" -f $PostSelect) }
   exit 0
 }
 
@@ -132,6 +137,11 @@ $e = X 0x02 0x78 ($commitBit -bor [uint32]($Version -band 0xFFFF))
   Start-Sleep -Milliseconds 10
 }
 $status = X 0x01 0x7C 0
+if ($e -eq 0 -and $PostSelect -ge 0) {
+  $e2 = X 0x02 0x60 ([uint32]$PostSelect)
+  Log ("post WT_SELECT=0x{0:X8} err={1}" -f $PostSelect, $e2)
+  if ($e2 -ne 0) { $e = $e2 }
+}
 $sp.Close(); $sp.Dispose()
 Log ("APPLY err={0} WT_STATUS=0x{1:X8}" -f $e, $status)
 if ($e -ne 0) { Log 'RESULT: FAIL'; exit 5 }

@@ -473,7 +473,32 @@ wire signed [15:0] fx_quiet = fx_sample >>> 2;
 // Same -12 dB the voice path uses: a full-scale table is far too loud, and
     // there is no gain register yet.
     wire signed [15:0] wt_quiet = (wt_play_sample >>> 3) - (wt_play_sample >>> 6) - (wt_play_sample >>> 7);  // = 0.1016x = -19.9 dB
-    assign i2s_sample = (mode_wt_play || mode_live) ? wt_quiet : test_active ? test_sample : fx_quiet;
+    // Per-note envelope for the single-voice LIVE path. An arpeggiator step is a
+    // NOTE_ON event, so the envelope must restart on the EVENT, not on the gate:
+    // a gate-driven envelope leaves repeated same-pitch notes as one long tone.
+    wire live_note_hit = live_event_valid && (live_event_type == V2_EV_NOTE_ON);
+    logic hit_sticky, wt_env_gate;
+    logic [15:0] wt_env;
+    logic signed [31:0] wt_env_prod;
+    localparam logic [15:0] ENV_ATT = 16'd96, ENV_DEC = 16'd8, ENV_SUS = 16'd45875;
+    assign wt_env_gate = mode_live && live_gate;
+    always_ff @(posedge clk_sys_100m or negedge rst_sys_n) begin
+        if (!rst_sys_n) hit_sticky <= 1'b0;
+        else if (live_note_hit) hit_sticky <= 1'b1;
+        else if (sample_ce) hit_sticky <= 1'b0;
+    end
+    always_ff @(posedge clk_sys_100m or negedge rst_sys_n) begin
+        if (!rst_sys_n) wt_env <= 16'd0;
+        else if (sample_ce) begin
+            if (hit_sticky)                     wt_env <= 16'd0;
+            else if (!wt_env_gate)              wt_env <= (wt_env > 16'd16) ? (wt_env - 16'd16) : 16'd0;
+            else if (wt_env < ENV_SUS)          wt_env <= wt_env + ENV_ATT;
+            else if (wt_env > ENV_SUS)          wt_env <= wt_env - ENV_DEC;
+        end
+    end
+    assign wt_env_prod = wt_quiet * $signed({1'b0, wt_env});
+    wire signed [15:0] wt_live_sample = wt_env_prod[31:16];
+    assign i2s_sample = mode_wt_play ? wt_quiet : mode_live ? wt_live_sample : test_active ? test_sample : fx_quiet;
     i2s_pcm5102a_tx #(.CLK_HZ(80_000_000), .SAMPLE_HZ(48_000), .ACC_WIDTH(24)) u_i2s (
         .clk(clk_sys_100m), .rst(!rst_sys_n), .sample_valid(i2s_sample_valid),
         .sample_in(i2s_sample), .i2s_bck(pcm5102a_bck), .i2s_lrck(pcm5102a_lrck),

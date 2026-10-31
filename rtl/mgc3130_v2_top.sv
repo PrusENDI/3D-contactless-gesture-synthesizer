@@ -262,16 +262,19 @@ logic signed [31:0] cursor_last_z;
     wire mode_record = (mode_reg == RECORD);
     wire mode_play = (mode_reg == PLAY);
 wire mode_wt_play = (mode_reg == WT_PLAY);
+// Cursor engagement as a level, not a pulse: point_valid lasts one cycle and must not
+// be used as a per-frame validity or gate.
+wire cursor_engaged = (cursor_state == 2'd1) || (cursor_state == 2'd2);
 logic [9:0] wt_play_index;
 logic signed [15:0] wt_play_sample;
 logic wt_play_valid;
 logic [9:0] wt_read_index_sel;
     v2_live_rule_engine #(.PIPELINE_NOTE(1)) u_live (
         .clk(clk_sys_100m), .rst_n(rst_sys_n), .frame_in_valid(cursor_frame_done),
-        .frame_valid(cursor_frame_done && cursor_point_valid && (cursor_state != 2'd3)), .frame_degraded(degraded_frame),
+        .frame_valid(cursor_frame_done && cursor_engaged), .frame_degraded(degraded_frame),
         .frame_gap(calibrated_gap), .rebased(cursor_rebased), .left_edge(1'b1),
         .x(cursor_x[15:0]), .y(cursor_y[15:0]), .z(cursor_z[15:0]),
-        .touch(cursor_point_valid), .bow(cursor_point_valid), .tick(sample_index),
+        .touch(cursor_engaged), .bow(cursor_engaged), .tick(sample_index),
         .velocity_in(cursor_velocity[7:0]), .brightness_in(cursor_depth), .gain_in(16'hffff),
         .event_valid(live_event_valid), .event_ready(live_event_ready), .event_data(live_event_data),
         .event_type(live_event_type), .event_note(live_event_note), .event_velocity(live_event_velocity),
@@ -449,7 +452,10 @@ logic [9:0] wt_read_index_sel;
         .fx_reverb_mix_q15(16'd0), .fx_status_level(fx_status), .fx_clip(fx_clip)
     );
     assign i2s_sample_valid = mode_wt_play ? wt_play_valid : test_active ? test_sample_valid : voice_sample_valid;
-    assign i2s_sample = mode_wt_play ? wt_play_sample : test_active ? test_sample : fx_sample;
+    // The voice path has no volume control yet; -12 dB keeps a sustained note at a
+// listenable level while the gain register is still missing.
+wire signed [15:0] fx_quiet = fx_sample >>> 2;
+assign i2s_sample = mode_wt_play ? wt_play_sample : test_active ? test_sample : fx_quiet;
     i2s_pcm5102a_tx #(.CLK_HZ(80_000_000), .SAMPLE_HZ(48_000), .ACC_WIDTH(24)) u_i2s (
         .clk(clk_sys_100m), .rst(!rst_sys_n), .sample_valid(i2s_sample_valid),
         .sample_in(i2s_sample), .i2s_bck(pcm5102a_bck), .i2s_lrck(pcm5102a_lrck),

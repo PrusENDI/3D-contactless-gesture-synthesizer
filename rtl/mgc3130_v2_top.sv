@@ -224,6 +224,8 @@ logic [5:0] reader_state;
     logic signed [31:0] cursor_x, cursor_y, cursor_z;
     logic [15:0] cursor_pitch, cursor_velocity, cursor_depth;
     logic [1:0] cursor_state;
+logic [4:0] cursor_fsm_state;
+logic [15:0] cursor_last_z = frame_cal_z[15:0];
     logic cursor_point_valid, cursor_rebased, cursor_stable_valid;
     logic signed [31:0] audio_cursor_x, audio_cursor_y, audio_cursor_z;
     logic [15:0] audio_pitch, audio_velocity, audio_depth, audio_sequence;
@@ -236,7 +238,7 @@ logic [5:0] reader_state;
         .frame_valid(valid_frame), .frame_saturated(calibrated_saturated), .frame_gap(calibrated_gap),
         .frame_degraded(degraded_frame), .calibration_reason(valid_reason),
         .frame_sequence(frame_cal_sequence), .frame_timestamp(frame_cal_timestamp),
-        .left_edge(1'b1), .sample_ce(sample_ce), .cursor_x(cursor_x), .cursor_y(cursor_y),
+        .left_edge(1'b1), .sample_ce(sample_ce), .dbg_fsm_state(cursor_fsm_state), .cursor_x(cursor_x), .cursor_y(cursor_y),
         .cursor_z(cursor_z), .normalized_pitch(cursor_pitch), .velocity_control(cursor_velocity),
         .depth_control(cursor_depth), .state(cursor_state), .point_valid(cursor_point_valid),
         .rebased(cursor_rebased), .stable_valid(cursor_stable_valid), .audio_cursor_x(audio_cursor_x),
@@ -778,8 +780,8 @@ end
                     8'hD4: rsp_data <= (V2_DEBUG_CSR != 0) ? dbg_error_count : 32'd0;
                     8'hD8: rsp_data <= (V2_DEBUG_CSR != 0) ? dbg_cursor_valid_count : 32'd0;
                     8'hDC: rsp_data <= (V2_DEBUG_CSR != 0) ? {31'd0, reader_busy} : 32'd0;
-                    8'hE0: rsp_data <= (V2_DEBUG_CSR != 0) ? {24'd0, reader_error_code} : 32'd0;
-                    8'hE4: rsp_data <= (V2_DEBUG_CSR != 0) ? dbg_degraded_count : 32'd0;
+                    8'hE0: rsp_data <= (V2_DEBUG_CSR != 0) ? {16'd0, cursor_last_z} : 32'd0;
+                    8'hE4: rsp_data <= (V2_DEBUG_CSR != 0) ? {27'd0, cursor_fsm_state} : 32'd0;
                     8'hE8: rsp_data <= (V2_DEBUG_CSR != 0) ? dbg_xyz_count : 32'd0;
                     8'hEC: rsp_data <= (V2_DEBUG_CSR != 0) ? dbg_frame_count : 32'd0;
                     8'hF0: rsp_data <= (V2_DEBUG_CSR != 0) ? {31'd0, mgc_ts} : 32'd0;

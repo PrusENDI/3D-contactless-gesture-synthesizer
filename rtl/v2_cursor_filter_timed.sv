@@ -91,7 +91,8 @@ module v2_cursor_filter_timed #(
   output logic [15:0] normalized_pitch,
   output logic [15:0] velocity_control, depth_control,
   output logic [1:0] state,
-  output logic point_valid, rebased, stable_valid,
+  output logic [4:0] dbg_fsm_state,
+    output logic point_valid, rebased, stable_valid,
   output logic signed [31:0] audio_cursor_x, audio_cursor_y, audio_cursor_z,
   output logic [15:0] audio_pitch, audio_velocity, audio_depth,
   output logic audio_valid,
@@ -570,4 +571,5 @@ module v2_cursor_filter_timed #(
       endcase
     end
   end
+  assign dbg_fsm_state = fsm_state;
 endmodule

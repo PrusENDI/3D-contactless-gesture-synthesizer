@@ -270,9 +270,9 @@ logic [9:0] wt_read_index_sel;
         .clk(clk_sys_100m), .rst_n(rst_sys_n), .frame_in_valid(cursor_frame_done),
         .frame_valid(cursor_frame_done && cursor_point_valid && (cursor_state != 2'd3)), .frame_degraded(degraded_frame),
         .frame_gap(calibrated_gap), .rebased(cursor_rebased), .left_edge(1'b1),
-        .x(audio_cursor_x[15:0]), .y(audio_cursor_y[15:0]), .z(audio_cursor_z[15:0]),
-        .touch(calibrated_touch), .bow(calibrated_presence), .tick(sample_index),
-        .velocity_in(audio_velocity[7:0]), .brightness_in(audio_depth), .gain_in(16'hffff),
+        .x(cursor_x[15:0]), .y(cursor_y[15:0]), .z(cursor_z[15:0]),
+        .touch(cursor_point_valid), .bow(cursor_point_valid), .tick(sample_index),
+        .velocity_in(cursor_velocity[7:0]), .brightness_in(cursor_depth), .gain_in(16'hffff),
         .event_valid(live_event_valid), .event_ready(live_event_ready), .event_data(live_event_data),
         .event_type(live_event_type), .event_note(live_event_note), .event_velocity(live_event_velocity),
         .event_count(live_event_count), .fault_code(live_fault), .left_edge_armed(live_left_edge),
@@ -544,6 +544,8 @@ logic [31:0] dbg_rejected;
 // proves the sensor never reported; a report counter that moves while the cursor
 // counter stays put points at the validity/cursor stage instead.
 logic [31:0] dbg_report_count, dbg_error_count, dbg_cursor_valid_count;
+logic [15:0] live_event_count_dbg;
+assign live_event_count_dbg = live_event_count;
 // Stage counters: which gate rejects the frame.
 logic [31:0] dbg_xyz_count, dbg_frame_count, dbg_point_count, dbg_degraded_count;
 logic [15:0] dbg_crc_final_captured, dbg_expected_crc_captured, dbg_apply_version_seen;
@@ -784,12 +786,12 @@ end
                     8'hC8: rsp_data <= (V2_DEBUG_CSR != 0) ? dbg_rejected : 32'd0;
                     8'hCC: rsp_data <= (V2_DEBUG_CSR != 0) ? {16'd0, dbg_crc_final_captured} : 32'd0;
                     8'hD0: rsp_data <= (V2_DEBUG_CSR != 0) ? dbg_report_count : 32'd0;
-                    8'hD4: rsp_data <= (V2_DEBUG_CSR != 0) ? dbg_error_count : 32'd0;
+                    8'hD4: rsp_data <= (V2_DEBUG_CSR != 0) ? {16'd0, live_event_count} : 32'd0;
                     8'hD8: rsp_data <= (V2_DEBUG_CSR != 0) ? {16'd0, cursor_y[15:0]} : 32'd0;
                     8'hDC: rsp_data <= (V2_DEBUG_CSR != 0) ? {31'd0, reader_busy} : 32'd0;
                     8'hE0: rsp_data <= (V2_DEBUG_CSR != 0) ? cursor_last_z : 32'd0;
                     8'hE4: rsp_data <= (V2_DEBUG_CSR != 0) ? {27'd0, cursor_fsm_state} : 32'd0;
-                    8'hE8: rsp_data <= (V2_DEBUG_CSR != 0) ? dbg_xyz_count : 32'd0;
+                    8'hE8: rsp_data <= (V2_DEBUG_CSR != 0) ? {22'd0, live_active, live_gate, live_active_note} : 32'd0;
                     8'hEC: rsp_data <= (V2_DEBUG_CSR != 0) ? dbg_frame_count : 32'd0;
                     8'hF0: rsp_data <= (V2_DEBUG_CSR != 0) ? {16'd0, cursor_x[15:0]} : 32'd0;
                     8'hF4: rsp_data <= (V2_DEBUG_CSR != 0) ? {26'd0, reader_state} : 32'd0;

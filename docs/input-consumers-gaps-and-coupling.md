@@ -1,84 +1,100 @@
-# 输入消费的三条路径：缺口与耦合分析（2026-10-31）
-
-## 1. 三条路径的现状
-
-| 路径 | 输入来源 | 消费者 | 输出去向 |
+# 杈撳叆娑堣垂鐨勪笁鏉¤矾寰勶細缂哄彛涓庤€﹀悎鍒嗘瀽锛?026-10-31锛?
+## 1. 涓夋潯璺緞鐨勭幇鐘?
+| 璺緞 | 杈撳叆鏉ユ簮 | 娑堣垂鑰?| 杈撳嚭鍘诲悜 |
 | --- | --- | --- | --- |
-| **LIVE** | 光标滤波器（`audio_cursor_*` 等散信号） | `v2_live_rule_engine` | `voice_event_*`（`mode_live`） |
-| **LOOP** | 同上（**同一个** rule engine） | 录制：`v2_loop_event_store_dpb`；播放：`loop_event_*` | 录制存 DPB；播放进 `voice_event_*`（`mode_play`） |
-| **波表** | **不消费输入** | `v2_wt_playback` | I2S（`mode_wt_play`） |
+| **LIVE** | 鍏夋爣婊ゆ尝鍣紙`audio_cursor_*` 绛夋暎淇″彿锛?| `v2_live_rule_engine` | `voice_event_*`锛坄mode_live`锛?|
+| **LOOP** | 鍚屼笂锛?*鍚屼竴涓?* rule engine锛?| 褰曞埗锛歚v2_loop_event_store_dpb`锛涙挱鏀撅細`loop_event_*` | 褰曞埗瀛?DPB锛涙挱鏀捐繘 `voice_event_*`锛坄mode_play`锛?|
+| **娉㈣〃** | **涓嶆秷璐硅緭鍏?* | `v2_wt_playback` | I2S锛坄mode_wt_play`锛?|
 
-关键接线（`mgc3130_v2_top.sv`）：
+鍏抽敭鎺ョ嚎锛坄mgc3130_v2_top.sv`锛夛細
 
 ```verilog
-// 319: LIVE 与 RECORD 共用同一个 rule engine，ready 由模式决定
-assign live_event_ready = mode_live ? voice_event_ready : mode_record ? record_event_ready : 1'b0;
-// 310-311: 录制直接吃 rule engine 的事件流
+// 319: LIVE 涓?RECORD 鍏辩敤鍚屼竴涓?rule engine锛宺eady 鐢辨ā寮忓喅瀹?assign live_event_ready = mode_live ? voice_event_ready : mode_record ? record_event_ready : 1'b0;
+// 310-311: 褰曞埗鐩存帴鍚?rule engine 鐨勪簨浠舵祦
 .record_event_valid(live_event_valid), .record_event_ready(record_event_ready) ...
-// 422-425: 三个事件源在声音引擎入口做模式三选一
+// 422-425: 涓変釜浜嬩欢婧愬湪澹伴煶寮曟搸鍏ュ彛鍋氭ā寮忎笁閫変竴
 assign voice_event_valid = mode_live ? live_event_valid : mode_play ? loop_event_valid : potts_event_valid;
 assign loop_event_ready  = mode_play ? voice_event_ready : 1'b0;
 assign potts_event_ready = (!mode_live && !mode_play) ? voice_event_ready : 1'b0;
 ```
 
-## 2. 每条路径的缺口
-
+## 2. 姣忔潯璺緞鐨勭己鍙?
 ### 2.1 LIVE
 
-| 缺口 | 说明 |
+| 缂哄彛 | 璇存槑 |
 | --- | --- |
-| 字段错位 | `x/y/z/velocity/depth` 在 `sample_ce && stable_valid` 更新，而消费节拍是 `cursor_frame_done` |
-| 静默丢帧 | `eval_*` 无条件装载、规则更新被背压挡住 → 帧被覆盖且无计数 |
-| 门控与坐标不同源 | `touch/bow` 来自输入流水，比光标输出早若干拍 |
+| 瀛楁閿欎綅 | `x/y/z/velocity/depth` 鍦?`sample_ce && stable_valid` 鏇存柊锛岃€屾秷璐硅妭鎷嶆槸 `cursor_frame_done` |
+| 闈欓粯涓㈠抚 | `eval_*` 鏃犳潯浠惰杞姐€佽鍒欐洿鏂拌鑳屽帇鎸′綇 鈫?甯ц瑕嗙洊涓旀棤璁℃暟 |
+| 闂ㄦ帶涓庡潗鏍囦笉鍚屾簮 | `touch/bow` 鏉ヨ嚜杈撳叆娴佹按锛屾瘮鍏夋爣杈撳嚭鏃╄嫢骞叉媿 |
 
 ### 2.2 LOOP
 
-| 缺口 | 说明 |
+| 缂哄彛 | 璇存槑 |
 | --- | --- |
-| **与 LIVE 共用规则引擎** | 只有一份 `v2_live_rule_engine`：录制时的映射**必然等于** Live 映射，无法"录一套、播另一套" |
-| 录制背压冻结 Live 评估 | RECORD 模式下 `live_event_ready = record_event_ready`，录制写不进时规则状态直接停摆 |
-| 播放侧无输入 | 播放阶段 `loop_event_*` 只回放历史事件，与当前光标**无关**（没有"边录边跟手"的通路） |
-| 边界语义未定 | `loop_boundary` 与光标帧没有时间戳关联，跨边界的事件对齐靠 `tick` 隐式约定 |
+| **涓?LIVE 鍏辩敤瑙勫垯寮曟搸** | 鍙湁涓€浠?`v2_live_rule_engine`锛氬綍鍒舵椂鐨勬槧灏?*蹇呯劧绛変簬** Live 鏄犲皠锛屾棤娉?褰曚竴濂椼€佹挱鍙︿竴濂? |
+| 褰曞埗鑳屽帇鍐荤粨 Live 璇勪及 | RECORD 妯″紡涓?`live_event_ready = record_event_ready`锛屽綍鍒跺啓涓嶈繘鏃惰鍒欑姸鎬佺洿鎺ュ仠鎽?|
+| 鎾斁渚ф棤杈撳叆 | 鎾斁闃舵 `loop_event_*` 鍙洖鏀惧巻鍙蹭簨浠讹紝涓庡綋鍓嶅厜鏍?*鏃犲叧**锛堟病鏈?杈瑰綍杈硅窡鎵?鐨勯€氳矾锛?|
+| 杈圭晫璇箟鏈畾 | `loop_boundary` 涓庡厜鏍囧抚娌℃湁鏃堕棿鎴冲叧鑱旓紝璺ㄨ竟鐣岀殑浜嬩欢瀵归綈闈?`tick` 闅愬紡绾﹀畾 |
 
-### 2.3 波表
+### 2.3 娉㈣〃
 
-| 缺口 | 说明 |
+| 缂哄彛 | 璇存槑 |
 | --- | --- |
-| **完全不消费输入** | `v2_wt_playback` 只有 `sample_ce` + 固定相位，无 pitch/gate/位置输入 |
-| 读口冲突 | 波表播放占用 loader 的唯一读口，与主机 1024 点回读互斥（已在 §19/§22 记录） |
-| 无调制契约 | "用光标 y 控制音高、engaged 控制 gate"这类语义还没有定义 |
+| **瀹屽叏涓嶆秷璐硅緭鍏?* | `v2_wt_playback` 鍙湁 `sample_ce` + 鍥哄畾鐩镐綅锛屾棤 pitch/gate/浣嶇疆杈撳叆 |
+| 璇诲彛鍐茬獊 | 娉㈣〃鎾斁鍗犵敤 loader 鐨勫敮涓€璇诲彛锛屼笌涓绘満 1024 鐐瑰洖璇讳簰鏂ワ紙宸插湪 搂19/搂22 璁板綍锛?|
+| 鏃犺皟鍒跺绾?| "鐢ㄥ厜鏍?y 鎺у埗闊抽珮銆乪ngaged 鎺у埗 gate"杩欑被璇箟杩樻病鏈夊畾涔?|
 
-## 3. 耦合问题（结构性，不是接线问题）
+## 3. 鑰﹀悎闂锛堢粨鏋勬€э紝涓嶆槸鎺ョ嚎闂锛?
+1. **鍗曡鍒欏紩鎿?*锛歀IVE 涓?LOOP 褰曞埗鍏辩敤涓€浠斤紝浜岃€呭湪璇箟涓婅缁戞锛?2. **鍗曚簨浠剁鍙?+ 妯″紡涓夐€変竴**锛氬０闊冲紩鎿庡悓涓€鏃跺埢鍙帴鍙椾竴涓簮锛屼换浣曟柊娑堣垂鑰呴兘瑕佹敼杩欎釜 mux锛?   ready 淇″彿鍙堣妯″紡闂ㄦ帶涓?0锛屽鑷?娌″湪鐢ㄧ殑璺緞"浼氭妸涓婃父鎷栨锛?3. **鏃犳墖鍑?*锛氬厜鏍囧彧鏈変竴涓?1 鎷?`frame_output_valid`锛屼笁鏉¤矾寰勫悇鑷寜淇″彿鍚嶆帴绾匡紝
+   浜庢槸閿欎綅琚鍒朵笁浠斤紱
+4. **璇诲彛鍏变韩**锛氭尝琛ㄦ挱鏀句笌涓绘満鍥炶浜掓枼锛?5. **妯″紡鍗充徊瑁?*锛歚mode_reg` 鍚屾椂鍐冲畾"璋佸彂澹?"璋佸綍鍒?"璋佹斁琛?锛屼笁绉嶈€﹀悎鍙犲湪涓€涓瘎瀛樺櫒涓娿€?
+## 4. 鍒ゆ柇
 
-1. **单规则引擎**：LIVE 与 LOOP 录制共用一份，二者在语义上被绑死；
-2. **单事件端口 + 模式三选一**：声音引擎同一时刻只接受一个源，任何新消费者都要改这个 mux；
-   ready 信号又被模式门控为 0，导致"没在用的路径"会把上游拖死；
-3. **无扇出**：光标只有一个 1 拍 `frame_output_valid`，三条路径各自按信号名接线，
-   于是错位被复制三份；
-4. **读口共享**：波表播放与主机回读互斥；
-5. **模式即仲裁**：`mode_reg` 同时决定"谁发声""谁录制""谁放表"，三种耦合叠在一个寄存器上。
-
-## 4. 判断
-
-- **加 FIFO 只能解决 LIVE 的丢帧**，解决不了"三路共用一个生产者/一个引擎/一个端口"的耦合；
-- 真正需要的是**一次打包 + 广播**：光标帧广播给三个消费者，各自有独立的小缓冲（深度 2 即可，
-  因为消费端都在 80 MHz、帧率 ≤138 Hz），生产者永不因某个消费者停顿而停摆；
-- LOOP 必须先定语义：**录 Live 的事件**（tap 现有引擎）还是**独立映射**（需要第二份规则引擎）。
-  这决定面积与接线，不能用实现细节掩盖。
-
-## 5. 建议的接口形态
-
+- **鍔?FIFO 鍙兘瑙ｅ喅 LIVE 鐨勪涪甯?*锛岃В鍐充笉浜?涓夎矾鍏辩敤涓€涓敓浜ц€?涓€涓紩鎿?涓€涓鍙?鐨勮€﹀悎锛?- 鐪熸闇€瑕佺殑鏄?*涓€娆℃墦鍖?+ 骞挎挱**锛氬厜鏍囧抚骞挎挱缁欎笁涓秷璐硅€咃紝鍚勮嚜鏈夌嫭绔嬬殑灏忕紦鍐诧紙娣卞害 2 鍗冲彲锛?  鍥犱负娑堣垂绔兘鍦?80 MHz銆佸抚鐜?鈮?38 Hz锛夛紝鐢熶骇鑰呮案涓嶅洜鏌愪釜娑堣垂鑰呭仠椤胯€屽仠鎽嗭紱
+- LOOP 蹇呴』鍏堝畾璇箟锛?*褰?Live 鐨勪簨浠?*锛坱ap 鐜版湁寮曟搸锛夎繕鏄?*鐙珛鏄犲皠**锛堥渶瑕佺浜屼唤瑙勫垯寮曟搸锛夈€?  杩欏喅瀹氶潰绉笌鎺ョ嚎锛屼笉鑳界敤瀹炵幇缁嗚妭鎺╃洊銆?
+## 5. 寤鸿鐨勬帴鍙ｅ舰鎬?
 ```
-cursor filter ──[packed frame + valid]──┬──> LIVE 规则引擎（含 pop 门控 + drop 计数）
-                                        ├──> LOOP 录制缓冲（可选：tap 引擎输出 或 独立引擎）
-                                        └──> 波表调制（y→pitch, engaged→gate）[待定义契约]
+cursor filter 鈹€鈹€[packed frame + valid]鈹€鈹€鈹攢鈹€> LIVE 瑙勫垯寮曟搸锛堝惈 pop 闂ㄦ帶 + drop 璁℃暟锛?                                        鈹溾攢鈹€> LOOP 褰曞埗缂撳啿锛堝彲閫夛細tap 寮曟搸杈撳嚭 鎴?鐙珛寮曟搸锛?                                        鈹斺攢鈹€> 娉㈣〃璋冨埗锛坹鈫抪itch, engaged鈫抔ate锛塠寰呭畾涔夊绾
 ```
 
-每个消费者一个 2 深 skid 缓冲 + 自己的 `overflow` 计数；生产者侧只做广播，不等 ready。
-这样"某一路忙"不会影响另外两路，也不需要把三个模式揉进一个 mux。
+姣忎釜娑堣垂鑰呬竴涓?2 娣?skid 缂撳啿 + 鑷繁鐨?`overflow` 璁℃暟锛涚敓浜ц€呬晶鍙仛骞挎挱锛屼笉绛?ready銆?杩欐牱"鏌愪竴璺繖"涓嶄細褰卞搷鍙﹀涓よ矾锛屼篃涓嶉渶瑕佹妸涓変釜妯″紡鎻夎繘涓€涓?mux銆?
+## 6. 闇€瑕佸厛瀹氱殑涓変欢浜?
+1. **LOOP 璇箟**锛氬綍 Live 浜嬩欢锛岃繕鏄嫭绔嬫槧灏勶紵
+2. **娉㈣〃娑堣垂浠€涔?*锛歽鈫掗煶楂樸€乪ngaged鈫抔ate 鏄惁灏辨槸鐩爣璇箟锛熻繕鏄彧鐢ㄤ綅缃仛闊宠壊璋冨埗锛?3. **妯″紡鏄惁杩樿鐙崰**锛氫笁璺槸鍚﹀彲浠ュ苟瀛橈紙渚嬪娉㈣〃鍨簳 + Live 涓诲锛夛紝杩樻槸缁х画涓夐€変竴锛?
+---
 
-## 6. 需要先定的三件事
+## 7. LIVE 到发声的通路修复（2026-10-31）
 
-1. **LOOP 语义**：录 Live 事件，还是独立映射？
-2. **波表消费什么**：y→音高、engaged→gate 是否就是目标语义？还是只用位置做音色调制？
-3. **模式是否还要独占**：三路是否可以并存（例如波表垫底 + Live 主奏），还是继续三选一？
+### 7.1 问题
+
+`v2_live_rule_engine` 的实例化取的是 `audio_cursor_*`（只在 `sample_ce && stable_valid`
+时更新），而消费节拍是 `cursor_frame_done`。实测：`cursor_x=0x8000` 时
+`audio_cursor_x` 仍为 0 → 规则引擎看到的是**全 0 坐标**，无法产生有意义的音符。
+
+### 7.2 修复
+
+| 端口 | 原接线 | 现接线 |
+| --- | --- | --- |
+| `x/y/z` | `audio_cursor_*` | **`cursor_x/y/z`**（滤波器同拍输出） |
+| `touch/bow`（gate） | `calibrated_touch/presence` | **`cursor_point_valid`**（光标已 engage） |
+| `velocity_in` | `audio_velocity` | **`cursor_velocity[7:0]`** |
+| `brightness_in` | `audio_depth` | **`cursor_depth`** |
+
+并新增观测：`0xD4` = `live_event_count`，`0xE8` = `{active, gate, note[7:0]}`。
+
+### 7.3 板上结果（位流 `36B65FDA…E138`，`MODE=1`）
+
+```
+const=0x5A5A0003   MODE=1 -> err=0
+time  events  active gate note  points
+  0s       1       1    1   60    170
+  ...      1       1    1   60    170
+```
+
+**LIVE 通路已从"坐标全 0、不发声"变成"进入 LIVE 即触发 note-on，音高 60"**。
+
+### 7.4 仍需验证
+
+- 声音是否真的从耳机输出（需实听）；
+- 手指纵向移动时 `note` 是否随 `y` 改变、抬手是否发 note-off；
+- 事件背压时仍会静默丢帧（未加 pop 门控与计数）。

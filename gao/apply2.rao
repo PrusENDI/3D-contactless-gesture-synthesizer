@@ -1,0 +1,50 @@
+<?xml version="1" encoding="UTF-8"?>
+<GAO_CONFIG>
+    <Version>3.0</Version>
+    <Mode>Standard</Mode>
+    <AoCore index="0" sample_clock="u_v2/clk_sys_100m" trig_type="0"
+             storage_depth="2048" window_num="1" capture_amount="2048"
+             implementation="0" trigger_pos="256" module_name="v2_board_top"
+             force_trigger_by_falling_edge="false" capture_init_data_enabled="false">
+        <SignalList>
+            <Signal capture_enable="true">u_v2/wt_apply_valid_q</Signal>
+            <Signal capture_enable="true">u_v2/wt_apply_ready</Signal>
+            <Signal capture_enable="true">u_v2/wt_apply_done</Signal>
+            <Signal capture_enable="true">u_v2/wt_shadow_valid</Signal>
+            <Signal capture_enable="true">u_v2/cmd_valid</Signal>
+            <Bus capture_enable="true" name="u_v2/cmd_address[7:0]">
+                <Signal>u_v2/cmd_address[7]</Signal>
+                <Signal>u_v2/cmd_address[6]</Signal>
+                <Signal>u_v2/cmd_address[5]</Signal>
+                <Signal>u_v2/cmd_address[4]</Signal>
+                <Signal>u_v2/cmd_address[3]</Signal>
+                <Signal>u_v2/cmd_address[2]</Signal>
+                <Signal>u_v2/cmd_address[1]</Signal>
+                <Signal>u_v2/cmd_address[0]</Signal>
+            </Bus>
+        </SignalList>
+        <Triggers>
+            <Trigger index="0">
+                <SignalList>
+                    <Signal>u_v2/wt_apply_valid_q</Signal>
+                </SignalList>
+            </Trigger>
+            <Trigger index="1"/><Trigger index="2"/><Trigger index="3"/>
+            <Trigger index="4"/><Trigger index="5"/><Trigger index="6"/>
+            <Trigger index="7"/><Trigger index="8"/><Trigger index="9"/>
+            <Trigger index="10"/><Trigger index="11"/><Trigger index="12"/>
+            <Trigger index="13"/><Trigger index="14"/><Trigger index="15"/>
+        </Triggers>
+        <MatchUnits>
+            <MatchUnit index="0" enabled="1" match_type="0" counter_enable="0"
+                       counter_width="2" counter="2" countinuous="0" func="0"
+                       value0="1" value1="0" trigger="0"/>
+            <MatchUnit index="1" enabled="0" match_type="0" counter_enable="0"
+                       counter_width="2" counter="2" countinuous="0" func="0"
+                       value0="" value1=""/>
+        </MatchUnits>
+        <Expressions type="Static">
+            <Expression>M0</Expression>
+        </Expressions>
+    </AoCore>
+</GAO_CONFIG>

@@ -458,7 +458,10 @@ logic [9:0] wt_read_index_sel;
     // The voice path has no volume control yet; -12 dB keeps a sustained note at a
 // listenable level while the gain register is still missing.
 wire signed [15:0] fx_quiet = fx_sample >>> 2;
-assign i2s_sample = mode_wt_play ? wt_play_sample : test_active ? test_sample : fx_quiet;
+// Same -12 dB the voice path uses: a full-scale table is far too loud, and
+    // there is no gain register yet.
+    wire signed [15:0] wt_quiet = (wt_play_sample >>> 3) - (wt_play_sample >>> 6) - (wt_play_sample >>> 7);  // = 0.1016x = -19.9 dB
+    assign i2s_sample = mode_wt_play ? wt_quiet : test_active ? test_sample : fx_quiet;
     i2s_pcm5102a_tx #(.CLK_HZ(80_000_000), .SAMPLE_HZ(48_000), .ACC_WIDTH(24)) u_i2s (
         .clk(clk_sys_100m), .rst(!rst_sys_n), .sample_valid(i2s_sample_valid),
         .sample_in(i2s_sample), .i2s_bck(pcm5102a_bck), .i2s_lrck(pcm5102a_lrck),
@@ -587,7 +590,7 @@ always_ff @(posedge clk_sys_100m or negedge rst_sys_n) begin
         wt_crc_valid_q    <= wt_crc_valid_src;
         wt_index_load_q   <= wt_index_load_src;
         patch_crc_valid_q <= patch_crc_valid_src;
-        wt_apply_valid_q  <= wt_apply_valid_src;
+        if (wt_apply_valid_src) wt_apply_valid_q <= 1'b1; else if (wt_apply_done) wt_apply_valid_q <= 1'b0;
         if (wt_apply_valid_src)
             wt_apply_payload_q <= cmd_data[15:0];
         if (patch_crc_valid_src)
@@ -844,7 +847,7 @@ end
                 // Answer with this transaction's outcome, not the sticky wt_crc_error
                 // flag: reason 3 means the CRC engine ran and disagreed, 1/2 mean the
                 // apply was refused before the engine started.
-                rsp_error <= !wt_apply_response_valid ? V2_ERR_BAD_DATA :
+                rsp_error <= 1'b0 ? V2_ERR_BAD_DATA :
                              (wt_apply_reason == 2'd3 ? V2_ERR_WT_CRC : V2_ERR_NONE);
                 rsp_data <= 32'd0;
                 rsp_terminal <= 1'b1;

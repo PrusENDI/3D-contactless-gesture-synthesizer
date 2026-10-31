@@ -46,7 +46,7 @@ for ($i = 0; $i -lt 1024; $i++) {
     $payload.Add([byte](($u -shr 8) -band 0xFF)); $payload.Add([byte]($u -band 0xFF))
 }
 $wtCrc = Get-Crc16 $payload.ToArray()
-$const = X 0x01 0x80 0
+$const = X 0x01 0xB0 0
 Log ("const=0x{0:X8} (expect 0x5A5A0003); vector crc=0x{1:X4}" -f $const.Val, $wtCrc)
 if ($const.Val -ne (Hex32 '5A5A0003')) { Log 'FATAL: constant CSR mismatch, wrong bitstream or read path'; $sp.Close(); exit 1 }
 

@@ -20,8 +20,8 @@ module v2_board_top (
         .USE_MGC_READER(1),
         .USE_GOWIN_RAM(1),
         .USE_POTTS(1),
-        .PRESERVE_LOOP_PLANE(1),
-        .PRESERVE_POTTS_PLANE(1),
+        .PRESERVE_LOOP_PLANE(0),
+        .PRESERVE_POTTS_PLANE(0),
         .POTTS_HORIZON(32),
         .FX_ENABLE(1),
         .FX_LEVEL(1)

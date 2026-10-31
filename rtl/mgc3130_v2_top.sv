@@ -579,8 +579,8 @@ logic [31:0] tlm_div;
     // not consume these tables yet; the loader remains independently
     // addressable for upload/readback/APPLY smoke and future voice hookup.
     logic [1:0] wt_select_table;
-    logic wt_select_bank, wt_select_band;
-    logic [3:0] wt_select_octave;
+    logic wt_morph_en;
+    logic [22:0] wt_lfo_step;
     logic [9:0] wt_select_index;
     logic [31:0] wt_note_increment, wt_increment;
 logic wt_index_load;   // one-clock pulse when the host writes WT_INDEX
@@ -692,29 +692,39 @@ end
     assign wt_increment = mode_live ? live_note_increment :
                           (thresholds_reg[7:0] == 8'd0) ? 32'd4194304 : wt_note_increment;
 
-    // Wavetable position LFO.  Task 1 instantiates it disabled; the morph CSR
-    // wiring arrives with the top integration task.
+    // Wavetable position LFO.  It runs only on the audible single-voice paths so
+    // the position does not creep while the board sits in IDLE or PLAY.
     logic [25:0] wt_pos;
     logic [1:0]  wt_frame_a, wt_frame_b;
     logic [7:0]  wt_frac;
     v2_wt_position u_wt_position (
         .clk(clk_sys_100m), .rst_n(rst_sys_n), .sample_ce(sample_ce),
-        .morph_en(1'b0), .step(23'd0),
+        .morph_en(wt_morph_en && (mode_wt_play || mode_live)), .step(wt_lfo_step),
         .pos(wt_pos), .frame_a(wt_frame_a), .frame_b(wt_frame_b), .frac(wt_frac)
     );
 
-    // Frame crossfade.  Task 2 instantiates it on zero inputs; the read-channel
-    // wiring arrives with the top integration task.
+    // Frame crossfade.  frame_b may be a table that was never applied, so the
+    // output falls back to frame_a instead of fading toward an empty table.
     logic signed [15:0] wt_sample_a, wt_sample_b, wt_mix_out;
     logic wt_rd_valid0, wt_rd_valid1;
     v2_wt_mix u_wt_mix (
         .a(wt_sample_a), .b(wt_sample_b), .frac(wt_frac), .out(wt_mix_out)
     );
+    logic signed [15:0] wt_table_sample;
+    assign wt_table_sample = (wt_morph_en && wt_rd_valid1) ? wt_mix_out : wt_sample_a;
+
+    // The two read channels follow position in WT_PLAY/LIVE; everywhere else they
+    // read the host-selected table so the CSR readback path is untouched.
+    logic [1:0] wt_play_table_a, wt_play_table_b;
+    assign wt_play_table_a = (wt_morph_en && (mode_wt_play || mode_live))
+                             ? wt_frame_a : wt_select_table;
+    assign wt_play_table_b = (wt_morph_en && (mode_wt_play || mode_live))
+                             ? wt_frame_b : wt_select_table;
 
     v2_wt_playback u_wt_playback (
         .clk(clk_sys_100m), .rst_n(rst_sys_n), .sample_ce(sample_ce),
         .enable(mode_wt_play || (mode_live && live_gate)), .increment(wt_increment), .index(wt_play_index),
-        .sample(wt_read_sample), .out(wt_play_sample), .valid(wt_play_valid)
+        .sample(wt_table_sample), .out(wt_play_sample), .valid(wt_play_valid)
     );
     v2_wavetable_loader #(.TABLES(3), .SAMPLES(1024), .USE_GOWIN_RAM(USE_GOWIN_RAM)) u_wavetable_loader (
         .clk(clk_sys_100m), .rst_n(rst_sys_n), .wt_write_valid(wt_write_valid),
@@ -725,10 +735,9 @@ end
         .wt_apply_version(wt_apply_payload_q), .wt_version_reg(wt_apply_version), .loop_boundary(loop_boundary),
         .idle((mode_reg == IDLE) && !recording), .wt_read_table(wt_select_table),
         .wt_read_index(wt_read_index_sel), .wt_read_sample(wt_read_sample),
-        // Both morph channels idle on the selected table until the integration
-        // task drives them from position; this keeps the read data identical.
-        .wt_rd_table0(wt_select_table), .wt_rd_index0(wt_read_index_sel),
-        .wt_rd_table1(wt_select_table), .wt_rd_index1(wt_read_index_sel),
+        // Morph channels: position selects the pair, the phase index is shared.
+        .wt_rd_table0(wt_play_table_a), .wt_rd_index0(wt_read_index_sel),
+        .wt_rd_table1(wt_play_table_b), .wt_rd_index1(wt_read_index_sel),
         .wt_rd_sample0(wt_sample_a), .wt_rd_sample1(wt_sample_b),
         .wt_rd_valid0(wt_rd_valid0), .wt_rd_valid1(wt_rd_valid1),
         .wt_active_valid(wt_active_valid), .wt_shadow_valid(wt_shadow_valid),
@@ -811,8 +820,8 @@ end
             patch_select_family <= 2'd0; patch_select_track <= 3'd0;
             patch_select_index <= 8'd0; patch_expected_crc <= 16'hffff;
             patch_apply_version <= 16'd0;
-            wt_select_table <= 2'd0; wt_select_bank <= 1'b0; wt_select_band <= 1'b0;
-            wt_select_octave <= 4'd0; wt_select_index <= 10'd0; wt_length <= 16'd1024;
+            wt_select_table <= 2'd0; wt_morph_en <= 1'b0; wt_lfo_step <= 23'd0;
+            wt_select_index <= 10'd0; wt_length <= 16'd1024;
             wt_expected_crc <= 16'hffff; wt_apply_version <= 16'd0;
             thresholds_reg <= 32'd0;
             bpm_reg <= 16'd120; bpm_we_q <= 1'b0;
@@ -861,8 +870,7 @@ end
                     V2_CSR_PATCH_APPLY: rsp_data <= 32'd0;
                     V2_CSR_BPM: rsp_data <= {16'd0, bpm_reg};
                     V2_CSR_THRESHOLDS: rsp_data <= thresholds_reg;
-                    V2_CSR_WT_SELECT: rsp_data <= {16'd0, wt_select_octave, 2'd0,
-                                                    wt_select_band, wt_select_bank,
+                    V2_CSR_WT_SELECT: rsp_data <= {wt_lfo_step, wt_morph_en,
                                                     6'd0, wt_select_table};
                     V2_CSR_WT_INDEX: rsp_data <= {22'd0, wt_select_index};
                     V2_CSR_WT_DATA: rsp_data <= {16'd0, wt_read_sample};
@@ -895,7 +903,7 @@ end
                     8'hDC: rsp_data <= (V2_DEBUG_CSR != 0) ? raw_x : 32'd0;      // raw sensor X (signed)
                     8'hE0: rsp_data <= (V2_DEBUG_CSR != 0) ? cursor_last_z : 32'd0;
                     8'hE4: rsp_data <= (V2_DEBUG_CSR != 0) ? {27'd0, cursor_fsm_state} : 32'd0;
-                    8'hE8: rsp_data <= (V2_DEBUG_CSR != 0) ? {22'd0, live_active, live_gate, live_active_note} : 32'd0;
+                    8'hE8: rsp_data <= (V2_DEBUG_CSR != 0) ? {4'd0, wt_pos[25:8], live_active, live_gate, live_active_note} : 32'd0;
                     8'hEC: rsp_data <= (V2_DEBUG_CSR != 0) ? dbg_frame_count : 32'd0;
                     8'hF0: rsp_data <= (V2_DEBUG_CSR != 0) ? {16'd0, cursor_x[15:0]} : 32'd0;
                     8'hF4: rsp_data <= (V2_DEBUG_CSR != 0) ? {26'd0, reader_state} : 32'd0;
@@ -982,9 +990,8 @@ end
                     patch_apply_version <= cmd_data[15:0];
                 if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_WT_SELECT) begin
                     wt_select_table <= cmd_data[1:0];
-                    wt_select_bank <= cmd_data[8];
-                    wt_select_band <= cmd_data[9];
-                    wt_select_octave <= cmd_data[15:12];
+                    wt_morph_en <= cmd_data[8];
+                    wt_lfo_step <= cmd_data[31:9];
                 end
                 bpm_auto_d  <= cursor_frame_done && (bpm_auto != bpm_auto_q);
             bpm_auto_we <= bpm_auto_we_d;

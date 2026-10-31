@@ -215,6 +215,14 @@ module tb_top_csr_gate #(parameter integer GOWIN_RAM = 0);
     expect_eq(rdata & 32'hFFFF, version_now + 1, "T4 retry committed");
     expect_eq({24'd0, rerr}, 32'd0, "T4 reply error");
 
+    // WT_SELECT now carries {step[22:0], morph_en, 6'b0, table[1:0]}.
+    host_cmd(8'h02, 8'h60, 32'h0024_6901, rtype, rerr, rdata);
+    host_cmd(8'h01, 8'h60, 32'd0, rtype, rerr, rdata);
+    expect_eq(rdata, 32'h0024_6901, "wt_select_morph_roundtrip");
+    host_cmd(8'h02, 8'h60, 32'h0000_0001, rtype, rerr, rdata);
+    host_cmd(8'h01, 8'h60, 32'd0, rtype, rerr, rdata);
+    expect_eq(rdata, 32'h0000_0001, "wt_select_no_morph_when_bit8_clear");
+
     if (errors == 0) $display("TB_TOP_CSR_GATE PASS (RAM=%0d)", GOWIN_RAM);
     else $fatal(1, "TB_TOP_CSR_GATE FAIL (%0d errors, RAM=%0d)", errors, GOWIN_RAM);
     $finish;

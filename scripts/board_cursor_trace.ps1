@@ -12,7 +12,7 @@ $sp = New-Object System.IO.Ports.SerialPort $Port, $Baud, ([System.IO.Ports.Pari
 $sp.ReadTimeout = 200; $sp.WriteTimeout = 400
 $sp.Open(); Start-Sleep -Milliseconds 50; $sp.DiscardInBuffer()
 $seq = 0
-function Rd([int]$Addr) {
+function Read-Csr([int]$Addr) {
     $script:seq = ($script:seq + 1) -band 0xFF
     $f = New-Object byte[] 11
     $f[0] = 0xA5; $f[1] = 0x02; $f[2] = 0x01; $f[3] = [byte]$Addr; $f[4] = [byte]$script:seq
@@ -29,12 +29,12 @@ $names = @(0x01,0x02,0x04,0x08,0x10,0x20,0x40)
 $labels = @('INVALID','SATURATED','GAP','EPOCH','CLAMP','PROFILE','ARITH')
 Log 'time  reports  xyz  frame  degraded  point  cursor  reason'
 for ($i = 0; $i -lt $Seconds; $i++) {
-    $r = Rd 0xFC
+    $r = Read-Csr 0xFC
     $bits = @()
     for ($k = 0; $k -lt $names.Count; $k++) { if ($r -band $names[$k]) { $bits += $labels[$k] } }
     $why = if ($bits.Count) { $bits -join '+' } else { 'none' }
     Log ("{0,3}s  {1,7}  {2,4}  {3,5}  {4,8}  {5,5}  {6,6}  0x{7:X2} {8}" -f `
-        $i, (Rd 0xD0), (Rd 0xE8), (Rd 0xEC), (Rd 0xE4), (Rd 0xF8), (Rd 0xD8), $r, $why)
+        $i, (Read-Csr 0xD0), (Read-Csr 0xE8), (Read-Csr 0xEC), (Read-Csr 0xE4), (Read-Csr 0xF8), (Read-Csr 0xD8), $r, $why)
     Start-Sleep -Milliseconds 700
 }
 $sp.Close(); $sp.Dispose()

@@ -264,6 +264,12 @@ logic signed [31:0] cursor_last_z;
     // contract's THRESHOLDS validity rule satisfied).
     logic [31:0] thresholds_reg;
     logic [15:0] bpm_reg;
+    // X axis drives the arpeggiator tempo in LIVE: cursor_x 0..65535 -> 60..180 BPM.
+    // bpm_auto_we is delayed two clocks so the divider sees the already-updated value.
+    logic [15:0] bpm_auto_q;
+    logic        bpm_auto_we, bpm_auto_we_d, bpm_auto_d;
+    wire  [23:0] bpm_scaled = ({8'd0, cursor_x[15:0]} << 7) - ({8'd0, cursor_x[15:0]} << 3);
+    wire  [15:0] bpm_auto   = 16'd60 + bpm_scaled[23:16];
     logic        bpm_we_q;
     wire         bpm_write;
     logic        tick_pulse;
@@ -673,7 +679,8 @@ end
     // (one table point per sample = 46.875 Hz) so the old acceptance still holds.
     v2_tick_gen u_tick_gen (
         .clk(clk_sys_100m), .rst_n(rst_sys_n), .sample_ce(sample_ce),
-        .bpm(bpm_reg), .bpm_we(bpm_we_q),
+        .bpm(mode_live ? bpm_auto_q : bpm_reg),
+        .bpm_we(mode_live ? bpm_auto_we : bpm_we_q),
         .tick_pulse(tick_pulse), .tick(tick_now), .samples_per_tick(samples_per_tick)
     );
     v2_note_increment_rom u_wt_note_increment(.note(thresholds_reg[7:0]), .increment(wt_note_increment));
@@ -783,6 +790,7 @@ end
             wt_expected_crc <= 16'hffff; wt_apply_version <= 16'd0;
             thresholds_reg <= 32'd0;
             bpm_reg <= 16'd120; bpm_we_q <= 1'b0;
+            bpm_auto_q <= 16'd120; bpm_auto_we <= 1'b0; bpm_auto_we_d <= 1'b0; bpm_auto_d <= 1'b0;
             loop_ctrl_valid <= 1'b0; loop_ctrl_op <= 3'd0; loop_ctrl_track <= 3'd0;
             loop_ctrl_pending <= 1'b0; loop_ctrl_pending_op <= 3'd0;
             test_response_pending <= 1'b0; test_response_sequence <= 8'd0;
@@ -952,7 +960,11 @@ end
                     wt_select_band <= cmd_data[9];
                     wt_select_octave <= cmd_data[15:12];
                 end
-                if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_BPM)
+                bpm_auto_d  <= cursor_frame_done && (bpm_auto != bpm_auto_q);
+            bpm_auto_we <= bpm_auto_we_d;
+            bpm_auto_we_d <= bpm_auto_d;
+            if (bpm_auto_d) bpm_auto_q <= bpm_auto;
+            if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_BPM)
                     bpm_reg <= cmd_data[15:0];
                 bpm_we_q <= bpm_write;
                 if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_THRESHOLDS)

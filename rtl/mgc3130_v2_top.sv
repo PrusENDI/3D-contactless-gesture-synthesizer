@@ -797,7 +797,7 @@ end
                     8'hD0: rsp_data <= (V2_DEBUG_CSR != 0) ? dbg_report_count : 32'd0;
                     8'hD4: rsp_data <= (V2_DEBUG_CSR != 0) ? {16'd0, live_event_count} : 32'd0;
                     8'hD8: rsp_data <= (V2_DEBUG_CSR != 0) ? {16'd0, cursor_y[15:0]} : 32'd0;
-                    8'hDC: rsp_data <= (V2_DEBUG_CSR != 0) ? {31'd0, reader_busy} : 32'd0;
+                    8'hDC: rsp_data <= (V2_DEBUG_CSR != 0) ? raw_x : 32'd0;      // raw sensor X (signed)
                     8'hE0: rsp_data <= (V2_DEBUG_CSR != 0) ? cursor_last_z : 32'd0;
                     8'hE4: rsp_data <= (V2_DEBUG_CSR != 0) ? {27'd0, cursor_fsm_state} : 32'd0;
                     8'hE8: rsp_data <= (V2_DEBUG_CSR != 0) ? {22'd0, live_active, live_gate, live_active_note} : 32'd0;
@@ -805,7 +805,7 @@ end
                     8'hF0: rsp_data <= (V2_DEBUG_CSR != 0) ? {16'd0, cursor_x[15:0]} : 32'd0;
                     8'hF4: rsp_data <= (V2_DEBUG_CSR != 0) ? {26'd0, reader_state} : 32'd0;
                     8'hF8: rsp_data <= (V2_DEBUG_CSR != 0) ? dbg_point_count : 32'd0;
-                    8'hFC: rsp_data <= (V2_DEBUG_CSR != 0) ? {24'd0, valid_reason} : 32'd0;
+                    8'hFC: rsp_data <= (V2_DEBUG_CSR != 0) ? raw_y : 32'd0;      // raw sensor Y (signed)
                     8'hA4: rsp_data <= (V2_DEBUG_CSR != 0) ? {30'd0, dbg_apply_reject_reason} : 32'd0;
                     8'hA8: rsp_data <= (V2_DEBUG_CSR != 0) ? {16'd0, dbg_expected_crc_captured} : 32'd0;
                     8'hAC: rsp_data <= (V2_DEBUG_CSR != 0) ? {16'd0, dbg_apply_version_seen} : 32'd0;

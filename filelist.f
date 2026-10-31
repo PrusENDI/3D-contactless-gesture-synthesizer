@@ -30,6 +30,7 @@ rtl/uart_rx.sv
 rtl/uart_tx.sv
 rtl/v2_uart_link.sv
 rtl/v2_telemetry_snapshot.sv
+rtl/mgc3130_reset_seq.sv
 rtl/mgc3130_reader.sv
 rtl/v2_wt_playback.sv
 rtl/mgc3130_v2_top.sv

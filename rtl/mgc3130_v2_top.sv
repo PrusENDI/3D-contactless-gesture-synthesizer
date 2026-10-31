@@ -80,6 +80,15 @@ module mgc3130_v2_top #(
     logic [7:0] reader_debug_size;
 logic [5:0] reader_state;
 
+    wire mgc_mclr_drive_low, mgc_ready;
+    assign mgc_mclr = mgc_mclr_drive_low ? 1'b0 : 1'bz;
+
+    // Sensor power-on sequence: hold MCLR low, then give the sensor time to boot.
+    // The reader stays in reset until mgc_ready, which is what the working
+    // reference design did; without it the sensor never asserts TS.
+    mgc3130_reset_seq #(.CLK_HZ(80_000_000), .RESET_LOW_MS(250), .STARTUP_WAIT_MS(2000))
+    u_reset_seq (.clk(clk_sys_100m), .mclr_drive_low(mgc_mclr_drive_low), .ready(mgc_ready));
+
     generate
         if (USE_MGC_READER) begin : g_sensor
             mgc3130_reader #(.CLK_HZ(80_000_000), .I2C_HZ(100_000), .I2C_ADDR(7'h42))

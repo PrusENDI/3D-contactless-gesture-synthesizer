@@ -235,7 +235,7 @@ logic signed [31:0] cursor_last_z;
     logic [31:0] audio_timestamp;
     logic cursor_frame_done;
     v2_cursor_filter_timed u_cursor (
-        .clk(clk_sys_100m), .rst_n(rst_sys_n), .frame_in_valid(calibration_strobe),
+        .clk(clk_sys_100m), .rst_n(rst_sys_n), .frame_in_valid(valid_frame),
         .frame_x(frame_cal_x), .frame_y(frame_cal_y), .frame_z(frame_cal_z),
         .frame_valid(valid_frame), .frame_saturated(calibrated_saturated), .frame_gap(calibrated_gap),
         .frame_degraded(degraded_frame), .calibration_reason(valid_reason),
@@ -785,13 +785,13 @@ end
                     8'hCC: rsp_data <= (V2_DEBUG_CSR != 0) ? {16'd0, dbg_crc_final_captured} : 32'd0;
                     8'hD0: rsp_data <= (V2_DEBUG_CSR != 0) ? dbg_report_count : 32'd0;
                     8'hD4: rsp_data <= (V2_DEBUG_CSR != 0) ? dbg_error_count : 32'd0;
-                    8'hD8: rsp_data <= (V2_DEBUG_CSR != 0) ? dbg_cursor_valid_count : 32'd0;
+                    8'hD8: rsp_data <= (V2_DEBUG_CSR != 0) ? {16'd0, cursor_y[15:0]} : 32'd0;
                     8'hDC: rsp_data <= (V2_DEBUG_CSR != 0) ? {31'd0, reader_busy} : 32'd0;
                     8'hE0: rsp_data <= (V2_DEBUG_CSR != 0) ? cursor_last_z : 32'd0;
                     8'hE4: rsp_data <= (V2_DEBUG_CSR != 0) ? {27'd0, cursor_fsm_state} : 32'd0;
                     8'hE8: rsp_data <= (V2_DEBUG_CSR != 0) ? dbg_xyz_count : 32'd0;
                     8'hEC: rsp_data <= (V2_DEBUG_CSR != 0) ? dbg_frame_count : 32'd0;
-                    8'hF0: rsp_data <= (V2_DEBUG_CSR != 0) ? {31'd0, mgc_ts} : 32'd0;
+                    8'hF0: rsp_data <= (V2_DEBUG_CSR != 0) ? {16'd0, cursor_x[15:0]} : 32'd0;
                     8'hF4: rsp_data <= (V2_DEBUG_CSR != 0) ? {26'd0, reader_state} : 32'd0;
                     8'hF8: rsp_data <= (V2_DEBUG_CSR != 0) ? dbg_point_count : 32'd0;
                     8'hFC: rsp_data <= (V2_DEBUG_CSR != 0) ? {24'd0, valid_reason} : 32'd0;

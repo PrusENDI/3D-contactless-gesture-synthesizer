@@ -23,122 +23,63 @@
              force_trigger_by_falling_edge="false" capture_init_data_enabled="false">
         <SignalList>
             <Signal capture_enable="true">u_v2/report_valid</Signal>
-            <Signal capture_enable="true">u_v2/frame_xyz_valid</Signal>
-            <Signal capture_enable="true">u_v2/frame_touch</Signal>
             <Signal capture_enable="true">u_v2/calibration_strobe</Signal>
+            <Signal capture_enable="true">u_v2/u_cursor/in_valid</Signal>
+            <Signal capture_enable="true">u_v2/u_cursor/in_saturated</Signal>
+            <Signal capture_enable="true">u_v2/u_cursor/in_gap</Signal>
+            <Signal capture_enable="true">u_v2/u_cursor/in_degraded</Signal>
+            <Signal capture_enable="true">u_v2/u_cursor/in_left_edge</Signal>
             <Signal capture_enable="true">u_v2/cursor_point_valid</Signal>
-            <Bus capture_enable="true" name="u_v2/frame_cal_z[31:0]">
-                <Signal>u_v2/frame_cal_z[31]</Signal>
-                <Signal>u_v2/frame_cal_z[30]</Signal>
-                <Signal>u_v2/frame_cal_z[29]</Signal>
-                <Signal>u_v2/frame_cal_z[28]</Signal>
-                <Signal>u_v2/frame_cal_z[27]</Signal>
-                <Signal>u_v2/frame_cal_z[26]</Signal>
-                <Signal>u_v2/frame_cal_z[25]</Signal>
-                <Signal>u_v2/frame_cal_z[24]</Signal>
-                <Signal>u_v2/frame_cal_z[23]</Signal>
-                <Signal>u_v2/frame_cal_z[22]</Signal>
-                <Signal>u_v2/frame_cal_z[21]</Signal>
-                <Signal>u_v2/frame_cal_z[20]</Signal>
-                <Signal>u_v2/frame_cal_z[19]</Signal>
-                <Signal>u_v2/frame_cal_z[18]</Signal>
-                <Signal>u_v2/frame_cal_z[17]</Signal>
-                <Signal>u_v2/frame_cal_z[16]</Signal>
-                <Signal>u_v2/frame_cal_z[15]</Signal>
-                <Signal>u_v2/frame_cal_z[14]</Signal>
-                <Signal>u_v2/frame_cal_z[13]</Signal>
-                <Signal>u_v2/frame_cal_z[12]</Signal>
-                <Signal>u_v2/frame_cal_z[11]</Signal>
-                <Signal>u_v2/frame_cal_z[10]</Signal>
-                <Signal>u_v2/frame_cal_z[9]</Signal>
-                <Signal>u_v2/frame_cal_z[8]</Signal>
-                <Signal>u_v2/frame_cal_z[7]</Signal>
-                <Signal>u_v2/frame_cal_z[6]</Signal>
-                <Signal>u_v2/frame_cal_z[5]</Signal>
-                <Signal>u_v2/frame_cal_z[4]</Signal>
-                <Signal>u_v2/frame_cal_z[3]</Signal>
-                <Signal>u_v2/frame_cal_z[2]</Signal>
-                <Signal>u_v2/frame_cal_z[1]</Signal>
-                <Signal>u_v2/frame_cal_z[0]</Signal>
+            <Bus capture_enable="true" name="u_v2/u_cursor/in_z[31:0]">
+                <Signal>u_v2/u_cursor/in_z[31]</Signal>
+                <Signal>u_v2/u_cursor/in_z[30]</Signal>
+                <Signal>u_v2/u_cursor/in_z[29]</Signal>
+                <Signal>u_v2/u_cursor/in_z[28]</Signal>
+                <Signal>u_v2/u_cursor/in_z[27]</Signal>
+                <Signal>u_v2/u_cursor/in_z[26]</Signal>
+                <Signal>u_v2/u_cursor/in_z[25]</Signal>
+                <Signal>u_v2/u_cursor/in_z[24]</Signal>
+                <Signal>u_v2/u_cursor/in_z[23]</Signal>
+                <Signal>u_v2/u_cursor/in_z[22]</Signal>
+                <Signal>u_v2/u_cursor/in_z[21]</Signal>
+                <Signal>u_v2/u_cursor/in_z[20]</Signal>
+                <Signal>u_v2/u_cursor/in_z[19]</Signal>
+                <Signal>u_v2/u_cursor/in_z[18]</Signal>
+                <Signal>u_v2/u_cursor/in_z[17]</Signal>
+                <Signal>u_v2/u_cursor/in_z[16]</Signal>
+                <Signal>u_v2/u_cursor/in_z[15]</Signal>
+                <Signal>u_v2/u_cursor/in_z[14]</Signal>
+                <Signal>u_v2/u_cursor/in_z[13]</Signal>
+                <Signal>u_v2/u_cursor/in_z[12]</Signal>
+                <Signal>u_v2/u_cursor/in_z[11]</Signal>
+                <Signal>u_v2/u_cursor/in_z[10]</Signal>
+                <Signal>u_v2/u_cursor/in_z[9]</Signal>
+                <Signal>u_v2/u_cursor/in_z[8]</Signal>
+                <Signal>u_v2/u_cursor/in_z[7]</Signal>
+                <Signal>u_v2/u_cursor/in_z[6]</Signal>
+                <Signal>u_v2/u_cursor/in_z[5]</Signal>
+                <Signal>u_v2/u_cursor/in_z[4]</Signal>
+                <Signal>u_v2/u_cursor/in_z[3]</Signal>
+                <Signal>u_v2/u_cursor/in_z[2]</Signal>
+                <Signal>u_v2/u_cursor/in_z[1]</Signal>
+                <Signal>u_v2/u_cursor/in_z[0]</Signal>
             </Bus>
-            <Bus capture_enable="true" name="u_v2/x_position[15:0]">
-                <Signal>u_v2/x_position[15]</Signal>
-                <Signal>u_v2/x_position[14]</Signal>
-                <Signal>u_v2/x_position[13]</Signal>
-                <Signal>u_v2/x_position[12]</Signal>
-                <Signal>u_v2/x_position[11]</Signal>
-                <Signal>u_v2/x_position[10]</Signal>
-                <Signal>u_v2/x_position[9]</Signal>
-                <Signal>u_v2/x_position[8]</Signal>
-                <Signal>u_v2/x_position[7]</Signal>
-                <Signal>u_v2/x_position[6]</Signal>
-                <Signal>u_v2/x_position[5]</Signal>
-                <Signal>u_v2/x_position[4]</Signal>
-                <Signal>u_v2/x_position[3]</Signal>
-                <Signal>u_v2/x_position[2]</Signal>
-                <Signal>u_v2/x_position[1]</Signal>
-                <Signal>u_v2/x_position[0]</Signal>
+            <Bus capture_enable="true" name="u_v2/u_cursor/in_reason[7:0]">
+                <Signal>u_v2/u_cursor/in_reason[7]</Signal>
+                <Signal>u_v2/u_cursor/in_reason[6]</Signal>
+                <Signal>u_v2/u_cursor/in_reason[5]</Signal>
+                <Signal>u_v2/u_cursor/in_reason[4]</Signal>
+                <Signal>u_v2/u_cursor/in_reason[3]</Signal>
+                <Signal>u_v2/u_cursor/in_reason[2]</Signal>
+                <Signal>u_v2/u_cursor/in_reason[1]</Signal>
+                <Signal>u_v2/u_cursor/in_reason[0]</Signal>
             </Bus>
-            <Bus capture_enable="true" name="u_v2/y_position[15:0]">
-                <Signal>u_v2/y_position[15]</Signal>
-                <Signal>u_v2/y_position[14]</Signal>
-                <Signal>u_v2/y_position[13]</Signal>
-                <Signal>u_v2/y_position[12]</Signal>
-                <Signal>u_v2/y_position[11]</Signal>
-                <Signal>u_v2/y_position[10]</Signal>
-                <Signal>u_v2/y_position[9]</Signal>
-                <Signal>u_v2/y_position[8]</Signal>
-                <Signal>u_v2/y_position[7]</Signal>
-                <Signal>u_v2/y_position[6]</Signal>
-                <Signal>u_v2/y_position[5]</Signal>
-                <Signal>u_v2/y_position[4]</Signal>
-                <Signal>u_v2/y_position[3]</Signal>
-                <Signal>u_v2/y_position[2]</Signal>
-                <Signal>u_v2/y_position[1]</Signal>
-                <Signal>u_v2/y_position[0]</Signal>
-            </Bus>
-            <Bus capture_enable="true" name="u_v2/z_position[15:0]">
-                <Signal>u_v2/z_position[15]</Signal>
-                <Signal>u_v2/z_position[14]</Signal>
-                <Signal>u_v2/z_position[13]</Signal>
-                <Signal>u_v2/z_position[12]</Signal>
-                <Signal>u_v2/z_position[11]</Signal>
-                <Signal>u_v2/z_position[10]</Signal>
-                <Signal>u_v2/z_position[9]</Signal>
-                <Signal>u_v2/z_position[8]</Signal>
-                <Signal>u_v2/z_position[7]</Signal>
-                <Signal>u_v2/z_position[6]</Signal>
-                <Signal>u_v2/z_position[5]</Signal>
-                <Signal>u_v2/z_position[4]</Signal>
-                <Signal>u_v2/z_position[3]</Signal>
-                <Signal>u_v2/z_position[2]</Signal>
-                <Signal>u_v2/z_position[1]</Signal>
-                <Signal>u_v2/z_position[0]</Signal>
-            </Bus>
-            <Bus capture_enable="true" name="u_v2/reader_state[5:0]">
-                <Signal>u_v2/reader_state[5]</Signal>
-                <Signal>u_v2/reader_state[4]</Signal>
-                <Signal>u_v2/reader_state[3]</Signal>
-                <Signal>u_v2/reader_state[2]</Signal>
-                <Signal>u_v2/reader_state[1]</Signal>
-                <Signal>u_v2/reader_state[0]</Signal>
-            </Bus>
-            <Bus capture_enable="true" name="u_v2/reader_debug_size[7:0]">
-                <Signal>u_v2/reader_debug_size[7]</Signal>
-                <Signal>u_v2/reader_debug_size[6]</Signal>
-                <Signal>u_v2/reader_debug_size[5]</Signal>
-                <Signal>u_v2/reader_debug_size[4]</Signal>
-                <Signal>u_v2/reader_debug_size[3]</Signal>
-                <Signal>u_v2/reader_debug_size[2]</Signal>
-                <Signal>u_v2/reader_debug_size[1]</Signal>
-                <Signal>u_v2/reader_debug_size[0]</Signal>
-            </Bus>
-            <Bus capture_enable="true" name="u_v2/cursor_fsm_state[4:0]">
-                <Signal>u_v2/cursor_fsm_state[4]</Signal>
-                <Signal>u_v2/cursor_fsm_state[3]</Signal>
-                <Signal>u_v2/cursor_fsm_state[2]</Signal>
-                <Signal>u_v2/cursor_fsm_state[1]</Signal>
-                <Signal>u_v2/cursor_fsm_state[0]</Signal>
+            <Bus capture_enable="true" name="u_v2/u_cursor/fsm_state[4:0]">
+                <Signal>u_v2/u_cursor/fsm_state[4]</Signal>
+                <Signal>u_v2/u_cursor/fsm_state[3]</Signal>
+                <Signal>u_v2/u_cursor/fsm_state[2]</Signal>
+                <Signal>u_v2/u_cursor/fsm_state[1]</Signal>
+                <Signal>u_v2/u_cursor/fsm_state[0]</Signal>
             </Bus>
         </SignalList>
         <Triggers>

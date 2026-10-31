@@ -80,7 +80,18 @@ def crc16_ccitt_false(data: bytes) -> int:
     return crc
 
 
+def frame_crc(samples: list[int]) -> int:
+    """CRC the loader will compute: each 16-bit sample MSB first.
+
+    The file itself stays little-endian; only the CRC byte order is big-endian
+    (scripts/board_wt_upload.ps1 documents the same trap).
+    """
+    return crc16_ccitt_false(b"".join(int(v).to_bytes(2, "big", signed=True) for v in samples))
+
+
 def selftest() -> int:
+    assert crc16_ccitt_false(b"123456789") == 0x29B1, "CRC16 vector"
+    assert frame_crc([0x1234, -1]) == crc16_ccitt_false(b"\x12\x34\xff\xff"), "CRC byte order"
     n = N_POINTS
     frames = [
         [int(0.9 * 32767 * math.sin(2 * math.pi * k / n + ph)) for k in range(n)]
@@ -127,7 +138,7 @@ def main() -> int:
             fh.write(payload)
         re, im = fundamental(aligned)
         meta["frames"].append({
-            "path": out_path, "crc16": crc16_ccitt_false(payload),
+            "path": out_path, "crc16": frame_crc(aligned),
             "peak": max(abs(v) for v in aligned),
             "fundamental_rad": round(math.atan2(im, re), 6),
         })

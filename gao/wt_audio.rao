@@ -7,7 +7,9 @@
 
       sample_clock  u_v2/pcm5102a_lrck    48 kHz I2S frame clock
       window        2048 / 48 kHz = 42.7 ms ~= 18.8 cycles of A4 (440 Hz)
-      trigger       i2s_sample_valid = 1 (audio flowing); WT_PLAY is continuous
+      trigger       u_v2/mode_wt_play is a level, held high for the whole capture.
+                    (i2s_sample_valid is a single 80 MHz cycle, so at 48 kHz the
+                    match unit would almost never see it.)
 
       What it proves: capture at position near frame A must be a near-sine
       spectrum; near the B/C boundary it must carry many harmonics.  A closed
@@ -74,7 +76,7 @@
         <Triggers>
             <Trigger index="0">
                 <SignalList>
-                    <Signal>u_v2/i2s_sample_valid</Signal>
+                    <Signal>u_v2/mode_wt_play</Signal>
                 </SignalList>
             </Trigger>
             <Trigger index="1"/>

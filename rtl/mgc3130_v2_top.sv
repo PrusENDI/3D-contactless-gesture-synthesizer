@@ -703,15 +703,27 @@ end
         .pos(wt_pos), .frame_a(wt_frame_a), .frame_b(wt_frame_b), .frac(wt_frac)
     );
 
-    // Frame crossfade.  frame_b may be a table that was never applied, so the
-    // output falls back to frame_a instead of fading toward an empty table.
+    // Frame crossfade.  The loader's samples lag the frame select by one cycle
+    // (registered select), so frac must be delayed by the same cycle or the mix
+    // reverts to the previous frame for one sample at every pair crossing.
     logic signed [15:0] wt_sample_a, wt_sample_b, wt_mix_out;
     logic wt_rd_valid0, wt_rd_valid1;
+    logic [7:0] wt_frac_q;
+    always_ff @(posedge clk_sys_100m or negedge rst_sys_n) begin
+        if (!rst_sys_n) wt_frac_q <= 8'd0;
+        else            wt_frac_q <= wt_frac;
+    end
     v2_wt_mix u_wt_mix (
-        .a(wt_sample_a), .b(wt_sample_b), .frac(wt_frac), .out(wt_mix_out)
+        .a(wt_sample_a), .b(wt_sample_b), .frac(wt_frac_q), .out(wt_mix_out)
     );
     logic signed [15:0] wt_table_sample;
-    assign wt_table_sample = (wt_morph_en && wt_rd_valid1) ? wt_mix_out : wt_sample_a;
+    // Either frame may be a table that was never APPLYed; use whichever frame is
+    // valid and only crossfade when both are, so the sweep never blends an
+    // uninitialised DPB word.
+    assign wt_table_sample = !wt_morph_en          ? wt_sample_a :
+                             (wt_rd_valid0 && wt_rd_valid1) ? wt_mix_out :
+                             wt_rd_valid0          ? wt_sample_a :
+                             wt_rd_valid1          ? wt_sample_b : 16'sd0;
 
     // The two read channels follow position in WT_PLAY/LIVE; everywhere else they
     // read the host-selected table so the CSR readback path is untouched.

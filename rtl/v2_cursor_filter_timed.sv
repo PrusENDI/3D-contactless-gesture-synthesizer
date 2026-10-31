@@ -45,11 +45,27 @@ module v2_cursor_filter_timed #(
 
   logic engaged;
   logic signed [31:0] mapped_x, mapped_y;
+  logic [15:0] clamped_x, clamped_y;
   logic [15:0] depth_now;
 
-  // Absolute map: signed sensor coordinate -> 0..65535 with 32768 as centre.
-  assign mapped_x = frame_x + 32'sd32768;
-  assign mapped_y = frame_y + 32'sd32768;
+  // Absolute map with a learned neutral: the sensor's rest position is not zero,
+  // so the first frame after reset becomes the origin.  Keep the sensing area
+  // clear while the board boots, exactly like the PC's force-calibration step.
+  logic have_neutral;
+  logic signed [31:0] neutral_x, neutral_y;
+  assign mapped_x = (frame_x - neutral_x) + 32'sd32768;
+  assign mapped_y = (frame_y - neutral_y) + 32'sd32768;
+
+  // The telemetry field is 16 bits: clamp instead of letting a value above 65535
+  // wrap around to zero, which looked like the cursor jumping across the screen.
+  always_comb begin
+    if (mapped_x < 0) clamped_x = 16'd0;
+    else if (mapped_x > 32'sd65535) clamped_x = 16'hffff;
+    else clamped_x = mapped_x[15:0];
+    if (mapped_y < 0) clamped_y = 16'd0;
+    else if (mapped_y > 32'sd65535) clamped_y = 16'hffff;
+    else clamped_y = mapped_y[15:0];
+  end
 
   // Depth is proximity: closer (smaller Z) is stronger.  A shift keeps the
   // division out of the datapath; one LSB of depth per 4 units of Z.
@@ -69,18 +85,24 @@ module v2_cursor_filter_timed #(
       audio_pitch <= 16'd32768; audio_velocity <= 16'd0; audio_depth <= 16'd0;
       audio_valid <= 1'b0; audio_sequence <= 16'd0; audio_timestamp <= 32'd0;
       frame_output_valid <= 1'b0; engaged <= 1'b0;
+      have_neutral <= 1'b0; neutral_x <= 32'sd0; neutral_y <= 32'sd0;
     end else begin
       frame_output_valid <= frame_in_valid;
       point_valid <= 1'b0;
       if (frame_in_valid) begin
+        if (!have_neutral) begin
+          neutral_x <= frame_x;
+          neutral_y <= frame_y;
+          have_neutral <= 1'b1;
+        end
         // Engage hysteresis on proximity so the gate cannot chatter.
         if (frame_z <= Z_ENGAGE) engaged <= 1'b1;
         else if (frame_z >= Z_RELEASE) engaged <= 1'b0;
 
-        cursor_x <= mapped_x;
-        cursor_y <= mapped_y;
+        cursor_x <= ({16'd0, clamped_x});
+        cursor_y <= ({16'd0, clamped_y});
         cursor_z <= frame_z;
-        normalized_pitch <= mapped_y[15:0];
+        normalized_pitch <= clamped_y;
         depth_control <= depth_now;
         velocity_control <= depth_now;
         state <= engaged ? STATE_ENGAGED : STATE_DISENGAGED;
@@ -88,10 +110,10 @@ module v2_cursor_filter_timed #(
         point_valid <= frame_valid && (engaged || (frame_z <= Z_ENGAGE));
         stable_valid <= engaged;
 
-        audio_cursor_x <= mapped_x;
-        audio_cursor_y <= mapped_y;
+        audio_cursor_x <= ({16'd0, clamped_x});
+        audio_cursor_y <= ({16'd0, clamped_y});
         audio_cursor_z <= frame_z;
-        audio_pitch <= mapped_y[15:0];
+        audio_pitch <= clamped_y;
         audio_velocity <= depth_now;
         audio_depth <= depth_now;
         audio_valid <= engaged;

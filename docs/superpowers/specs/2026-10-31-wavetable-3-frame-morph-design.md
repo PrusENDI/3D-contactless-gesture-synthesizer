@@ -116,6 +116,12 @@ host 计算 `step = round(2^25 / (period_seconds × 48000))`。例：20 s → 34
 注意：上传脚本现在会写 `WT_SELECT = table`，会把 `morph_en/step` 清零。上传流程必须
 改成"上传三张表 → 最后写一次 `WT_SELECT`（table + morph_en + step）"。
 
+**调试读回**：`0xE8`（仅 `V2_DEBUG_CSR=1`）低 10 bit 保持现状（`[7:0]` note、`[8]` gate、
+`[9]` active），高 18 bit `[27:10]` 改放 `pos[25:8]`，其余补 0。宿主按 60 Hz 轮询即可
+测出 LFO 周期——这是唯一能观测秒级行为的仪器（GAO 窗口只有 µs 级）。
+现有脚本只解低 10 bit，不受影响；但按 skill 要求，此变更必须同步
+`docs/DEBUG-AND-FLASH.md` 的调试表与 `host/cursor_view.py`。
+
 ### 4.5 模式行为
 
 | 模式 | 读口 | 输出 |
@@ -150,23 +156,91 @@ host 计算 `step = round(2^25 / (period_seconds × 48000))`。例：20 s → 34
 
 DSP 从 8 增到 9（器件上限按综合报告为准，当前 8/… 未满）。
 
-## 6 验收
+## 6 验收（按 gowin-board-ops / gowin-fpga-debug 的证据纪律）
 
-**仿真（L0/L1）**
+### 6.1 闸门与产物
 
-1. `gate.py --compile` 0 error / 0 warning；
-2. 新增 `tb/tb_wt_morph.sv`：强制 `pos = 0 / 2^23 / 2^24 / 3×2^23 / 2^25`，输出应分别等于
+| 层 | 命令 | 判据 | 产物 |
+| --- | --- | --- | --- |
+| L0 静态 | `python scripts/gate.py` | 无重名模块、单一顶层、filelist 内模块都被实例化 | 终端输出 |
+| L1 编译 | `python scripts/gate.py --compile` | **0 error / 0 warning** | 编译日志 |
+| L2 仿真 | `python scripts/sim.py` | 失败集 ⊆ `sim_baseline.json`，baseline 只缩不扩 | 回归日志 |
+| L3 综合 | `python scripts/synth.py --run-id morph1` | `SYNTH: PASS`、**违约端点 0**、`synth_summary.json` 含 `bitstream_sha256` | `.fs` + summary |
+| L4 协议 | 三帧上传 + 读回脚本 | 每个回包校验 SOF/seq/CRC/err，N 轮 + 负例 | 原始日志 |
+| L5 波形 | `python scripts/gao_capture.py` | 抓到真实跳变，深度/时钟换算与报告一致 | `.csv` + `.rao` |
+
+- **"P&R 过了" = 违约端点 0**，不是"生成了位流"。非 0 时所有功能观测只能标"暂定"，
+  并把最差路径的起终点归属写进报告。
+- 功能验证只用 `PRESERVE_LOOP_PLANE=0 / PRESERVE_POTTS_PLANE=0` 的位流；探针位流会在
+  上电强跑一次 DP，留下卡音，制造"功能好了"的假象。
+
+### 6.2 仿真用例（L2）
+
+1. `tb/tb_wt_morph.sv`：强制 `pos = 0 / 2^23 / 2^24 / 3·2^23 / 2^25`，输出分别等于
    A、`(A+B)/2`、B、`(B+C)/2`、C，误差 ≤1 LSB；
-3. `step=35` 时，方向翻转周期 = `2^25/35` 样本 ±1；端点不越界；
-4. `morph_en=0` 时输出与改前**逐样本一致**（同表同相位）。
+2. `step=35`：方向翻转周期 `2^25/35` 样本 ±1；端点不越界；`dir` 每次只翻转一次；
+3. `morph_en=0`：输出与改前**逐样本一致**（同表同相位）；
+4. `frame_b` 的 `wt_active_valid=0` 时退回只用 `frame_a`；
+5. `table0==table1`：两个读口输出相等，且该表只置一次 `mem_rd_en`（层次引用检查）；
+6. 观测机制与板上一致：tb 直接看 `wt_read_sample0/1` 与混合结果，不经过 CSR。
 
-**上板（L4/L5）**
+### 6.3 上板前置（L4）
 
-5. 上传正弦/锯齿/方波到 A/B/C，morph 开，LFO 20 s：GAO 抓 I2S，position 每过 0.5 应看到
-   波形逐点向下一帧靠拢；听感无咔嗒、无音量塌陷；
-6. 上传期间扫表不中断（双 bank）；
-7. 回归：`WT_PLAY` 46.875 Hz 用例、`THRESHOLDS[7:0]=69` 的 440 Hz 用例、CRC/APPLY 读回
-   全部照旧。
+1. `.fs` 用绝对路径、`-Operation 4`，成功标志 `PROGRAM PASS`；烧完等 3–5 s；
+2. **先读 `0xB0`**，必须 `0x5A5A0003`，否则停止——先排除位流/串口；
+3. 打印基线寄存器并确认干净，再开始测试（脏基线曾直接造出"状态机卡死"的假结论）；
+4. 记录位流 sha256、时间戳、源码 commit；未跑项列在报告末尾；
+5. 脚本纪律：每个回包校验 `SOF=0x5A`、序号回显、CRC、`err`；失败非零退出；结束回 IDLE。
+
+### 6.4 GAO（L5）
+
+| 信号 | 位宽 | 用途 |
+| --- | --- | --- |
+| `clk_sys_100m`（`sample_clock`） | — | 真实 80 MHz（名字是历史遗留） |
+| `pos[25:8]` | 18 | position 走向 |
+| `frame_a` / `frame_b` | 2 + 2 | 帧选择 |
+| `frac[7:0]` | 8 | 淡化系数 |
+| `wt_read_sample0/1` | 16 + 16 | 两帧样本 |
+| `morph_sample` | 16 | 混合结果 |
+
+合计 78 bit，取 80 bit：`2048 × 80 = 163,840 bit ≈ 9 BSRAM`（36/56 → 45/56）；
+降深到 1024 约 5 块，窗口 12.8 µs。
+
+要点：
+
+- `.rao` 必须含 `<Expressions type="Static"><Expression>M0</Expression></Expressions>`；
+  构建后检查 `RTL_GAO/ao_0/gw_ao_expression.v` 首行是 `match[0]`，否则触发恒真、抓到静态窗口；
+- `-out` 必须带 `.csv`，产物是 `<stem>_core0.csv`，可能晚几秒出现，要轮询；
+- 窗口 = 深度 / 80 MHz，报告里写明；80 MHz 下 1 点 = 12.5 ns，不要用 CSV 的 `t` 推频率；
+- 窗口内必须真的有一次 position 跨越 1.0（或一次 APPLY），否则 `change points = 0`；
+- 按 CSV 表头解码列，不假设列序；
+- GAO 与烧录共用 JTAG：先烧后抓。
+
+**GAO 只回答µs 级的先后**；LFO 周期是秒级，用 §6.5 的 CSR 轮询，不要试图用 GAO 量。
+
+### 6.5 板上功能判据
+
+1. 上传正弦/锯齿/方波到 A/B/C，`morph_en=1`、`step=35`（20 s 扫一趟）：
+   - 宿主 60 Hz 轮询 `0xE8[27:10]`，10 s 内 position 单调变化，方向翻转周期 20.6 s ±2%；
+   - 扫表期间上传新帧（双 bank），无静音、无爆音；
+2. 听感：无咔嗒；`frac≈128` 处不明显塌陷（相位对齐后）；
+3. 回归：`WT_PLAY` 46.875 Hz、`THRESHOLDS[7:0]=69` → 440 Hz、CRC/APPLY 读回、
+   IDLE 下 `WT_DATA` 逐点读回，全部照旧。
+
+### 6.6 证据清单
+
+- 位流 sha256 + 时间戳 + commit；
+- `synth_summary.json`（违约端点 0）；
+- L2 回归日志（失败集 ⊆ baseline）；
+- 上传/读回脚本原始日志（含 `err` 字段，不只打印数据）；
+- GAO `.rao` + `.csv` + 窗口/触发说明；
+- 未跑项列表。
+
+### 6.7 调试表与脚本同步
+
+`WT_SELECT` 新语义与 `0xE8` 高位的新含义，必须同时更新 `docs/DEBUG-AND-FLASH.md`
+的调试表和 `host/cursor_view.py`；`scripts/board_wt_upload.ps1` 末尾统一写一次
+`WT_SELECT`。不同步 = 下一次板测按旧含义解读，等于没有证据。
 
 ## 7 风险
 
@@ -177,6 +251,9 @@ DSP 从 8 增到 9（器件上限按综合报告为准，当前 8/… 未满）�
 | 上传脚本清掉 morph 配置 | 脚本末尾统一写一次 `WT_SELECT` |
 | `WT_SELECT` 语义变更 | 只影响 host 与文档；RTL 内无其他消费方（`bank/band/octave` 未使用） |
 | 双读使 table 读带宽翻倍 | 单声部 2 读/样本；将来 32 声部为 64 读/样本，占 1667 周期预算 3.8% |
+| `0xE8` / `WT_SELECT` 语义变更未同步脚本 | §6.7：同改调试表与 `cursor_view.py`，报告里标注新字段 |
+| GAO 探针超 BSRAM | 先按 `2048×80 ≈ 9` 块算；装不下降到 1024 深（≈5 块，窗口 12.8 µs） |
+| 用 GAO 量秒级 LFO 周期 | 不可能（窗口只有 25.6 µs）；周期一律用 `0xE8` 轮询测 |
 
 ## 8 升级路径
 

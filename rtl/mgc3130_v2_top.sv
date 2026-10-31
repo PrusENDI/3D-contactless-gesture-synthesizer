@@ -962,8 +962,8 @@ end
     v2_telemetry_snapshot u_telemetry (
         .clk(clk_sys_100m), .rst_n(rst_sys_n), .capture_valid(tlm_capture_valid),
         .capture_ready(tlm_capture_ready), .capture_type(8'd1), .capture_sequence(audio_sequence),
-        .capture_x(audio_cursor_x[15:0]), .capture_y(audio_cursor_y[15:0]),
-        .capture_z(audio_cursor_z[15:0]), .capture_note(live_active_note),
+        .capture_x(cursor_x[15:0]), .capture_y(cursor_y[15:0]),
+        .capture_z(cursor_z[15:0]), .capture_note(live_active_note),
         .capture_flags({1'b0, recording, loop_active_valid, loop_commit_pending, cursor_rebased,
                         calibrated_presence, record_fault[1:0]}), .capture_tick(sample_index[7:0]),
         .capture_voice_bitmap(voice_bitmap), .capture_fifo_level(record_count[7:0]),

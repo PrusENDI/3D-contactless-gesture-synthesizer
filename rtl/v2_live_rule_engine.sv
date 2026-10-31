@@ -77,100 +77,34 @@ module v2_live_rule_engine #(
   wire [15:0] emit_candidate_timbre = PIPELINE_NOTE ? candidate_timbre_q : candidate_timbre;
   wire [31:0] emit_candidate_tick = PIPELINE_NOTE ? candidate_tick_q : rule_tick;
 
+  // Pitch mapping from the design note (docs/lead-mapping-report-2026-10-22.md):
+  // hand height y in [11534, 54001] spans G3(55)..C5(72), one semitone every
+  // 2498 counts, quantised to the A minor pentatonic {55,57,60,62,64,67,69,72}.
+  // Only these eight notes exist in the voice engine note ROM.
   function automatic [7:0] map_note(input logic [15:0] value);
-    logic [22:0] product;
-    logic [6:0] q0;
-    logic [15:0] rem;
-    logic [7:0] n;
     begin
-      // Exact floor((72 * value) / 65535) without a variable divider.
-      // Let n=72*value=q0*65536+rem.  Since 65535=65536-1,
-      // floor(n/65535)=q0 + (rem+q0 >= 65535).
-      product = value * (NOTE_MAX-NOTE_MIN);
-      q0 = product[22:16];
-      rem = product[15:0];
-      n = NOTE_MIN + q0 + (({1'b0, rem} + q0) >= 17'd65535);
-      if (n > 127) n=127;
-      map_note = n[7:0];
+      if      (value < 16'd16530) map_note = 8'd55;   // G3
+      else if (value < 16'd19028) map_note = 8'd57;   // A3
+      else if (value < 16'd24024) map_note = 8'd60;   // C4
+      else if (value < 16'd26522) map_note = 8'd62;   // D4
+      else if (value < 16'd34016) map_note = 8'd64;   // E4
+      else if (value < 16'd39012) map_note = 8'd67;   // G4
+      else if (value < 16'd41510) map_note = 8'd69;   // A4
+      else                        map_note = 8'd72;   // C5
     end
   endfunction
   function automatic [31:0] note_boundary(input logic [7:0] note);
     begin
       case (note)
-      8'd24: note_boundary = 32'd0;
-      8'd25: note_boundary = 32'd910;
-      8'd26: note_boundary = 32'd1820;
-      8'd27: note_boundary = 32'd2730;
-      8'd28: note_boundary = 32'd3640;
-      8'd29: note_boundary = 32'd4551;
-      8'd30: note_boundary = 32'd5461;
-      8'd31: note_boundary = 32'd6371;
-      8'd32: note_boundary = 32'd7281;
-      8'd33: note_boundary = 32'd8191;
-      8'd34: note_boundary = 32'd9102;
-      8'd35: note_boundary = 32'd10012;
-      8'd36: note_boundary = 32'd10922;
-      8'd37: note_boundary = 32'd11832;
-      8'd38: note_boundary = 32'd12742;
-      8'd39: note_boundary = 32'd13653;
-      8'd40: note_boundary = 32'd14563;
-      8'd41: note_boundary = 32'd15473;
-      8'd42: note_boundary = 32'd16383;
-      8'd43: note_boundary = 32'd17293;
-      8'd44: note_boundary = 32'd18204;
-      8'd45: note_boundary = 32'd19114;
-      8'd46: note_boundary = 32'd20024;
-      8'd47: note_boundary = 32'd20934;
-      8'd48: note_boundary = 32'd21845;
-      8'd49: note_boundary = 32'd22755;
-      8'd50: note_boundary = 32'd23665;
-      8'd51: note_boundary = 32'd24575;
-      8'd52: note_boundary = 32'd25485;
-      8'd53: note_boundary = 32'd26396;
-      8'd54: note_boundary = 32'd27306;
-      8'd55: note_boundary = 32'd28216;
-      8'd56: note_boundary = 32'd29126;
-      8'd57: note_boundary = 32'd30036;
-      8'd58: note_boundary = 32'd30947;
-      8'd59: note_boundary = 32'd31857;
-      8'd60: note_boundary = 32'd32767;
-      8'd61: note_boundary = 32'd33677;
-      8'd62: note_boundary = 32'd34587;
-      8'd63: note_boundary = 32'd35498;
-      8'd64: note_boundary = 32'd36408;
-      8'd65: note_boundary = 32'd37318;
-      8'd66: note_boundary = 32'd38228;
-      8'd67: note_boundary = 32'd39138;
-      8'd68: note_boundary = 32'd40049;
-      8'd69: note_boundary = 32'd40959;
-      8'd70: note_boundary = 32'd41869;
-      8'd71: note_boundary = 32'd42779;
-      8'd72: note_boundary = 32'd43690;
-      8'd73: note_boundary = 32'd44600;
-      8'd74: note_boundary = 32'd45510;
-      8'd75: note_boundary = 32'd46420;
-      8'd76: note_boundary = 32'd47330;
-      8'd77: note_boundary = 32'd48241;
-      8'd78: note_boundary = 32'd49151;
-      8'd79: note_boundary = 32'd50061;
-      8'd80: note_boundary = 32'd50971;
-      8'd81: note_boundary = 32'd51881;
-      8'd82: note_boundary = 32'd52792;
-      8'd83: note_boundary = 32'd53702;
-      8'd84: note_boundary = 32'd54612;
-      8'd85: note_boundary = 32'd55522;
-      8'd86: note_boundary = 32'd56432;
-      8'd87: note_boundary = 32'd57343;
-      8'd88: note_boundary = 32'd58253;
-      8'd89: note_boundary = 32'd59163;
-      8'd90: note_boundary = 32'd60073;
-      8'd91: note_boundary = 32'd60983;
-      8'd92: note_boundary = 32'd61894;
-      8'd93: note_boundary = 32'd62804;
-      8'd94: note_boundary = 32'd63714;
-      8'd95: note_boundary = 32'd64624;
-      8'd96: note_boundary = 32'd65535;
-        default: note_boundary = 32'd0;
+      8'd55: note_boundary = 32'd16530;
+      8'd57: note_boundary = 32'd19028;
+      8'd60: note_boundary = 32'd24024;
+      8'd62: note_boundary = 32'd26522;
+      8'd64: note_boundary = 32'd34016;
+      8'd67: note_boundary = 32'd39012;
+      8'd69: note_boundary = 32'd41510;
+      8'd72: note_boundary = 32'd65535;
+      default: note_boundary = 32'd0;
       endcase
     end
   endfunction

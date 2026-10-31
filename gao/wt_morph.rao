@@ -1,0 +1,154 @@
+<?xml version="1" encoding="UTF-8"?>
+<GAO_CONFIG>
+    <Version>3.0</Version>
+    <Mode>Standard</Mode>
+    <!--
+      3-frame morph probe.
+
+      sample_clock  u_v2/clk_sys_100m      80 MHz system clock
+      window        2048 / 80 MHz = 25.6 us ~= one 48 kHz audio sample plus margin
+      trigger       i2s_sample_valid = 1 (audio flowing); -force-trigger-timeout
+                    is the backup while WT_PLAY runs.
+
+      The LFO period is seconds, so it cannot be measured here; this capture only
+      answers the microsecond questions: which frames the read channels selected,
+      which frac was applied, and whether the mixed sample equals the blend of the
+      two channel samples.  Use 0xE8[27:10] (CSR polling) for the period.
+
+      Decode: at each i2s_sample_valid, read frame_a/frame_b/frac, then check
+      wt_table_sample == sample_a + ((sample_b - sample_a) * frac >> 8).
+    -->
+    <AoCore index="0" sample_clock="u_v2/clk_sys_100m" trig_type="0"
+             storage_depth="2048" window_num="1" capture_amount="2048"
+             implementation="0" trigger_pos="64" module_name="v2_board_top"
+             force_trigger_by_falling_edge="false" capture_init_data_enabled="false">
+        <SignalList>
+            <Signal capture_enable="true">u_v2/i2s_sample_valid</Signal>
+            <Bus capture_enable="true" name="u_v2/wt_pos[25:8]">
+                <Signal>u_v2/wt_pos[25]</Signal>
+                <Signal>u_v2/wt_pos[24]</Signal>
+                <Signal>u_v2/wt_pos[23]</Signal>
+                <Signal>u_v2/wt_pos[22]</Signal>
+                <Signal>u_v2/wt_pos[21]</Signal>
+                <Signal>u_v2/wt_pos[20]</Signal>
+                <Signal>u_v2/wt_pos[19]</Signal>
+                <Signal>u_v2/wt_pos[18]</Signal>
+                <Signal>u_v2/wt_pos[17]</Signal>
+                <Signal>u_v2/wt_pos[16]</Signal>
+                <Signal>u_v2/wt_pos[15]</Signal>
+                <Signal>u_v2/wt_pos[14]</Signal>
+                <Signal>u_v2/wt_pos[13]</Signal>
+                <Signal>u_v2/wt_pos[12]</Signal>
+                <Signal>u_v2/wt_pos[11]</Signal>
+                <Signal>u_v2/wt_pos[10]</Signal>
+                <Signal>u_v2/wt_pos[9]</Signal>
+                <Signal>u_v2/wt_pos[8]</Signal>
+            </Bus>
+            <Bus capture_enable="true" name="u_v2/wt_frame_a[1:0]">
+                <Signal>u_v2/wt_frame_a[1]</Signal>
+                <Signal>u_v2/wt_frame_a[0]</Signal>
+            </Bus>
+            <Bus capture_enable="true" name="u_v2/wt_frame_b[1:0]">
+                <Signal>u_v2/wt_frame_b[1]</Signal>
+                <Signal>u_v2/wt_frame_b[0]</Signal>
+            </Bus>
+            <Bus capture_enable="true" name="u_v2/wt_frac[7:0]">
+                <Signal>u_v2/wt_frac[7]</Signal>
+                <Signal>u_v2/wt_frac[6]</Signal>
+                <Signal>u_v2/wt_frac[5]</Signal>
+                <Signal>u_v2/wt_frac[4]</Signal>
+                <Signal>u_v2/wt_frac[3]</Signal>
+                <Signal>u_v2/wt_frac[2]</Signal>
+                <Signal>u_v2/wt_frac[1]</Signal>
+                <Signal>u_v2/wt_frac[0]</Signal>
+            </Bus>
+            <Bus capture_enable="true" name="u_v2/wt_sample_a[15:0]">
+                <Signal>u_v2/wt_sample_a[15]</Signal>
+                <Signal>u_v2/wt_sample_a[14]</Signal>
+                <Signal>u_v2/wt_sample_a[13]</Signal>
+                <Signal>u_v2/wt_sample_a[12]</Signal>
+                <Signal>u_v2/wt_sample_a[11]</Signal>
+                <Signal>u_v2/wt_sample_a[10]</Signal>
+                <Signal>u_v2/wt_sample_a[9]</Signal>
+                <Signal>u_v2/wt_sample_a[8]</Signal>
+                <Signal>u_v2/wt_sample_a[7]</Signal>
+                <Signal>u_v2/wt_sample_a[6]</Signal>
+                <Signal>u_v2/wt_sample_a[5]</Signal>
+                <Signal>u_v2/wt_sample_a[4]</Signal>
+                <Signal>u_v2/wt_sample_a[3]</Signal>
+                <Signal>u_v2/wt_sample_a[2]</Signal>
+                <Signal>u_v2/wt_sample_a[1]</Signal>
+                <Signal>u_v2/wt_sample_a[0]</Signal>
+            </Bus>
+            <Bus capture_enable="true" name="u_v2/wt_sample_b[15:0]">
+                <Signal>u_v2/wt_sample_b[15]</Signal>
+                <Signal>u_v2/wt_sample_b[14]</Signal>
+                <Signal>u_v2/wt_sample_b[13]</Signal>
+                <Signal>u_v2/wt_sample_b[12]</Signal>
+                <Signal>u_v2/wt_sample_b[11]</Signal>
+                <Signal>u_v2/wt_sample_b[10]</Signal>
+                <Signal>u_v2/wt_sample_b[9]</Signal>
+                <Signal>u_v2/wt_sample_b[8]</Signal>
+                <Signal>u_v2/wt_sample_b[7]</Signal>
+                <Signal>u_v2/wt_sample_b[6]</Signal>
+                <Signal>u_v2/wt_sample_b[5]</Signal>
+                <Signal>u_v2/wt_sample_b[4]</Signal>
+                <Signal>u_v2/wt_sample_b[3]</Signal>
+                <Signal>u_v2/wt_sample_b[2]</Signal>
+                <Signal>u_v2/wt_sample_b[1]</Signal>
+                <Signal>u_v2/wt_sample_b[0]</Signal>
+            </Bus>
+            <Bus capture_enable="true" name="u_v2/wt_table_sample[15:0]">
+                <Signal>u_v2/wt_table_sample[15]</Signal>
+                <Signal>u_v2/wt_table_sample[14]</Signal>
+                <Signal>u_v2/wt_table_sample[13]</Signal>
+                <Signal>u_v2/wt_table_sample[12]</Signal>
+                <Signal>u_v2/wt_table_sample[11]</Signal>
+                <Signal>u_v2/wt_table_sample[10]</Signal>
+                <Signal>u_v2/wt_table_sample[9]</Signal>
+                <Signal>u_v2/wt_table_sample[8]</Signal>
+                <Signal>u_v2/wt_table_sample[7]</Signal>
+                <Signal>u_v2/wt_table_sample[6]</Signal>
+                <Signal>u_v2/wt_table_sample[5]</Signal>
+                <Signal>u_v2/wt_table_sample[4]</Signal>
+                <Signal>u_v2/wt_table_sample[3]</Signal>
+                <Signal>u_v2/wt_table_sample[2]</Signal>
+                <Signal>u_v2/wt_table_sample[1]</Signal>
+                <Signal>u_v2/wt_table_sample[0]</Signal>
+            </Bus>
+        </SignalList>
+        <Triggers>
+            <Trigger index="0">
+                <SignalList>
+                    <Signal>u_v2/i2s_sample_valid</Signal>
+                </SignalList>
+            </Trigger>
+            <Trigger index="1"/>
+            <Trigger index="2"/>
+            <Trigger index="3"/>
+            <Trigger index="4"/>
+            <Trigger index="5"/>
+            <Trigger index="6"/>
+            <Trigger index="7"/>
+            <Trigger index="8"/>
+            <Trigger index="9"/>
+            <Trigger index="10"/>
+            <Trigger index="11"/>
+            <Trigger index="12"/>
+            <Trigger index="13"/>
+            <Trigger index="14"/>
+            <Trigger index="15"/>
+        </Triggers>
+        <MatchUnits>
+            <MatchUnit index="0" enabled="1" match_type="0" counter_enable="0"
+                       counter_width="2" counter="2" countinuous="0" func="0"
+                       value0="1" value1="0" trigger="0"/>
+            <MatchUnit index="1" enabled="0" match_type="0" counter_enable="0"
+                       counter_width="2" counter="2" countinuous="0" func="0"
+                       value0="" value1=""/>
+        </MatchUnits>
+        <Expressions type="Static">
+            <Expression>M0</Expression>
+        </Expressions>
+    </AoCore>
+</GAO_CONFIG>

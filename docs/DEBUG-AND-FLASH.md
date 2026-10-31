@@ -86,7 +86,7 @@ python host\cursor_view.py --console-only --seconds 3
 | **0xDC** | `raw_x`（原始，0..65535） |
 | **0xE0** | 最近一帧 `frame_cal_z`（32 位） |
 | **0xE4** | 光标 FSM 状态（简化后已固定） |
-| **0xE8** | `{live_active, live_gate, live_note}` |
+| **0xE8** | `{pos[25:8], live_active, live_gate, live_note}`（低 10 bit 不变；高 18 bit 是帧 morph 的 position） |
 | **0xEC** | `valid_frame` 计数 |
 | **0xF0** | `cursor_x` |
 | **0xF4** | reader 状态机状态 |
@@ -94,6 +94,16 @@ python host\cursor_view.py --console-only --seconds 3
 | **0xFC** | `raw_y` |
 
 > 新增调试量时**必须同步更新本表与所有脚本**。曾经出现过"改了 0xE4 含义、脚本仍按旧含义显示"的误导。
+
+### 3.2 `WT_SELECT(0x60)` 的 morph 布局（2026-10-31）
+
+`{step[22:0], morph_en, 6'd0, table[1:0]}`，写掩码 `0xFFFFFF07`。
+
+- `table[1:0]`：上传目标 / 静态播放表（不变）；
+- `morph_en=1`：position LFO 驱动帧选择，`frame_a=pos[25:24]`、`frame_b=min(+1,2)`、`frac=pos[23:16]`；
+- `step`：Q2.24 position 增量/样本；`step = round(2^25 / (周期秒 × 48000))`，20 s → 35；
+- 例：`0x0024_6901` = step 0x1234、morph 开、table 1；
+- 上传脚本必须最后统一写一次本寄存器，否则会把 morph 配置清掉。
 
 ---
 

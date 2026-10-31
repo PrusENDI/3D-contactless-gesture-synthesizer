@@ -426,6 +426,9 @@ logic [9:0] wt_read_index_sel;
     assign voice_event_data = mode_live ? live_event_data : mode_play ? loop_event_data : potts_event_data;
     assign loop_event_ready = mode_play ? voice_event_ready : 1'b0;
     assign potts_event_ready = (!mode_live && !mode_play) ? voice_event_ready : 1'b0;
+    // Held in reset outside LIVE/PLAY so no note can survive a mode change.
+    wire voice_rst_n = rst_sys_n && (mode_live || mode_play);
+
     v2_voice_engine_banked #(.VOICES(32), .USE_GOWIN_RAM(USE_GOWIN_RAM)) u_voice (
         .clk(clk_sys_100m), .rst_n(rst_sys_n), .sample_ce(sample_ce),
         .event_valid(voice_event_valid), .event_ready(voice_event_ready),

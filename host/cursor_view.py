@@ -79,7 +79,10 @@ def parse_frames(buffer: bytearray) -> list[tuple[int, int, int, int]]:
 
 
 def apply_flip(x: int, y: int, flip: str) -> tuple[int, int]:
-    """The sensor axes can be mirrored by the physical mounting; flip here."""
+    """The sensor axes can be mirrored by the physical mounting; flip here.
+
+    Measured on the board: only Y is mirrored, so the default is "y".
+    """
     if flip in ("x", "both"):
         x = 65535 - x
     if flip in ("y", "both"):
@@ -87,7 +90,7 @@ def apply_flip(x: int, y: int, flip: str) -> tuple[int, int]:
     return x, y
 
 
-def run_console(port, seconds: float, flip: str = "both") -> None:
+def run_console(port, seconds: float, flip: str = "y") -> None:
     buf = bytearray()
     deadline = time.time() + seconds
     last = None
@@ -100,7 +103,7 @@ def run_console(port, seconds: float, flip: str = "both") -> None:
                 last = (x, y)
 
 
-def run_window(port, seconds: float, flip: str = "both") -> None:
+def run_window(port, seconds: float, flip: str = "y") -> None:
     import tkinter as tk
 
     root = tk.Tk()
@@ -148,7 +151,7 @@ def main() -> int:
     ap.add_argument("--baud", type=int, default=1_000_000)
     ap.add_argument("--seconds", type=float, default=0, help="0 means run until closed")
     ap.add_argument("--console-only", action="store_true")
-    ap.add_argument("--flip", choices=["none", "x", "y", "both"], default="both",
+    ap.add_argument("--flip", choices=["none", "x", "y", "both"], default="y",
                     help="mirror the axes; the sensor mounting decides the sign")
     args = ap.parse_args()
 

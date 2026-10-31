@@ -2,7 +2,8 @@
 
 日期：2026-10-31
 状态：**待审**（本文只做设计，未改任何 RTL）
-范围：`mgc3130_clean`，单声部波表路径（WT_PLAY / LIVE）
+范围：`mgc3130_clean`。§1–§8 是单声部 morph（WT_PLAY / LIVE）；§9 是下一阶段
+"旁路表引擎"（32 声部读表），单独实施；§10 是与 LIVE/LOOP 的并行关系。
 
 ## 1 目标
 
@@ -14,7 +15,7 @@
 
 - 8/16 帧的大波表（要改 loader 寻址与上传语义，见 §8）；
 - 相位插值（现在 `index = phase[31:22]` 仍是 10 bit 截断，量化杂散保留）；
-- 每声部独立 position / LFO（32 声部引擎还没读表）；
+- 每声部独立 position / LFO（32 声部读表见 §9，但 position 仍全局）；
 - mipmap / 带限、position 跟 Z 或力度。
 
 ## 2 现状（代码事实）
@@ -261,7 +262,90 @@ DSP 从 8 增到 9（器件上限按综合报告为准，当前 8/… 未满）�
 （`frame = pos[24:22]`，`frac` 取 8 bit），只改帧数与寻址。再往上（16 帧 / mipmap）需要
 外挂 PSRAM，另立项目。
 
-## 9 我的默认决定（可推翻）
+## 9 阶段 1.5：旁路表引擎（32 声部读表）
+
+本节是 morph 的下一阶段，单独实施、单独验收；morph 本身不依赖它。
+
+**为什么必须有它**：PLAY 走 32 声部引擎，引擎的振荡器是内部锯齿
+（`oscillator_value` 用 `phase[31:16] − 32768`）。不接表，录好的 loop 一回放就变回锯齿，
+手绘音色、帧序列、position 全部只存在于 LIVE。
+
+**结构：不改扫描管线，旁路一个表引擎**
+
+```
+sample_ce
+  ├─ 声部扫描（32 拍，原逻辑不动）
+  │    读 bank → 计算 → 写回；计算时振荡器来源换成"样本缓冲[slot]"
+  │    顺手把新相位 (phase_a, phase_b) 写进相位缓冲[slot]
+  └─ 表引擎（扫描结束后 64 拍）
+       相位缓冲[slot] → 两帧表读 → 交叉淡化 → 样本缓冲[slot]（下一个样本用）
+```
+
+- **相位缓冲**：32 × 64 bit（phase_a/phase_b），分布式 RAM，约 2 Kb；
+- **样本缓冲**：32 × 32 bit（osc_a/osc_b 各 16 bit），一个 DPB lane，约 1 Kb；
+- **表引擎**每声部 2 拍：第 1 拍两个读口分别读 `(frame_a, idx_a)` 与 `(frame_b, idx_a)`，
+  第 2 拍读 `(frame_a, idx_b)` 与 `(frame_b, idx_b)`；`idx = phase[31:22]`；
+- 淡化用的 position 与 `frac` **复用单声部那一个模块**，不写第二份。
+
+声部引擎只改一处：
+
+```verilog
+calc_osc_sum <= attenuate(sample_buf[rd_slot].a, stage, gain, mix_a)
+              + attenuate(sample_buf[rd_slot].b, stage, gain, mix_b);
+```
+
+`attenuate` 就是现有 `oscillator_value` 里那段 stage/velocity/mix 移位衰减，原样保留。
+
+**读口所有权**
+
+| 模式 | loader 读口 |
+| --- | --- |
+| IDLE | 旧端口给宿主读回（不变） |
+| WT_PLAY / LIVE | 单声部路径（§4.3） |
+| PLAY | 表引擎（两个新端口） |
+
+模式互斥，按 `mode_reg` 选择；PLAY 下宿主读 `WT_DATA` 返回 0，文档写明。
+
+**时序**：32（扫描）+ 64（表引擎）+ 2 拍流水 ≈ **100 拍/样本 = 6.0%**（1667 拍预算）。
+
+**电平**：表是 0.9 FS，32 个声部直接求和必削顶。表引擎加固定缩放 `WT_VOICE_SHIFT`
+（默认 4），板测按遥测 peak/RMS 校准到与现有引擎路径 **±3 dB** 以内。
+
+**首样本**：缓冲初值 0，进入 PLAY 后第一个样本静音（20.8 µs），可接受。
+
+**非目标**：每声部独立 position、每声部相位插值、真实 ADSR。
+（备注：引擎算了 16 bit `envelope` 但从未参与振幅，衰减只按 stage 分档。要不要让它
+真正生效是独立议题，会改变现有听感，不在本阶段。）
+
+**验收**
+
+1. 仿真：同一 position 下，32 声部逐声部输出与单声部参考一致（层次引用比对）；
+2. 1/8/32 音 test mode 全部通过；
+3. PLAY 中读 `WT_DATA` 返回 0（所有权规则）；
+4. 板测：同一帧、同一 position 下，loop 回放与 LIVE 的频谱一致（±3 dB），
+   切换模式无音量跳变；
+5. 回归：单声部 morph、WT_PLAY、CRC/APPLY 全部照旧。
+
+**工作量**：1.5–2 天（含验证）。主要风险是相位/样本缓冲的读写纪律，仿真容易抓。
+
+## 10 与 LIVE / LOOP 并行
+
+**逻辑上独立，物理上在同一个 `mgc3130_v2_top.sv` 汇合**：
+
+| 汇合点 | morph | LIVE（进行中） | LOOP |
+| --- | --- | --- | --- |
+| `i2s_sample` / `i2s_sample_valid` 选择（[top:475](mgc3130_clean/rtl/mgc3130_v2_top.sv#L475)、[507](mgc3130_clean/rtl/mgc3130_v2_top.sv#L507)） | 加第三音源 | 加包络/模式条件 | PLAY 走引擎 |
+| 读表口驱动（[top:706](mgc3130_clean/rtl/mgc3130_v2_top.sv#L706)） | 双口 + position | 不动 | 表引擎接管 |
+| `WT_SELECT`（[top:838](mgc3130_clean/rtl/mgc3130_v2_top.sv#L838)、[957](mgc3130_clean/rtl/mgc3130_v2_top.sv#L957)） | 改高位 | 不动 | 不动 |
+| CLS 余量 491 | +80…120 | +50 | +250 |
+
+推荐顺序：**morph → LIVE 合并 → 阶段 1.5 表引擎 → LOOP**。
+理由：morph 只碰读路径，面积可预测；表引擎把 PLAY 的音色补上之后，LOOP 才有意义；
+CLS 三者相加约 400，必须等 morph 实测面积出来再排。
+
+板测资源也排队：三帧上传、GAO 探针位流（9 块 BSRAM）、LIVE 调试共用同一个 COM4 和 JTAG。
+
+## 11 我的默认决定（可推翻）
 
 - LFO 是**全局自由运行**的，不随音符重触发：当前只有一条发声路径，per-voice 无意义；
   接 32 声部时再讨论 retrigger。

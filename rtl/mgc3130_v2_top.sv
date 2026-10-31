@@ -692,6 +692,17 @@ end
     assign wt_increment = mode_live ? live_note_increment :
                           (thresholds_reg[7:0] == 8'd0) ? 32'd4194304 : wt_note_increment;
 
+    // Wavetable position LFO.  Task 1 instantiates it disabled; the morph CSR
+    // wiring arrives with the top integration task.
+    logic [25:0] wt_pos;
+    logic [1:0]  wt_frame_a, wt_frame_b;
+    logic [7:0]  wt_frac;
+    v2_wt_position u_wt_position (
+        .clk(clk_sys_100m), .rst_n(rst_sys_n), .sample_ce(sample_ce),
+        .morph_en(1'b0), .step(23'd0),
+        .pos(wt_pos), .frame_a(wt_frame_a), .frame_b(wt_frame_b), .frac(wt_frac)
+    );
+
     v2_wt_playback u_wt_playback (
         .clk(clk_sys_100m), .rst_n(rst_sys_n), .sample_ce(sample_ce),
         .enable(mode_wt_play || (mode_live && live_gate)), .increment(wt_increment), .index(wt_play_index),

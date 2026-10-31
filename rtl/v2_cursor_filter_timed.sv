@@ -69,10 +69,10 @@ endmodule
 
 
 module v2_cursor_filter_timed #(
-  parameter integer ALPHA_LOW_Q16  = 7864,
+  parameter integer ALPHA_LOW_Q16  = 32768,   // 0.50; 0.12 made the cursor feel glued
   parameter integer ALPHA_HIGH_Q16 = 65536,
   parameter integer Z_LOW          = 4000,
-  parameter integer Z_HIGH         = 24000,
+  parameter integer Z_HIGH         = 12000,   // reach full responsiveness sooner
   parameter integer Z_ENGAGE       = 30000,
   parameter integer Z_RELEASE      = 36000,
   parameter integer MAX_STEP_Q16   = 4096,

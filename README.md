@@ -1,79 +1,67 @@
-# mgc3130_clean 鈥?骞插噣鐨?V2 婧愮爜宸ョ▼
+# mgc3130_clean 閳?楠炴彃鍣ｉ惃?V2 濠ф劗鐖滃銉р柤
 
-FPGA锛欸W5A-LV25MG121NES锛?3,040 LUT 涓婇檺锛夈€傛湰鐩綍鏄?V2 鐨?*鍞竴婧愮爜鍩虹嚎**锛?鐢辨棫浠撳簱 `mgc3130_uart/.worktrees/v2-integration` 鐨?`50acf2e` 鍓旀礂鐢熸垚銆?
-鐢熸垚杩囩▼鍙噸鏀撅紝涓嶆槸鎵嬪伐鏁寸悊锛?
+FPGA閿涙W5A-LV25MG121NES閿?3,040 LUT 娑撳﹪妾洪敍澶堚偓鍌涙拱閻╊喖缍嶉弰?V2 閻?*閸烆垯绔村┃鎰垳閸╄櫣鍤?*閿?閻㈣鲸妫禒鎾崇氨 `mgc3130_uart/.worktrees/v2-integration` 閻?`50acf2e` 閸撴梹绀傞悽鐔稿灇閵?
+閻㈢喐鍨氭潻鍥┾柤閸欘垶鍣搁弨鎾呯礉娑撳秵妲搁幍瀣紣閺佸鎮婇敍?
 ```bash
-python scripts/bootstrap.py --source "<鏃т粨搴?/.worktrees/v2-integration"
+python scripts/bootstrap.py --source "<閺冄傜波鎼?/.worktrees/v2-integration"
 ```
 
-## 涓轰粈涔堣鏈夎繖涓洰褰?
-鏃х洰褰曠Н绱簡涓嬮潰杩欎簺缁撴瀯鎬х己闄凤紝**姣忎竴鏉￠兘浼氳"鑳界紪杩?鍜?鏄鐨?鍒嗗弶**锛?
-| 鏃х洰褰曠姸鎬?| 鍚庢灉 |
+## 娑撹桨绮堟稊鍫ｎ洣閺堝绻栨稉顏嗘窗瑜?
+閺冄呮窗瑜版洜袧缁鳖垯绨℃稉瀣桨鏉╂瑤绨虹紒鎾寸€幀褏宸遍梽鍑ょ礉**濮ｅ繋绔撮弶锟犲厴娴兼俺顔€"閼崇晫绱潻?閸?閺勵垰顕惃?閸掑棗寮?*閿?
+| 閺冄呮窗瑜版洜濮搁幀?| 閸氬孩鐏?|
 |---|---|
-| `rtl/` 鏈?71 涓?`.sv`锛屾瀯寤哄彧鐢?30 涓?| 浠讳綍 `rtl/*.sv` 閫氶厤缂栬瘧閮戒細寮曞叆鏃犲叧鏂囦欢 |
-| `mgc3130_v2_top` 琚畾涔変袱娆★紙80 MHz 涓?100 MHz+DPB锛?| `vlog-2275` 鍙槸**璀﹀憡**锛屽悗缂栫殑闈欓粯瑕嗙洊鍓嶄竴涓紱瀹炴祴 `CLKS_PER_BIT` 鍙?100銆佹敹鍒扮殑瀛楄妭鍙樻垚 `f3 61 20 鈥 |
-| `v2_potts_commit_fsm` 涔熻瀹氫箟涓ゆ | 鍚屼笂 |
-| 鍞竴鐨勯《灞傜骇鍥炲綊鏀惧湪 `impl/`锛岃€?`.gitignore` 鎺掗櫎 `impl/` | **娌℃湁琚増鏈鐞?*锛岄殢鏃跺彲鑳戒涪澶?|
-| `scripts/` 鏈?78 涓?`synth_*.tcl`锛屽悇鑷唴宓屼竴浠芥枃浠舵竻鍗?| 婧愮爜鍜屾瀯寤烘竻鍗曚細婕傜Щ |
-| 鏂囦欢娓呭崟鍙瓨鍦ㄤ簬 Tcl 閲?| 娌℃湁浠讳綍宸ュ叿鑳藉洖绛?杩欐鍒板簳缂栦簡鍝簺鏂囦欢" |
+| `rtl/` 閺?71 娑?`.sv`閿涘本鐎鍝勫涧閻?30 娑?| 娴犺缍?`rtl/*.sv` 闁岸鍘ょ紓鏍槯闁垝绱板鏇炲弳閺冪姴鍙ч弬鍥︽ |
+| `mgc3130_v2_top` 鐞氼偄鐣炬稊澶夎⒈濞嗏槄绱?0 MHz 娑?100 MHz+DPB閿?| `vlog-2275` 閸欘亝妲?*鐠€锕€鎲?*閿涘苯鎮楃紓鏍畱闂堟瑩绮憰鍡欐磰閸撳秳绔存稉顏庣幢鐎圭偞绁?`CLKS_PER_BIT` 閸?100閵嗕焦鏁归崚鎵畱鐎涙濡崣妯诲灇 `f3 61 20 閳ヮ泦 |
+| `v2_potts_commit_fsm` 娑旂喕顫︾€规矮绠熸稉銈嗩偧 | 閸氬奔绗?|
+| 閸烆垯绔撮惃鍕€婄仦鍌滈獓閸ョ偛缍婇弨鎯ф躬 `impl/`閿涘矁鈧?`.gitignore` 閹烘帡娅?`impl/` | **濞屸剝婀佺悮顐ゅ閺堫剛顓搁悶?*閿涘矂娈㈤弮璺哄讲閼虫垝娑径?|
+| `scripts/` 閺?78 娑?`synth_*.tcl`閿涘苯鎮囬懛顏勫敶瀹撳奔绔存禒鑺ユ瀮娴犺埖绔婚崡?| 濠ф劗鐖滈崪灞剧€鐑樼閸楁洑绱板鍌溞?|
+| 閺傚洣娆㈠〒鍛礋閸欘亜鐡ㄩ崷銊ょ艾 Tcl 闁?| 濞屸剝婀佹禒璁崇秿瀹搞儱鍙块懗钘夋礀缁?鏉╂瑦顐奸崚鏉跨俺缂傛牔绨￠崫顏冪昂閺傚洣娆? |
 
-鏈洰褰曠殑姣忎釜涓嶅彉寮忛兘鏈変竴涓剼鏈湪瀹堬細
-
-1. **鍙湁 `filelist.f` 涓€浠芥枃浠舵竻鍗?*锛屼豢鐪熴€侀椄闂ㄣ€佺患鍚堜笁澶勫叡鐢ㄣ€?2. **鍙湁涓€涓《灞?* `v2_board_top`锛堝悎鎴愮敤锛夛紝涓斿畠琚樉寮忓０鏄庡湪 `MANIFEST.json`銆?3. **鐩綍閲屾病鏈夋湭浣跨敤鐨勬枃浠?*锛氶櫎椤跺眰澶栵紝`filelist.f` 閲屾瘡涓ā鍧楅兘蹇呴』琚疄渚嬪寲锛屽惁鍒欓椄闂ㄥけ璐ャ€?4. **缂栬瘧闆惰鍛婃槸纭姹?*锛氫换浣?`vlog` 璀﹀憡锛堝惈 `vlog-2275` 鍚屽悕瑕嗙洊锛夐兘鍒ゅけ璐ャ€?5. **宸茬煡缂洪櫡璁拌繘鍩虹嚎**锛歚sim_baseline.json` 鍒楀嚭褰撳墠宸茬煡澶辫触鐨勬柇瑷€锛屾柊鍑虹幇鐨勫け璐ユ墠鍙洖褰掋€?
-## 涓夋潯鍛戒护
+閺堫剛娲拌ぐ鏇犳畱濮ｅ繋閲滄稉宥呭綁瀵繘鍏橀張澶夌娑擃亣鍓奸張顒€婀€瑰牞绱?
+1. **閸欘亝婀?`filelist.f` 娑撯偓娴犺姤鏋冩禒鑸电閸?*閿涘奔璞㈤惇鐔粹偓渚€妞勯梻銊ｂ偓浣烘偅閸氬牅绗佹径鍕彙閻劊鈧?2. **閸欘亝婀佹稉鈧稉顏堛€婄仦?* `v2_board_top`閿涘牆鎮庨幋鎰暏閿涘绱濇稉鏂跨暊鐞氼偅妯夊蹇擄紣閺勫骸婀?`MANIFEST.json`閵?3. **閻╊喖缍嶉柌灞剧梾閺堝婀担璺ㄦ暏閻ㄥ嫭鏋冩禒?*閿涙岸娅庢い璺虹湴婢舵牭绱漙filelist.f` 闁插本鐦℃稉顏吥侀崸妤呭厴韫囧懘銆忕悮顐㈢杽娓氬瀵查敍灞芥儊閸掓瑩妞勯梻銊ャ亼鐠愩儯鈧?4. **缂傛牞鐦ч梿鎯邦劅閸涘﹥妲哥涵顒冾洣濮?*閿涙矮鎹㈡担?`vlog` 鐠€锕€鎲￠敍鍫濇儓 `vlog-2275` 閸氬苯鎮曠憰鍡欐磰閿涘鍏橀崚銈呫亼鐠愩儯鈧?5. **瀹歌尙鐓＄紓娲鐠佹媽绻橀崺铏瑰殠**閿涙瓪sim_baseline.json` 閸掓鍤ぐ鎾冲瀹歌尙鐓℃径杈Е閻ㄥ嫭鏌囩懛鈧敍灞炬煀閸戣櫣骞囬惃鍕亼鐠愩儲澧犻崣顐㈡礀瑜版帇鈧?
+## 娑撳娼崨鎴掓姢
 
 ```bash
-python scripts/gate.py              # 闈欐€佹鏌ワ細閲嶅妯″潡 / 椤跺眰鍞竴 / 姝讳唬鐮?/ 鍖呴『搴?python scripts/gate.py --compile    #   + ModelSim 缂栬瘧锛岃鍛婂嵆澶辫触
-python scripts/sim.py               # 缂栬瘧骞惰窇 RAM=0 涓?RAM=1 涓ゅ鍥炲綊锛岄€愭潯姣斿鍩虹嚎
-python scripts/sim.py --trace       #   + 鎵撳嵃鍛戒护/APPLY/搴旂瓟娴侊紙CSR_TRACE锛?python scripts/synth.py --run-id r1  # 鐢熸垚 .gprj 骞惰窇 syn + pnr锛岃緭鍑?synth_summary.json
+python scripts/gate.py              # 闂堟瑦鈧焦顥呴弻銉窗闁插秴顦插Ο鈥虫健 / 妞よ泛鐪伴崬顖欑 / 濮濊鍞惍?/ 閸栧懘銆庢惔?python scripts/gate.py --compile    #   + ModelSim 缂傛牞鐦ч敍宀冾劅閸涘﹤宓嗘径杈Е
+python scripts/sim.py               # 缂傛牞鐦ч獮鎯扮獓 RAM=0 娑?RAM=1 娑撱倕顨滈崶鐐茬秺閿涘矂鈧劖娼В鏂款嚠閸╄櫣鍤?python scripts/sim.py --trace       #   + 閹垫挸宓冮崨鎴掓姢/APPLY/鎼存梻鐡熷ù渚婄礄CSR_TRACE閿?python scripts/synth.py --run-id r1  # 閻㈢喐鍨?.gprj 楠炴儼绐?syn + pnr閿涘矁绶崙?synth_summary.json
 ```
 
-`sim.py` 閫€鍑虹爜鍗崇粨璁猴細瑙傚療鍒扮殑澶辫触蹇呴』鏄?`sim_baseline.json` 鐨勫瓙闆嗐€?淇帀鏌愪釜宸茬煡缂洪櫡鍚庤窇 `python scripts/sim.py --update-baseline` 鎶婂畠浠庡熀绾块噷鎽樻帀銆?
-## 鐩綍
-
+`sim.py` 闁偓閸戣櫣鐖滈崡宕囩波鐠佺尨绱扮憴鍌氱檪閸掓壆娈戞径杈Е韫囧懘銆忛弰?`sim_baseline.json` 閻ㄥ嫬鐡欓梿鍡愨偓?娣囶喗甯€閺屾劒閲滃鑼叀缂傛椽娅￠崥搴ょ獓 `python scripts/sim.py --update-baseline` 閹跺﹤鐣犳禒搴＄唨缁惧潡鍣烽幗妯诲竴閵?
+## 閻╊喖缍?
 ```
-filelist.f            鍞竴鏂囦欢娓呭崟锛堥『搴忓嵆渚濊禆椤哄簭锛?ip/filelist_ip.f      鍘傚晢 IP 娓呭崟锛屽彧缁欑患鍚堢敤
-MANIFEST.json         姣忎釜鏂囦欢鐨?sha256 + 鏉ユ簮 commit + 鐩稿鏃т粨搴撶殑琛ヤ竵璇存槑
-rtl/                  29 涓?RTL + v2_board_top.sv锛堝敮涓€鍚堟垚椤跺眰锛?ip/gowin_i2c_master/  Gowin I2C 鏍革紙鍔犲瘑 .vp + 椤跺眰鍖呰 + 涓や釜 .vh 瀹忓畾涔夛級
-tb/                   tb_top_csr_gate.sv锛堥《灞傜骇鍥炲綊锛夈€乼b_sim_top.sv锛圙SR 缁戝畾锛夈€乵on_csr_trace.sv
-constr/               mgc3130_v2.cst銆乵gc3130_v2_top_observable.sdc
+filelist.f            閸烆垯绔撮弬鍥︽濞撳懎宕熼敍鍫ャ€庢惔蹇撳祮娓氭繆绂嗘い鍝勭碍閿?ip/filelist_ip.f      閸樺倸鏅?IP 濞撳懎宕熼敍灞藉涧缂佹瑧鎮ｉ崥鍫㈡暏
+MANIFEST.json         濮ｅ繋閲滈弬鍥︽閻?sha256 + 閺夈儲绨?commit + 閻╃顕弮褌绮ㄦ惔鎾舵畱鐞涖儰绔电拠瀛樻
+rtl/                  29 娑?RTL + v2_board_top.sv閿涘牆鏁稉鈧崥鍫熷灇妞よ泛鐪伴敍?ip/gowin_i2c_master/  Gowin I2C 閺嶉潻绱欓崝鐘茬槕 .vp + 妞よ泛鐪伴崠鍛邦棅 + 娑撱倓閲?.vh 鐎瑰繐鐣炬稊澶涚礆
+tb/                   tb_top_csr_gate.sv閿涘牓銆婄仦鍌滈獓閸ョ偛缍婇敍澶堚偓涔糱_sim_top.sv閿涘湙SR 缂佹垵鐣鹃敍澶堚偓涔祇n_csr_trace.sv
+constr/               mgc3130_v2.cst閵嗕沟gc3130_v2_top_observable.sdc
 scripts/              bootstrap.py / gate.py / sim.py / synth.py
-docs/BASELINE.md      褰撳墠鏁板€间笌宸茬煡缂洪櫡娓呭崟
-sim_logs/, .sim/      浠跨湡杈撳嚭锛堜笉鍏ュ簱锛?impl/                 缁煎悎杈撳嚭锛堜笉鍏ュ簱锛?```
+docs/BASELINE.md      瑜版挸澧犻弫鏉库偓闂寸瑢瀹歌尙鐓＄紓娲濞撳懎宕?sim_logs/, .sim/      娴犺法婀℃潏鎾冲毉閿涘牅绗夐崗銉ョ氨閿?impl/                 缂佺厧鎮庢潏鎾冲毉閿涘牅绗夐崗銉ョ氨閿?```
 
-## 鍘傚晢 IP 涓轰粈涔堝崟鐙竴涓竻鍗?
-`mgc3130_reader` 瀹炰緥鍖栫殑鏄?**`Gowin_I2C_Master`**鈥斺€旀ā鍧楀悕鐢?`ip/gowin_i2c_master/top_define.vh`
-閲岀殑 `` `define module_name `` 鍐冲畾锛屽疄鐜颁綋鏄姞瀵嗙殑 `I2C_MASTER.vp`銆傛紡鎺夊畠锛岀患鍚堜細鍋滃湪
-`ERROR (EX3937) : Instantiating unknown module 'Gowin_I2C_Master'`銆?
-瀹冧笉鑳借繘 `filelist.f`锛氬姞瀵嗙殑 `.vp` 鍠傜粰 ModelSim 浼氱洿鎺ョ紪璇戝け璐ワ紝鑰屼豢鐪熻矾寰勬牴鏈敤涓嶅埌瀹?锛坱estbench 璧?UART锛屼笉纰?I2C锛夈€傛墍浠?`scripts/synth.py` 浼氭妸 `ip/filelist_ip.f` 鎺掑湪
-`filelist.f` 涔嬪墠涓€璧峰啓杩?`.gprj`锛宍scripts/gate.py` 鍙垎鏋愯璁℃湰浣撱€?
-## 涓ゆ潯瀹规槗韪╃殑纭害鏉?
-**1. `rtl/` 閲屼笉璁稿嚭鐜扮浜屼釜 `module v2_board_top`锛屼篃涓嶈鍔犲洖 `mgc3130_v2_top_dpb.sv`銆?*
-ModelSim 瀵瑰悓鍚嶆ā鍧楀彧鎶?`vlog-2275` 璀﹀憡鐒跺悗瑕嗙洊銆俙gate.py` 浼氭嫤锛屼絾鎵嬪伐鎿嶄綔鏃惰鐭ラ亾銆?
-**2. 浠跨湡蹇呴』甯?`+define+V2_SIM`銆?*
-`rtl/v2_clock_gen.sv` 鍦?`V2_SIM` 涓嬫妸 `clk_sys_100m` 鐩存帴杩炲埌 `clk_in`銆佹妸 `pll_locked`
-鐩存帴杩炲埌 `rst_n`锛涗笉甯﹁繖涓畯锛屽櫒浠?PLL 鍘熻鍦ㄤ豢鐪熼噷涓嶅嚭閿侊紝`por_n` 姘歌繙涓嶈В澶嶄綅锛?鏁翠釜璁捐琛ㄧ幇涓?瀹屽叏涓嶅簲绛?銆俙scripts/sim.py` 宸茬粡榛樿甯︿笂銆?
-## 淇″彿鍛藉悕鐨勫巻鍙插寘琚憋紙涓嶆敼锛屼絾瑕佺煡閬擄級
+## 閸樺倸鏅?IP 娑撹桨绮堟稊鍫濆礋閻欘兛绔存稉顏呯閸?
+`mgc3130_reader` 鐎圭偘绶ラ崠鏍畱閺?**`Gowin_I2C_Master`**閳ユ柡鈧梹膩閸ф鎮曢悽?`ip/gowin_i2c_master/top_define.vh`
+闁插瞼娈?`` `define module_name `` 閸愬啿鐣鹃敍灞界杽閻滈缍嬮弰顖氬鐎靛棛娈?`I2C_MASTER.vp`閵嗗倹绱￠幒澶婄暊閿涘瞼鎮ｉ崥鍫滅窗閸嬫粌婀?`ERROR (EX3937) : Instantiating unknown module 'Gowin_I2C_Master'`閵?
+鐎瑰啩绗夐懗鍊熺箻 `filelist.f`閿涙艾濮炵€靛棛娈?`.vp` 閸犲倻绮?ModelSim 娴兼氨娲块幒銉х椽鐠囨垵銇戠拹銉礉閼板奔璞㈤惇鐔荤熅瀵板嫭鐗撮張顒傛暏娑撳秴鍩岀€?閿涘澅estbench 鐠?UART閿涘奔绗夌喊?I2C閿涘鈧倹澧嶆禒?`scripts/synth.py` 娴兼碍濡?`ip/filelist_ip.f` 閹烘帒婀?`filelist.f` 娑斿澧犳稉鈧挧宄板晸鏉?`.gprj`閿涘畭scripts/gate.py` 閸欘亜鍨庨弸鎰啎鐠佲剝婀版担鎾扁偓?
+## 娑撱倖娼€硅妲楅煪鈺冩畱绾剛瀹抽弶?
+**1. `rtl/` 闁插奔绗夌拋绋垮毉閻滄壆顑囨禍灞奸嚋 `module v2_board_top`閿涘奔绡冩稉宥堫啅閸旂姴娲?`mgc3130_v2_top_dpb.sv`閵?*
+ModelSim 鐎电懓鎮撻崥宥喣侀崸妤€褰ч幎?`vlog-2275` 鐠€锕€鎲￠悞璺烘倵鐟曞棛娲婇妴淇檊ate.py` 娴兼碍瀚ら敍灞肩稻閹靛浼愰幙宥勭稊閺冩儼顩﹂惌銉╀壕閵?
+**2. 娴犺法婀¤箛鍛淬€忕敮?`+define+V2_SIM`閵?*
+`rtl/v2_clock_gen.sv` 閸?`V2_SIM` 娑撳濡?`clk_sys_100m` 閻╁瓨甯存潻鐐插煂 `clk_in`閵嗕焦濡?`pll_locked`
+閻╁瓨甯存潻鐐插煂 `rst_n`閿涙稐绗夌敮锕佺箹娑擃亜鐣敍灞芥珤娴?PLL 閸樼喕顕㈤崷銊よ雹閻喖鍣锋稉宥呭毉闁夸緤绱漙por_n` 濮樻瓕绻欐稉宥埿掓径宥勭秴閿?閺佺繝閲滅拋鎹愵吀鐞涖劎骞囨稉?鐎瑰苯鍙忔稉宥呯安缁?閵嗕繖scripts/sim.py` 瀹歌尙绮℃妯款吇鐢缚绗傞妴?
+## 娣団€冲娇閸涜棄鎮曢惃鍕坊閸欐彃瀵樼悮鎲嬬礄娑撳秵鏁奸敍灞肩稻鐟曚胶鐓￠柆鎿勭礆
 
-`clk_sys_100m` 瀹為檯鏄?**80 MHz**锛圥LLA锛?0 MHz 脳 16 / 10锛夈€傝繖涓敊璇懡鍚嶅凡缁忛€犳垚杩囦竴娆?"娉㈢壒鐜囧亸 25%"鐨勮鍒わ紝`constr/*.sdc` 閲屽師鍏堝啓鐫€ "100 MHz" 鐨勬敞閲婁篃宸蹭竴骞舵洿姝ｃ€?閲嶅懡鍚嶄細瑙﹀強 30 涓枃浠讹紝鏀剁泭涓嶆姷椋庨櫓锛屽洜姝や繚鐣欏苟鍦ㄦ澹版槑銆?
-## 涓嶅湪鏈洰褰曠殑鍐呭
+`clk_sys_100m` 鐎圭偤妾弰?**80 MHz**閿涘湧LLA閿?0 MHz 鑴?16 / 10閿涘鈧倽绻栨稉顏堟晩鐠囶垰鎳￠崥宥呭嚒缂佸繘鈧姵鍨氭潻鍥︾濞?"濞夈垻澹掗悳鍥т焊 25%"閻ㄥ嫯顕ら崚銈忕礉`constr/*.sdc` 闁插苯甯崗鍫濆晸閻偓 "100 MHz" 閻ㄥ嫭鏁為柌濠佺瘍瀹歌弓绔撮獮鑸垫纯濮濓絻鈧?闁插秴鎳￠崥宥勭窗鐟欙箑寮?30 娑擃亝鏋冩禒璁圭礉閺€鍓佹抄娑撳秵濮锋搴ㄦ珦閿涘苯娲滃銈勭箽閻ｆ瑥鑻熼崷銊︻劃婢圭増妲戦妴?
+## 娑撳秴婀張顒傛窗瑜版洜娈戦崘鍛啇
 
-`pc_receiver/`锛堜笂浣嶆満妯″瀷锛夈€乣artifacts/`锛堝巻鍙叉澘娴嬫棩蹇楋級銆乣docs/`锛堝绾︿笌瀹¤锛変粛鍦ㄦ棫浠撳簱銆?鏈洰褰曞彧璐熻矗"婧愮爜 + 鍙鐜扮殑鏋勫缓涓庨獙璇?銆?
-## 版本控制与调试方法
+`pc_receiver/`閿涘牅绗傛担宥嗘簚濡€崇€烽敍澶堚偓涔rtifacts/`閿涘牆宸婚崣鍙夋緲濞村妫╄箛妤嬬礆閵嗕梗docs/`閿涘牆顨栫痪锔跨瑢鐎孤ゎ吀閿涘绮涢崷銊︽＋娴犳挸绨遍妴?閺堫剛娲拌ぐ鏇炲涧鐠愮喕鐭?濠ф劗鐖?+ 閸欘垰顦查悳鎵畱閺嬪嫬缂撴稉搴ㄧ崣鐠?閵?
+## 鐗堟湰鎺у埗涓庤皟璇曟柟娉?
+鏈洰褰曡嚜 2026-10-30 璧锋槸涓€涓嫭绔?git 浠撳簱锛堟鍓嶅彧鏈?`MANIFEST.json` 鐨?sha256锛屾病鏈?VCS 鍏滃簳锛夛細
 
-本目录自 2026-10-30 起是一个独立 git 仓库（此前只有 `MANIFEST.json` 的 sha256，没有 VCS 兜底）：
-
-- 忽略项：`impl/`、`sim_logs/`、`.sim/`、`.gate/`、`artifacts/`、`work/`、`*.wlf`、`.synth_run*.txt`、`.sim_run*.txt`
-- 两个提交：初始干净树、忽略每次运行的临时日志
-- 首次在别的机器/账号克隆时需要 `git config --global --add safe.directory <本目录>`（本机目录属主是 Administrators）
-
-调试方法论已固化为用户级 skill `gowin-fpga-debug`
-（`~/.dsh/skills/gowin-fpga-debug/SKILL.md`），要点：
-
-1. **不要用被测机制观测被测对象**（CSR 回读证明不了 CSR 时序）；
-2. 按症状选仪器：周期级 → GAO，帧级 → 主机 UART 闭环，长时计数 → 契约寄存器，可复现逻辑 → 双 RAM 仿真；
-3. GAO 全流程可脚本化：明文 `.rao` → `.gprj` 里 `type="file.gao"` → `gw_sh run all` 生成 `RTL_GAO/` 与 `ao_0.fs` → `gao_sh -gao ... -out ...` 抓取；
-4. 预算：1 块 BSRAM = 18,432 位，`深度 × 位宽` 必须装得下；2048×112 已验证占 13 块；
-5. 证据纪律：干净基线、ACK 全字段、原始日志、位流 sha256 + 内容 hash、未跑的项要写明。
-
-测试流程细节见 `docs/TEST-FLOW-GAO.md`。
+- 蹇界暐椤癸細`impl/`銆乣sim_logs/`銆乣.sim/`銆乣.gate/`銆乣artifacts/`銆乣work/`銆乣*.wlf`銆乣.synth_run*.txt`銆乣.sim_run*.txt`
+- 涓や釜鎻愪氦锛氬垵濮嬪共鍑€鏍戙€佸拷鐣ユ瘡娆¤繍琛岀殑涓存椂鏃ュ織
+- 棣栨鍦ㄥ埆鐨勬満鍣?璐﹀彿鍏嬮殕鏃堕渶瑕?`git config --global --add safe.directory <鏈洰褰?`锛堟湰鏈虹洰褰曞睘涓绘槸 Administrators锛?
+璋冭瘯鏂规硶璁哄凡鍥哄寲涓虹敤鎴风骇 skill `gowin-fpga-debug`
+锛坄~/.dsh/skills/gowin-fpga-debug/SKILL.md`锛夛紝瑕佺偣锛?
+1. **涓嶈鐢ㄨ娴嬫満鍒惰娴嬭娴嬪璞?*锛圕SR 鍥炶璇佹槑涓嶄簡 CSR 鏃跺簭锛夛紱
+2. 鎸夌棁鐘堕€変华鍣細鍛ㄦ湡绾?鈫?GAO锛屽抚绾?鈫?涓绘満 UART 闂幆锛岄暱鏃惰鏁?鈫?濂戠害瀵勫瓨鍣紝鍙鐜伴€昏緫 鈫?鍙?RAM 浠跨湡锛?3. GAO 鍏ㄦ祦绋嬪彲鑴氭湰鍖栵細鏄庢枃 `.rao` 鈫?`.gprj` 閲?`type="file.gao"` 鈫?`gw_sh run all` 鐢熸垚 `RTL_GAO/` 涓?`ao_0.fs` 鈫?`gao_sh -gao ... -out ...` 鎶撳彇锛?4. 棰勭畻锛? 鍧?BSRAM = 18,432 浣嶏紝`娣卞害 脳 浣嶅` 蹇呴』瑁呭緱涓嬶紱2048脳112 宸查獙璇佸崰 13 鍧楋紱
+5. 璇佹嵁绾緥锛氬共鍑€鍩虹嚎銆丄CK 鍏ㄥ瓧娈点€佸師濮嬫棩蹇椼€佷綅娴?sha256 + 鍐呭 hash銆佹湭璺戠殑椤硅鍐欐槑銆?
+娴嬭瘯娴佺▼缁嗚妭瑙?`docs/TEST-FLOW-GAO.md`銆

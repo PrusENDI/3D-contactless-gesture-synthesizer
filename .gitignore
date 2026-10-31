@@ -17,3 +17,4 @@ __pycache__/
 # Per-run scratch logs
 .synth_run*.txt
 .sim_run*.txt
+.sim_unit/

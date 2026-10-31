@@ -480,7 +480,12 @@ module v2_cursor_filter_timed #(
           // Commit the causal filter state only after all arithmetic for this
           // frame has completed.  This is the same state ordering as the
           // single-cycle reference implementation.
-          filt_x <= nx; filt_y <= ny; filt_z <= nz; last_raw_x <= in_x; last_raw_y <= in_y; cursor_z <= nz;
+          filt_x <= nx; filt_y <= ny; filt_z <= nz; last_raw_x <= in_x; last_raw_y <= in_y;
+          // Publish the mapped coordinate on every processed frame: the engaged
+          // path used to be the only writer, so frames that skipped it left a stale
+          // value on the output.
+          cursor_x <= map_axis(mx); cursor_y <= map_axis(my); cursor_z <= nz;
+          normalized_pitch <= q16_u16(map_axis(my));
           if (hist_count < 5) hist_count <= hist_count + 1'b1;
           hist_x[0] <= in_x; hist_y[0] <= in_y; hist_z[0] <= in_z;
           if (hist_count >= 1) begin hist_x[1] <= hist_x[0]; hist_y[1] <= hist_y[0]; hist_z[1] <= hist_z[0]; end
@@ -548,7 +553,7 @@ module v2_cursor_filter_timed #(
         end
 
         ST_OUTPUT: begin
-          cursor_x <= cursor_next_x; cursor_y <= cursor_next_y; normalized_pitch <= q16_u16(cursor_next_y);
+          // cursor_x/y are published in ST_FILTER_COMMIT.
           previous_target_x <= nx; previous_target_y <= ny; point_valid <= 1'b1; stable_valid <= 1'b1;
           speed_q <= ((step_x_q < 0) ? -step_x_q : step_x_q);
           if ((step_y_q < 0) && (-step_y_q > ((step_x_q < 0) ? -step_x_q : step_x_q))) speed_q <= -step_y_q;

@@ -32,8 +32,8 @@ function As-Signed16([uint32]$v) { $x = $v -band 0xFFFF; if ($x -ge 32768) { ret
 Log ("const=0x{0:X8}" -f (Read-Csr 0xB0))
 Log 'time   raw_x  raw_y   cursor_x cursor_y'
 for ($i = 0; $i -lt $Seconds; $i++) {
-    $rx = As-Signed16 (Read-Csr 0xDC)
-    $ry = As-Signed16 (Read-Csr 0xFC)
+    $rx = (Read-Csr 0xDC) -band 0xFFFF
+    $ry = (Read-Csr 0xFC) -band 0xFFFF
     $cx = (Read-Csr 0xF0) -band 0xFFFF
     $cy = (Read-Csr 0xD8) -band 0xFFFF
     Log ("{0,3}s  {1,6} {2,6}   {3,8} {4,8}" -f $i, $rx, $ry, $cx, $cy)

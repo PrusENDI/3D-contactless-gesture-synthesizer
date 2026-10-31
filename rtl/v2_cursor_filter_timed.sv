@@ -53,8 +53,9 @@ module v2_cursor_filter_timed #(
   // clear while the board boots, exactly like the PC's force-calibration step.
   logic have_neutral;
   logic signed [31:0] neutral_x, neutral_y;
-  assign mapped_x = frame_x + 32'sd32768;
-  assign mapped_y = frame_y + 32'sd32768;
+  // The SDK already reports x/y as 0..65535, so the cursor is the frame itself.
+  assign mapped_x = frame_x;
+  assign mapped_y = frame_y;
 
   // The telemetry field is 16 bits: clamp instead of letting a value above 65535
   // wrap around to zero, which looked like the cursor jumping across the screen.

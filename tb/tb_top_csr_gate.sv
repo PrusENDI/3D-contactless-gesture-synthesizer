@@ -151,9 +151,14 @@ module tb_top_csr_gate #(parameter integer GOWIN_RAM = 0);
     repeat (8) @(negedge clk);
 
     // read-path self test first: if this fails every later FAIL is the bench's fault
-    host_cmd(8'h01, 8'h80, 32'd0, rtype, rerr, rdata);
+    host_cmd(8'h01, 8'hB0, 32'd0, rtype, rerr, rdata);
     expect_eq(rdata, 32'h5A5A0003, "constant CSR");
     expect_eq({24'd0, rerr}, 32'd0, "constant read error");
+
+    // THRESHOLDS[7:0] selects the WT_PLAY test note, so the register must round-trip
+    host_cmd(8'h02, 8'h30, 32'h0100_0045, rtype, rerr, rdata);
+    host_cmd(8'h01, 8'h30, 32'd0, rtype, rerr, rdata);
+    expect_eq(rdata, 32'h0100_0045, "thresholds_roundtrip");
 
     // P1: a single WT_CRC write must be visible to the uploader
     host_cmd(8'h02, 8'h60, 32'h00000000, rtype, rerr, rdata);
@@ -163,7 +168,7 @@ module tb_top_csr_gate #(parameter integer GOWIN_RAM = 0);
     // P1: first WT_INDEX write must move the pointer
     host_cmd(8'h02, 8'h64, 32'd64, rtype, rerr, rdata);
     repeat (4) @(negedge clk);
-    host_cmd(8'h01, 8'h94, 32'd0, rtype, rerr, rdata);
+    host_cmd(8'h01, 8'hC4, 32'd0, rtype, rerr, rdata);
     expect_eq(rdata, 32'd64, "first WT_INDEX loads wr_ptr");
 
     // upload the full table
@@ -171,9 +176,9 @@ module tb_top_csr_gate #(parameter integer GOWIN_RAM = 0);
     for (b = 0; b < 32; b = b + 1)
       for (k = 0; k < 32; k = k + 1)
         host_cmd(8'h02, 8'h68, {16'd0, pattern[b * 32 + k]}, rtype, rerr, rdata);
-    host_cmd(8'h01, 8'h90, 32'd0, rtype, rerr, rdata);
+    host_cmd(8'h01, 8'hC0, 32'd0, rtype, rerr, rdata);
     expect_eq(rdata, 32'd32, "coverage count complete");
-    host_cmd(8'h01, 8'h8C, 32'd0, rtype, rerr, rdata);
+    host_cmd(8'h01, 8'hBC, 32'd0, rtype, rerr, rdata);
     expect_eq(rdata, 32'hFFFFFFFF, "coverage bitmap full");
     host_cmd(8'h01, 8'hA8, 32'd0, rtype, rerr, rdata);
     expect_eq(rdata, {16'd0, HOST_CRC}, "expected CRC reached the uploader");

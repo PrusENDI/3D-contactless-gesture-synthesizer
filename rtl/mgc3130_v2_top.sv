@@ -535,6 +535,9 @@ logic [31:0] tlm_div;
     logic wt_select_bank, wt_select_band;
     logic [3:0] wt_select_octave;
     logic [9:0] wt_select_index;
+    // THRESHOLDS[7:0] is the WT_PLAY test note (0 keeps the legacy 46.875 Hz walk)
+    logic [31:0] thresholds_reg;
+    logic [31:0] wt_note_increment, wt_increment;
 logic wt_index_load;   // one-clock pulse when the host writes WT_INDEX
 logic [9:0]  dbg_wt_ptr;
 logic [5:0]  dbg_wt_covered_count;
@@ -628,9 +631,14 @@ end
     // routes its output straight to I2S, so the audio path is the table itself.
     assign wt_read_index_sel = mode_wt_play ? wt_play_index : wt_select_index;
 
+    // The test note selects the phase increment; 0 keeps the legacy fixed walk
+    // (one table point per sample = 46.875 Hz) so the old acceptance still holds.
+    v2_note_increment_rom u_wt_note_increment(.note(thresholds_reg[7:0]), .increment(wt_note_increment));
+    assign wt_increment = (thresholds_reg[7:0] == 8'd0) ? 32'd4194304 : wt_note_increment;
+
     v2_wt_playback u_wt_playback (
         .clk(clk_sys_100m), .rst_n(rst_sys_n), .sample_ce(sample_ce),
-        .enable(mode_wt_play), .index(wt_play_index),
+        .enable(mode_wt_play), .increment(wt_increment), .index(wt_play_index),
         .sample(wt_read_sample), .out(wt_play_sample), .valid(wt_play_valid)
     );
     v2_wavetable_loader #(.TABLES(3), .SAMPLES(1024), .USE_GOWIN_RAM(USE_GOWIN_RAM)) u_wavetable_loader (
@@ -724,6 +732,7 @@ end
             wt_select_table <= 2'd0; wt_select_bank <= 1'b0; wt_select_band <= 1'b0;
             wt_select_octave <= 4'd0; wt_select_index <= 10'd0; wt_length <= 16'd1024;
             wt_expected_crc <= 16'hffff; wt_apply_version <= 16'd0;
+            thresholds_reg <= 32'd0;
             loop_ctrl_valid <= 1'b0; loop_ctrl_op <= 3'd0; loop_ctrl_track <= 3'd0;
             loop_ctrl_pending <= 1'b0; loop_ctrl_pending_op <= 3'd0;
             test_response_pending <= 1'b0; test_response_sequence <= 8'd0;
@@ -766,6 +775,7 @@ end
                                                        patch_shadow_dirty, patch_active_version};
                     V2_CSR_PATCH_CRC: rsp_data <= {16'd0, patch_expected_crc};
                     V2_CSR_PATCH_APPLY: rsp_data <= 32'd0;
+                    V2_CSR_THRESHOLDS: rsp_data <= thresholds_reg;
                     V2_CSR_WT_SELECT: rsp_data <= {16'd0, wt_select_octave, 2'd0,
                                                     wt_select_band, wt_select_bank,
                                                     6'd0, wt_select_table};
@@ -891,6 +901,8 @@ end
                     wt_select_band <= cmd_data[9];
                     wt_select_octave <= cmd_data[15:12];
                 end
+                if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_THRESHOLDS)
+                    thresholds_reg <= cmd_data;
                 if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_WT_INDEX)
                     wt_select_index <= cmd_data[9:0];
                 else if (wt_write_valid && wt_write_ready)

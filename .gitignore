@@ -18,3 +18,4 @@ __pycache__/
 .synth_run*.txt
 .sim_run*.txt
 .sim_unit/
+.superpowers/

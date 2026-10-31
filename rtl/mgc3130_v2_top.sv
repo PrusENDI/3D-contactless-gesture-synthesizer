@@ -258,6 +258,17 @@ logic signed [31:0] cursor_last_z;
     logic [15:0] live_event_count; logic [7:0] live_fault;
     logic live_left_edge, live_gate, live_active; logic [7:0] live_active_note;
     logic [31:0] mode_reg;
+    // THRESHOLDS[7:0] is the WT_PLAY test note (0 keeps the legacy 46.875 Hz walk)
+    // THRESHOLDS[23] selects the LIVE rule: 0 = frame-level tracking, 1 = step arpeggiator.
+    // Host writes 0x0180_00NN to enable it (low half below the high half keeps the
+    // contract's THRESHOLDS validity rule satisfied).
+    logic [31:0] thresholds_reg;
+    logic [15:0] bpm_reg;
+    logic        bpm_we_q;
+    wire         bpm_write;
+    logic        tick_pulse;
+    logic [6:0]  tick_now;
+    logic [23:0] samples_per_tick;
     wire mode_live = (mode_reg == LIVE);
     wire mode_record = (mode_reg == RECORD);
     wire mode_play = (mode_reg == PLAY);
@@ -275,6 +286,7 @@ logic [9:0] wt_read_index_sel;
         .frame_gap(calibrated_gap), .rebased(cursor_rebased), .left_edge(1'b1),
         .x(cursor_x[15:0]), .y(cursor_y[15:0]), .z(cursor_z[15:0]),
         .touch(cursor_engaged), .bow(cursor_engaged), .tick(sample_index),
+        .arp_mode(thresholds_reg[23]), .tick_pulse(tick_pulse), .mtick(tick_now),
         .velocity_in(cursor_velocity[7:0]), .brightness_in(cursor_depth), .gain_in(16'hffff),
         .event_valid(live_event_valid), .event_ready(live_event_ready), .event_data(live_event_data),
         .event_type(live_event_type), .event_note(live_event_note), .event_velocity(live_event_velocity),
@@ -538,14 +550,6 @@ logic [31:0] tlm_div;
     logic wt_select_bank, wt_select_band;
     logic [3:0] wt_select_octave;
     logic [9:0] wt_select_index;
-    // THRESHOLDS[7:0] is the WT_PLAY test note (0 keeps the legacy 46.875 Hz walk)
-    logic [31:0] thresholds_reg;
-    logic [15:0] bpm_reg;
-    logic        bpm_we_q;
-    wire         bpm_write = cmd_valid && cmd_ready && (cmd_op == V2_OP_WRITE) && (cmd_address == V2_CSR_BPM);
-    logic        tick_pulse;
-    logic [6:0]  tick_now;
-    logic [23:0] samples_per_tick;
     logic [31:0] wt_note_increment, wt_increment;
 logic wt_index_load;   // one-clock pulse when the host writes WT_INDEX
 logic [9:0]  dbg_wt_ptr;
@@ -727,6 +731,7 @@ end
                        // Hold off one cycle after a staged one-shot so two staged
                        // commands can never overlap (P1 non-overlap argument).
                        !(wt_crc_valid_q || wt_index_load_q || patch_crc_valid_q || wt_apply_valid_q);
+    assign bpm_write = cmd_valid && cmd_ready && (cmd_op == V2_OP_WRITE) && (cmd_address == V2_CSR_BPM);
     wire status_fault = (protocol_error != V2_ERR_NONE) || (record_fault != 8'd0) ||
                         loop_commit_timeout || test_fault;
     logic test_response_pending;
@@ -795,7 +800,7 @@ end
                                                        patch_shadow_dirty, patch_active_version};
                     V2_CSR_PATCH_CRC: rsp_data <= {16'd0, patch_expected_crc};
                     V2_CSR_PATCH_APPLY: rsp_data <= 32'd0;
-                    V2_CSR_BPM: rsp_data <= {bpm_reg, 16'd0};
+                    V2_CSR_BPM: rsp_data <= {16'd0, bpm_reg};
                     V2_CSR_THRESHOLDS: rsp_data <= thresholds_reg;
                     V2_CSR_WT_SELECT: rsp_data <= {16'd0, wt_select_octave, 2'd0,
                                                     wt_select_band, wt_select_bank,
@@ -923,7 +928,7 @@ end
                     wt_select_octave <= cmd_data[15:12];
                 end
                 if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_BPM)
-                    bpm_reg <= cmd_data[31:16];
+                    bpm_reg <= cmd_data[15:0];
                 bpm_we_q <= bpm_write;
                 if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_THRESHOLDS)
                     thresholds_reg <= cmd_data;

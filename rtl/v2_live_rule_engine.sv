@@ -16,6 +16,7 @@ module v2_live_rule_engine #(
   input  logic left_edge,
   input  logic [15:0] x, input logic [15:0] y, input logic [15:0] z,
   input  logic touch, input logic bow, input logic [31:0] tick,
+  input  logic        arp_mode, input logic tick_pulse, input logic [6:0] mtick,
   input logic [7:0] velocity_in, input logic [15:0] brightness_in,
   input logic [15:0] gain_in,
   output logic event_valid, input logic event_ready,
@@ -38,6 +39,8 @@ module v2_live_rule_engine #(
   logic [7:0] candidate_note, candidate_velocity, candidate_flags;
   logic [15:0] candidate_timbre;
   logic candidate_due, bad_frame, gate_now, edge_cross;
+  logic arp_off_pending, arp_on_pending;
+  logic [7:0] arp_note;
   logic edge_pending, arm_now;
   logic note_change_ok;
   logic note_change_ok_q;
@@ -132,7 +135,17 @@ module v2_live_rule_engine #(
       if (candidate_note > active_note) note_change_ok = (rule_y >= boundary + HYSTERESIS);
       else note_change_ok = (rule_y + HYSTERESIS <= boundary);
     end
-    if (rule_frame_in_valid && !bad_frame) begin
+    if (arp_mode) begin
+      // Step arpeggiator: OFF is queued ahead of ON so a pitch change is a pair.
+      if (arp_off_pending) begin
+        candidate_valid = 1'b1; candidate_type = V2_EV_NOTE_OFF;
+        candidate_note = active_note; candidate_flags = 8'd0;
+      end else if (arp_on_pending) begin
+        candidate_valid = 1'b1; candidate_type = V2_EV_NOTE_ON;
+        candidate_note = arp_note;
+        candidate_flags = rule_touch ? V2_FLAG_TOUCH : V2_FLAG_BOW;
+      end
+    end else if (rule_frame_in_valid && !bad_frame) begin
       if (!active && arm_now && gate_now && candidate_due) begin
         candidate_valid=1'b1; candidate_type=V2_EV_NOTE_ON;
         candidate_flags = rule_touch ? V2_FLAG_TOUCH : V2_FLAG_BOW;
@@ -212,11 +225,22 @@ module v2_live_rule_engine #(
       end else if (rule_frame_in_valid && bad_frame && !(event_valid && !event_ready)) begin
         fault_code <= V2_FAULT_INVALID;
       end
+      if (arp_mode) begin
+        if (tick_pulse && !(event_valid && !event_ready)) begin
+          arp_note <= map_note(rule_y);
+          arp_on_pending <= 1'b1;
+          if (active) arp_off_pending <= 1'b1;
+        end
+        if (!gate_now && active && !arp_off_pending) arp_off_pending <= 1'b1;
+        if (!gate_now) arp_on_pending <= 1'b0;
+      end
       if (emit_candidate_valid && !(event_valid && !event_ready)) begin
+        if (emit_candidate_type == V2_EV_NOTE_OFF) arp_off_pending <= 1'b0;
+        if (emit_candidate_type == V2_EV_NOTE_ON)  arp_on_pending  <= 1'b0;
         packed_event = 96'd0;
         packed_event[94:91] = emit_candidate_type;
         packed_event[90:88] = TRACK[2:0];
-         packed_event[87:80] = emit_candidate_tick[7:0];
+         packed_event[87:80] = arp_mode ? mtick : emit_candidate_tick[7:0];
         packed_event[79:72] = 8'd0;
         packed_event[71:64] = emit_candidate_note;
         packed_event[63:56] = emit_candidate_velocity;

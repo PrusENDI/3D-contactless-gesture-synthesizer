@@ -59,6 +59,7 @@ module tb_voice_wt_source;
     .voice_steal_count(voice_steal_count), .revoice_count(revoice_count),
     .active_voice_count(active_voice_count), .dbg_busy(dbg_busy),
     .vibrato_phase(vibrato_phase), .vibrato_delta_cents(vibrato_delta_cents),
+    .wt_source_sel(1'b1),
     .wt_sample_a(wt_sample_a), .wt_sample_b(wt_sample_b),
     .wt_rd_slot(wt_rd_slot), .wt_wr_slot(wt_wr_slot), .wt_phase_we(wt_phase_we),
     .wt_phase_a(wt_phase_a), .wt_phase_b(wt_phase_b));

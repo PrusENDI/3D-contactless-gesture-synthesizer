@@ -174,7 +174,7 @@ localparam logic [7:0] V2_ADDR_DIAG_FIRST   = 8'hB0;
   localparam logic [31:0] V2_CSR_PATCH_STATUS_WRITE_MASK=32'h00000000;
   localparam logic [31:0] V2_CSR_PATCH_CRC_WRITE_MASK=32'h0000FFFF;
   localparam logic [31:0] V2_CSR_PATCH_APPLY_WRITE_MASK=32'h8000FFFF;
-  localparam logic [31:0] V2_CSR_WT_SELECT_WRITE_MASK=32'hFFFFFF07;
+  localparam logic [31:0] V2_CSR_WT_SELECT_WRITE_MASK=32'hFFFFFFF7;
   localparam logic [31:0] V2_CSR_WT_INDEX_WRITE_MASK=32'h0000FFFF;
   localparam logic [31:0] V2_CSR_WT_DATA_WRITE_MASK=32'h0000FFFF;
   localparam logic [31:0] V2_CSR_WT_LENGTH_WRITE_MASK=32'h0000FFFF;
@@ -236,8 +236,14 @@ localparam logic [7:0] V2_ADDR_DIAG_FIRST   = 8'hB0;
   localparam int V2_CSR_PATCH_APPLY_EXPECTED_VERSION_SHIFT=0;
   localparam int V2_CSR_PATCH_APPLY_TRIGGER_SHIFT=31;
   localparam int V2_CSR_WT_SELECT_TABLE_ID_SHIFT=0;
+  localparam int V2_CSR_WT_SELECT_VOICE_SHIFT_SHIFT=4;
   localparam int V2_CSR_WT_SELECT_MORPH_EN_SHIFT=8;
   localparam int V2_CSR_WT_SELECT_LFO_STEP_SHIFT=9;
+  // Default scaling between the wavetable samples and the 32-voice mix sum.
+  // Each voice sums two oscillators, so the worst case is 32 voices x 2 x full
+  // scale: 64 x 32767 needs a shift of 6 to stay inside int16 (measured peak
+  // 32704 and -32768 in tb_wt_voice_poly).  A shift of 4 clips there.
+  localparam logic [3:0] V2_WT_VOICE_SHIFT_DEFAULT=4'd6;
   localparam int V2_CSR_WT_INDEX_SAMPLE_INDEX_SHIFT=0;
   localparam int V2_CSR_WT_DATA_SAMPLE_S16_SHIFT=0;
   localparam int V2_CSR_WT_LENGTH_SAMPLE_COUNT_SHIFT=0;

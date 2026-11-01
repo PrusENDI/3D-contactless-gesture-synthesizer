@@ -14,7 +14,10 @@
 
 - 系统时钟 80 MHz，音频 48 kHz（`sample_ce` 每 1667 拍一次）；每样本时隙预算 **1667**，本阶段新增 **≈100 拍（6.0%）**。
 - 波表几何固定：3 表 × 2 bank × 1024 × int16；`idx = phase[31:22]`；表幅度 0.9 FS。
-- 表引擎固定缩放常数 **`WT_VOICE_SHIFT`，默认 4**，放在 `WT_SELECT(0x60)` 的空闲位 `[7:4]`；不新增 CSR 地址。
+- 表引擎固定缩放常数 **`WT_VOICE_SHIFT`**，放在 `WT_SELECT(0x60)` 的空闲位 `[7:4]`；不新增 CSR 地址。
+  默认值实测为 **6**（不是最初写的 4）：每个声部两个振荡器一起求和，最坏情形是
+  32 × 2 × 满幅 = 64 × 32767，shift=4 会削顶（`tb_wt_voice_poly` 实测 32767），
+  shift=6 实测峰值 32704 / −32768，刚好不饱和。
 - 模式互斥：IDLE 旧读口给宿主；WT_PLAY / LIVE 走单声部路径；PLAY 走表引擎。PLAY 中宿主读 `WT_DATA(0x18)` 必须返回 0。
 - 不改原有扫描管线的握手、事件接收时机与 voice stealing 行为。
 - 每完成一个任务：`python scripts/gate.py --compile` 必须 0 error / 0 warning；`python scripts/sim.py` 不得新增失败；提交信息写清「改了什么 + 为什么」。
@@ -218,11 +221,11 @@ git commit -m "feat: let the voice engine take oscillator samples from the wavet
 **Interfaces:**
 - Consumes: Task 1/2/3 的模块。
 - Produces:
-  - `wt_shift = wt_select_reg[7:4]`（复位值 4），接入 `v2_wt_voice_engine.shift`；
+  - `wt_shift = wt_select_reg[7:4]`（复位值 6，见 Global Constraints），接入 `v2_wt_voice_engine.shift`；
   - 读口 mux：`wt_rd_table0/index0` 与 `1` 在 `mode_play` 时改由表引擎驱动，其余模式保持现有单声部接线；
   - `WT_DATA(0x18)` 读回在 `mode_play` 时固定 0。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```systemverilog
 // tb/tb_top_wt_voice.sv
@@ -232,22 +235,22 @@ git commit -m "feat: let the voice engine take oscillator samples from the wavet
 // 断言：PLAY 中读 WT_DATA 返回 0；回到 IDLE 后读回仍正常。
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `python scripts/sim_unit.py --tb tb_top_wt_voice`
 Expected: FAIL（PLAY 输出仍是锯齿）
 
-- [ ] **Step 3: 实现接线**
+- [x] **Step 3: 实现接线**
 
 实例化 `u_wt_voice_bufs` 与 `u_wt_voice_engine`；把扫描侧的 `bank_rd_addr`（已有 `scan_slot`）接到 bufs 的 `scan_slot`，把相位写使能与 `calc_osc_sum` 同拍；引擎的 `slot` 接到 bufs 的 `eng_slot`；读口用 `mode_play` 选择。
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `python scripts/sim_unit.py --tb tb_top_wt_voice`
 Run: `python scripts/sim.py`
 Expected: PASS，且 `sim.py` 不新增失败。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add rtl/mgc3130_v2_top.sv rtl/v2_contract_pkg.sv tb/tb_top_wt_voice.sv
@@ -262,7 +265,7 @@ git commit -m "feat: PLAY reads the wavetable through the bypass engine; WT_DATA
 - Test: `tb/tb_wt_voice_poly.sv`（新建）
 - Modify: `scripts/sim_baseline.json`（仅在确认新用例稳定后）
 
-- [ ] **Step 1: 写测试**
+- [x] **Step 1: 写测试**
 
 ```systemverilog
 // tb/tb_wt_voice_poly.sv
@@ -271,12 +274,12 @@ git commit -m "feat: PLAY reads the wavetable through the bypass engine; WT_DATA
 // 逐个关闭声部后重新计数正确。
 ```
 
-- [ ] **Step 2: 跑测试**
+- [x] **Step 2: 跑测试**
 
 Run: `python scripts/sim_unit.py --tb tb_wt_voice_poly`
 Expected: PASS
 
-- [ ] **Step 3: 提交**
+- [x] **Step 3: 提交**
 
 ```bash
 git add tb/tb_wt_voice_poly.sv
@@ -332,7 +335,7 @@ git commit -m "feat: PLAY bypass wavetable engine accepted on board (spectrum wi
 | 表引擎每声部 2 拍、两帧读、交叉淡化复用单声部模块 | Task 2 |
 | 声部引擎只改 `calc_osc_sum` 来源 | Task 3 |
 | 读口所有权（PLAY 用表引擎，PLAY 中 `WT_DATA` 返回 0） | Task 4 |
-| `WT_VOICE_SHIFT` 默认 4、放在 `WT_SELECT[7:4]` | Task 4 |
+| `WT_VOICE_SHIFT` 放在 `WT_SELECT[7:4]`，默认 6（32×2 满幅不饱和） | Task 4、Task 5 |
 | 仿真：单声部参考一致 / 1/8/32 音通过 | Task 2、4、5 |
 | 板上：LIVE 与 PLAY 频谱 ±3 dB、切换无跳变 | Task 6 |
 | 时序预算 ≤100 拍 | Task 2（状态机 2 拍 × 32 + 收尾），Task 4 后跑 `gate.py` 复核 |

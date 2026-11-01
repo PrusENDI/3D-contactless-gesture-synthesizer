@@ -31,6 +31,9 @@ module v2_voice_engine_banked #(
     output logic signed [15:0]     vibrato_delta_cents,
     // Wavetable source: the sample pair for the slot being calculated, and the
     // phase mirror that keeps the buffers in step with this engine's bank.
+    // wt_source_sel picks the pair at run time, because the same engine also
+    // serves LIVE and the on-board test modes, which must keep the saw.
+    input  logic                   wt_source_sel,
     input  logic signed [15:0]     wt_sample_a,
     input  logic signed [15:0]     wt_sample_b,
     output logic [4:0]             wt_rd_slot,
@@ -148,6 +151,9 @@ module v2_voice_engine_banked #(
     wire [1:0]         osc_stage = rd_releasing ? ENV_RELEASE : rd_env_stage;
     wire signed [47:0] wt_raw_a = {{32{wt_sample_a[15]}}, wt_sample_a};
     wire signed [47:0] wt_raw_b = {{32{wt_sample_b[15]}}, wt_sample_b};
+    // The wavetable source only exists when the top wires it in, and only the
+    // modes that fill the buffers may use it.
+    wire               wt_source = (USE_WT_SOURCE != 0) && wt_source_sel;
 
     integer i;
     integer count_idx;
@@ -612,7 +618,7 @@ module v2_voice_engine_banked #(
             calc_releasing <= rd_releasing;
             calc_osc_sum <= 48'sd0;
             if (rd_valid && rd_active) begin
-                if (USE_WT_SOURCE != 0) begin
+                if (wt_source) begin
                     calc_osc_sum <= attenuate_sample(wt_raw_a, osc_stage, rd_gain, rd_mix_a)
                                   + attenuate_sample(wt_raw_b, osc_stage, rd_gain, rd_mix_b);
                 end else begin

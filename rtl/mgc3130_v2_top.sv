@@ -559,14 +559,30 @@ logic [9:0] wt_read_index_sel;
     // Held in reset outside LIVE/PLAY so no note can survive a mode change.
     wire voice_rst_n = rst_sys_n && (mode_live || mode_play);
 
-    v2_voice_engine_banked #(.VOICES(32), .USE_GOWIN_RAM(USE_GOWIN_RAM)) u_voice (
+    // ---- Per-voice wavetable bypass (stage 1.5) --------------------------
+    // Declared here because the voice engine instance below takes its samples
+    // from this buffer and publishes phases into it; the buffer and the table
+    // engine themselves are instantiated after the loader they read through.
+    logic signed [15:0] wt_voice_sample_a, wt_voice_sample_b;
+    logic [4:0]  wt_voice_rd_slot, wt_voice_wr_slot;
+    logic        wt_voice_phase_we;
+    logic [31:0] wt_voice_phase_a, wt_voice_phase_b;
+
+    v2_voice_engine_banked #(.VOICES(32), .USE_GOWIN_RAM(USE_GOWIN_RAM),
+                             .USE_WT_SOURCE(1)) u_voice (
         .clk(clk_sys_100m), .rst_n(rst_sys_n), .sample_ce(sample_ce),
         .event_valid(voice_event_valid), .event_ready(voice_event_ready),
         .event_data(voice_event_data), .vibrato_hz_q8_8(16'd0), .vibrato_cents_q8_8(16'd0),
         .mixed_sample(voice_sample), .sample_valid(voice_sample_valid),
         .active_bitmap(voice_bitmap), .voice_overflow(voice_overflow), .dbg_busy(voice_dbg_busy),
         .voice_steal_count(voice_steal_count), .revoice_count(revoice_count),
-        .active_voice_count(active_voice_count), .vibrato_phase(), .vibrato_delta_cents()
+        .active_voice_count(active_voice_count), .vibrato_phase(), .vibrato_delta_cents(),
+        // PLAY reads the wavetable; LIVE and the test modes keep the saw.
+        .wt_source_sel(mode_play),
+        .wt_sample_a(wt_voice_sample_a), .wt_sample_b(wt_voice_sample_b),
+        .wt_rd_slot(wt_voice_rd_slot), .wt_wr_slot(wt_voice_wr_slot),
+        .wt_phase_we(wt_voice_phase_we),
+        .wt_phase_a(wt_voice_phase_a), .wt_phase_b(wt_voice_phase_b)
     );
 
     logic signed [15:0] fx_sample; logic [1:0] fx_status; logic fx_clip;
@@ -712,6 +728,9 @@ logic [31:0] tlm_div;
     logic [1:0] wt_select_table;
     logic wt_morph_en;
     logic [22:0] wt_lfo_step;
+    // Scaling between the wavetable samples and the voice mix accumulator, so 32
+    // simultaneous voices cannot clip.  WT_SELECT[7:4], default 4 (1/16).
+    logic [3:0] wt_voice_shift;
     logic [9:0] wt_select_index;
     logic [31:0] wt_note_increment, wt_increment;
 logic wt_index_load;   // one-clock pulse when the host writes WT_INDEX
@@ -858,12 +877,68 @@ end
                              wt_rd_valid1          ? wt_sample_b : 16'sd0;
 
     // The two read channels follow position in WT_PLAY/LIVE; everywhere else they
-    // read the host-selected table so the CSR readback path is untouched.
+    // read the host-selected table so the CSR readback path is untouched.  PLAY
+    // hands them to the per-voice wavetable engine instead.
     logic [1:0] wt_play_table_a, wt_play_table_b;
     assign wt_play_table_a = (wt_morph_en && (mode_wt_play || mode_live))
                              ? wt_frame_a : wt_select_table;
     assign wt_play_table_b = (wt_morph_en && (mode_wt_play || mode_live))
                              ? wt_frame_b : wt_select_table;
+
+    // ---- Per-voice wavetable bypass (stage 1.5) --------------------------
+    // In PLAY the 32-voice engine takes its oscillator samples from the buffer
+    // below instead of its internal saw.  The table engine fills that buffer
+    // after every voice scan: the scan writes each voice's next phase through
+    // the mirror ports, then the engine reads those phases and writes the two
+    // frame samples back.  The read channels belong to the table engine only
+    // while PLAY runs, so WT_PLAY/LIVE/IDLE keep the single-voice path.
+    logic [4:0]  wt_engine_slot;
+    logic [1:0]  wt_engine_rd_table0, wt_engine_rd_table1;
+    logic [9:0]  wt_engine_rd_index0, wt_engine_rd_index1;
+    logic [31:0] wt_engine_phase_a, wt_engine_phase_b;
+    logic        wt_engine_sample_we;
+    logic signed [15:0] wt_engine_sample_a, wt_engine_sample_b;
+    logic [1:0]  wt_reader_table_a, wt_reader_table_b;
+    logic [9:0]  wt_reader_index_a, wt_reader_index_b;
+
+    // Morph on: crossfade the position's two frames.  Morph off: play the
+    // selected table with frac 0, exactly like the single-voice path.
+    wire [1:0] wt_voice_frame_a = wt_morph_en ? wt_frame_a : wt_select_table;
+    wire [1:0] wt_voice_frame_b = wt_morph_en ? wt_frame_b : wt_select_table;
+    wire [7:0] wt_voice_frac    = wt_morph_en ? wt_frac : 8'd0;
+    // One table sweep per sample, after the scan that consumed the last one.
+    wire wt_engine_start = mode_play && voice_sample_valid;
+
+    assign wt_reader_table_a = mode_play ? wt_engine_rd_table0 : wt_play_table_a;
+    assign wt_reader_table_b = mode_play ? wt_engine_rd_table1 : wt_play_table_b;
+    assign wt_reader_index_a = mode_play ? wt_engine_rd_index0 : wt_read_index_sel;
+    assign wt_reader_index_b = mode_play ? wt_engine_rd_index1 : wt_read_index_sel;
+
+    v2_wt_voice_bufs #(.VOICES(32)) u_wt_voice_bufs (
+        .clk(clk_sys_100m), .rst_n(rst_sys_n),
+        .scan_en(1'b1), .scan_slot(wt_voice_rd_slot), .scan_wr_slot(wt_voice_wr_slot),
+        .scan_phase_we(wt_voice_phase_we),
+        .scan_phase_a(wt_voice_phase_a), .scan_phase_b(wt_voice_phase_b),
+        .scan_sample_a(wt_voice_sample_a), .scan_sample_b(wt_voice_sample_b),
+        .eng_en(1'b1), .eng_slot(wt_engine_slot),
+        .eng_phase_a(wt_engine_phase_a), .eng_phase_b(wt_engine_phase_b),
+        .eng_sample_we(wt_engine_sample_we),
+        .eng_sample_a(wt_engine_sample_a), .eng_sample_b(wt_engine_sample_b)
+    );
+    v2_wt_voice_engine #(.VOICES(32)) u_wt_voice_engine (
+        .clk(clk_sys_100m), .rst_n(rst_sys_n), .sample_ce(wt_engine_start),
+        .frame_a(wt_voice_frame_a), .frame_b(wt_voice_frame_b), .frac(wt_voice_frac),
+        .shift(wt_voice_shift),
+        .phase_a_in(wt_engine_phase_a), .phase_b_in(wt_engine_phase_b),
+        .slot(wt_engine_slot),
+        // The loader enables its own read, so only the addresses are consumed.
+        .rd_en0(), .rd_table0(wt_engine_rd_table0), .rd_index0(wt_engine_rd_index0),
+        .rd_en1(), .rd_table1(wt_engine_rd_table1), .rd_index1(wt_engine_rd_index1),
+        .rd_sample0(wt_sample_a), .rd_sample1(wt_sample_b),
+        .rd_valid0(wt_rd_valid0), .rd_valid1(wt_rd_valid1),
+        .sample_we(wt_engine_sample_we), .sample_a(wt_engine_sample_a),
+        .sample_b(wt_engine_sample_b)
+    );
 
     v2_wt_playback u_wt_playback (
         .clk(clk_sys_100m), .rst_n(rst_sys_n), .sample_ce(sample_ce),
@@ -880,8 +955,8 @@ end
         .idle((mode_reg == IDLE) && !recording), .wt_read_table(wt_select_table),
         .wt_read_index(wt_read_index_sel), .wt_read_sample(wt_read_sample),
         // Morph channels: position selects the pair, the phase index is shared.
-        .wt_rd_table0(wt_play_table_a), .wt_rd_index0(wt_read_index_sel),
-        .wt_rd_table1(wt_play_table_b), .wt_rd_index1(wt_read_index_sel),
+        .wt_rd_table0(wt_reader_table_a), .wt_rd_index0(wt_reader_index_a),
+        .wt_rd_table1(wt_reader_table_b), .wt_rd_index1(wt_reader_index_b),
         .wt_rd_sample0(wt_sample_a), .wt_rd_sample1(wt_sample_b),
         .wt_rd_valid0(wt_rd_valid0), .wt_rd_valid1(wt_rd_valid1),
         .wt_active_valid(wt_active_valid), .wt_shadow_valid(wt_shadow_valid),
@@ -970,6 +1045,7 @@ end
             patch_select_index <= 8'd0; patch_expected_crc <= 16'hffff;
             patch_apply_version <= 16'd0;
             wt_select_table <= 2'd0; wt_morph_en <= 1'b0; wt_lfo_step <= 23'd0;
+            wt_voice_shift <= V2_WT_VOICE_SHIFT_DEFAULT;
             wt_select_index <= 10'd0; wt_length <= 16'd1024;
             wt_expected_crc <= 16'hffff; wt_apply_version <= 16'd0;
             thresholds_reg <= 32'd0;
@@ -1058,9 +1134,12 @@ end
                                                       potts_overflow, potts_busy, potts_commit_done};
                     V2_CSR_POTTS_LAMBDA: rsp_data <= {16'd0, potts_lambda};
                     V2_CSR_WT_SELECT: rsp_data <= {wt_lfo_step, wt_morph_en,
-                                                    6'd0, wt_select_table};
+                                                    wt_voice_shift, 2'd0, wt_select_table};
                     V2_CSR_WT_INDEX: rsp_data <= {22'd0, wt_select_index};
-                    V2_CSR_WT_DATA: rsp_data <= {16'd0, wt_read_sample};
+                    // In PLAY the read port belongs to the per-voice table engine,
+                    // so a WT_DATA read returns 0 there instead of a sample taken
+                    // from whatever address the engine happened to be reading.
+                    V2_CSR_WT_DATA: rsp_data <= mode_play ? 32'd0 : {16'd0, wt_read_sample};
                     // In WT_PLAY the read port is owned by the playback engine, so a
                     // WT_DATA read returns the sample currently being played; keep the
                     // host readback in IDLE, where the port follows WT_INDEX.
@@ -1181,6 +1260,7 @@ end
                     wt_select_table <= cmd_data[1:0];
                     wt_morph_en <= cmd_data[8];
                     wt_lfo_step <= cmd_data[31:9];
+                    wt_voice_shift <= cmd_data[7:4];
                 end
             if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_BPM)
                     bpm_reg <= cmd_data[15:0];

@@ -296,10 +296,10 @@ git commit -m "feat: latch the six P2a CSRs through the contract clamp"
 class Table(unittest.TestCase):
     def test_g_is_the_tpt_coefficient(self):
         # ci=48 -> fc=80 Hz -> q=tan(pi*80/48000) -> G=q/(1+q)
-    def test_g_is_monotone_and_clamped(self):
-        # G 随 ci 单调下降；ci>423 与 ci=423 相同
+    def test_g_rises_with_ci_and_is_clamped(self):
+        # G 随 ci 单调**上升**（ci=0 -> 0.00261，ci=423 -> 0.70649）；ci>423 与 ci=423 相同
     def test_r_is_the_reciprocal_table(self):
-        # R[0]=65536；R 随 ridx 单调下降；R[255] ~ 65536/(1+0.94)
+        # R[0]=65536（写入 16 位时落成 0xFFFF）；R 随 ridx 单调下降；R[255] ~ 65536/(1+0.94)
     def test_reference_matches_the_spec_table(self):
         # spec §5.3：ci=96 -> 70 Hz、ci=192 -> 278 Hz、ci=288 -> 1.12 kHz（±5%）
 ```
@@ -418,9 +418,14 @@ module v2_ladder_lp (
 用 `sample_ce` 驱动（周期 20 个时钟即可），每次等 `out_valid`。断言：
 
 1. **延迟**：同一个冲激，`audio_out` 出现在**下一个** `sample_ce` 之后（不是同一个）；
-2. **−3 dB 三点**：`res=0`，白噪声/正弦扫频测 `ci = 96 / 192 / 288`，与 Task 3 产出的常数比，容差 ±15%；
-3. **共振单调**：`ci=192`，`res = 0/85/170/255` 的峰值单调上升，`res=255` 时 `spec 常数 +15 dB ±2 dB`；
-4. **共振均匀**：`res=255` 在 `ci = 48 / 192 / 336` 三处峰值差 ≤ 3 dB（这是 ZDF 才有的性质）；
+2. **−3 dB 三点**：`res=0`，白噪声/正弦扫频测 `ci = 96 / 192 / 288`，与 Task 3 的 `--emit-tb` 常数比
+   （**69.5 / 278.0 / 1120.0 Hz**），容差 ±15%；
+3. **共振单调**：`ci=192`，`res = 0/85/170/255` —— 断言的是**相对 DC 的峰值**单调上升
+   （**0 / 3.5 / 11.1 / 28.2 dB**，用 `host/filter_reference.py` 的 `dc_db()` 扣掉 `1/(1+K)` 的直流下垂）。
+   **绝对**峰值不是单调的（0 / −3.5 / +0.3 / +14.7 dB），因为梯形滤波器的 DC 增益本身就随 K 下降——
+   这是 Task 3 实现时核实的事实，按绝对峰值写会假失败；
+4. **共振均匀**：`res=255` 在 `ci = 48 / 192 / 336` 三处**绝对**峰值差 ≤ 3 dB
+   （Task 3 实测三处都是 14.67 dB；这是 ZDF 才有的性质）；
 5. **不发散**：扫描 `ci 0..423 × res {0,128,255}`，每点 2000 采样，`|audio_out| ≤ 32767` 且无单调增长；
 6. **饱和不回绕**：4 倍满幅正弦进 `res=255`，输出是平顶，且不出现与输入反相的尖峰；
 7. **只有 `sample_ce` 才更新**：两个 `sample_ce` 之间，`audio_out` 保持不变（Review Focus 2）。

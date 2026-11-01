@@ -36,8 +36,28 @@
 // saturating the feedback term would move the resonant frequency.  Only the
 // output is saturated, once.
 //
+// The four pole differences (u_r - w1, y1_r - w2, y2_r - w3, y3_r - w4) are the
+// one deliberate exception.  The exact difference of two 27-bit Q4 values needs
+// 28 bits, and a 28-bit operand pushes each 17x27 product into a two-slice
+// MULT27X36.  Four of those consume eight of the 28 DSP slices; with none left,
+// the 17x27 osm and 27x17 u_full products fell back to LUT multiplier arrays,
+// the ~50 ns combinational chains that held Fmax at 20 MHz.  So each difference
+// is formed in 28 bits and SATURATED to 27 bits (sat_diff) before the multiply,
+// which fits one MULTALU27X18 slice and frees four slices for osm and u_full.
+// The trade is honest: the clamp sits at +-2^26 Q4 = +-128x full scale, about
+// 4x above the ~30x the states reach, so a normal resonant sine never touches
+// it.  Only states driven past +-128x full scale clip, and there a saturating
+// clamp is the least-bad answer -- a wrap would inject full-scale noise.  The
+// states and the feedback update are still unsaturated, so the resonance does
+// not move.
+//
 // ci is clamped to 423 here as well as upstream (spec 5.3: fc stops at 18 kHz),
-// so a mis-written register cannot index past the end of the G table.
+// so a mis-written register cannot index past the end of the G table.  It is
+// latched on sample_ce (ci_q) and the coefficient address is written from that
+// register, so the table address never comes from the top's combinational
+// ci_sum.  The latch costs one sample of cutoff latency, which at 48 kHz is
+// below the LFO's own resolution; res is already latched (res_q) and never
+// reaches the address path.
 
 module v2_ladder_lp (
     input  logic               clk,
@@ -72,6 +92,7 @@ module v2_ladder_lp (
     logic signed [WB-1:0] nx1, nx2, nx3, nx4;  // next states from the pipeline
     logic signed [WB-1:0] x_q;                 // input sample in Q4
     logic        [7:0]    res_q;               // resonance latched with the sample
+    logic        [11:0]   ci_q;                // cutoff index latched on sample_ce
     logic signed [WB-1:0] sat_r;               // saturated result of the running sample
     logic        [13:0]   vap;                 // pipeline valid chain
 
@@ -100,10 +121,24 @@ module v2_ladder_lp (
     logic signed [45:0] ks_scaled;             // res * S * 960
     logic signed [43:0] u_full;
     logic signed [43:0] sv1, sv2, sv3, sv4;    // G * (stage input - state)
+    logic signed [WB:0]   dp1, dp2, dp3, dp4;  // exact pole difference, 28 bits
+    logic signed [WB-1:0] pd1, pd2, pd3, pd4;  // saturated to 27 bits for the DSP
     logic signed [WB-1:0] h1_c, h2_c, h3_c;
     logic signed [WB-1:0] s_c, ks_c, u_c;
     logic signed [WB-1:0] v1, v2, v3, v4;
     logic signed [WB-1:0] y1_c, y2_c, y3_c, y4_c;
+
+    // Saturating clamp from 28 bits to the 27-bit multiplier operand (see the
+    // header).  d[WB:WB-1] is 00/11 inside the clamp range, 01 above it and 10
+    // below it, so this is two LUT bits of compare and no arithmetic carry
+    // chain.
+    function automatic logic signed [WB-1:0] sat_diff(input logic signed [WB:0] d);
+        begin
+            if (d[WB:WB-1] == 2'b01)      sat_diff = {1'b0, {(WB-1){1'b1}}};
+            else if (d[WB:WB-1] == 2'b10) sat_diff = {1'b1, {(WB-1){1'b0}}};
+            else                          sat_diff = d[WB-1:0];
+        end
+    endfunction
 
     assign x_full = {{11{audio_in[15]}}, audio_in} <<< FRAC;
 
@@ -155,20 +190,30 @@ module v2_ladder_lp (
     assign u_full = $signed(x_q - ks_r) * $signed({1'b0, r_r});
     assign u_c    = u_full >>> 16;
 
-    // stages 11..14: the four TPT one-poles
-    assign sv1 = $signed({1'b0, g_r}) * (u_r - w1);
+    // stages 11..14: the four TPT one-poles.  Each 28-bit difference is
+    // saturated to 27 bits so the product is one MULTALU27X18 slice, not a
+    // two-slice MULT27X36 (see the header).
+    assign dp1 = u_r - w1;
+    assign pd1 = sat_diff(dp1);
+    assign sv1 = $signed({1'b0, g_r}) * pd1;
     assign v1  = sv1 >>> 16;
     assign y1_c = w1 + v1;
 
-    assign sv2 = $signed({1'b0, g_r}) * (y1_r - w2);
+    assign dp2 = y1_r - w2;
+    assign pd2 = sat_diff(dp2);
+    assign sv2 = $signed({1'b0, g_r}) * pd2;
     assign v2  = sv2 >>> 16;
     assign y2_c = w2 + v2;
 
-    assign sv3 = $signed({1'b0, g_r}) * (y2_r - w3);
+    assign dp3 = y2_r - w3;
+    assign pd3 = sat_diff(dp3);
+    assign sv3 = $signed({1'b0, g_r}) * pd3;
     assign v3  = sv3 >>> 16;
     assign y3_c = w3 + v3;
 
-    assign sv4 = $signed({1'b0, g_r}) * (y3_r - w4);
+    assign dp4 = y3_r - w4;
+    assign pd4 = sat_diff(dp4);
+    assign sv4 = $signed({1'b0, g_r}) * pd4;
     assign v4  = sv4 >>> 16;
     assign y4_c = w4 + v4;
 
@@ -202,6 +247,7 @@ module v2_ladder_lp (
             nx4        <= '0;
             x_q        <= '0;
             res_q      <= 8'd0;
+            ci_q       <= 12'd0;
             sat_r      <= '0;
             audio_out  <= '0;
             out_valid  <= 1'b0;
@@ -213,7 +259,8 @@ module v2_ladder_lp (
             if (sample_ce) begin
                 x_q        <= x_full;
                 res_q      <= res;
-                coeff_addr <= (ci > CI_MAX) ? CI_MAX[9:0] : ci[9:0];
+                ci_q       <= (ci > CI_MAX) ? CI_MAX : ci;
+                coeff_addr <= ci_q[9:0];   // ci_q is already clamped to CI_MAX
                 w1         <= nx1;
                 w2         <= nx2;
                 w3         <= nx3;

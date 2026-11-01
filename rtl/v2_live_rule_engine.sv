@@ -185,6 +185,11 @@ module v2_live_rule_engine #(
       candidate_type_q <= V2_EV_CONTROL; candidate_note_emit_q <= 8'd0;
       candidate_flags_q <= 8'd0; candidate_velocity_q <= 8'd0; candidate_timbre_q <= 16'd0;
       candidate_tick_q <= 32'd0;
+      // The arp FSM is part of the reset state; leaving it X makes simulation
+      // diverge from the board, where registers happen to power up at 0.
+      arp_state <= ARP_IDLE;
+      arp_pair  <= 1'b0;
+      arp_note  <= 8'd0;
     end else begin
       note_change_ok_q <= note_change_ok;
       if (PIPELINE_NOTE) begin
@@ -205,6 +210,18 @@ module v2_live_rule_engine #(
           candidate_velocity_q <= candidate_velocity;
           candidate_timbre_q <= candidate_timbre;
           candidate_tick_q <= rule_tick;
+          // Advance the arp FSM with the candidate that enters the pipe.  The
+          // registered copy is packed one cycle later, so advancing on that copy
+          // would leave the same step selected for a second cycle and pack it
+          // twice (four events per tick instead of two).
+          if (arp_mode && candidate_valid) begin
+            if (candidate_type == V2_EV_NOTE_OFF)
+              arp_state <= arp_pair ? ARP_ON : ARP_IDLE;
+            else if (candidate_type == V2_EV_NOTE_ON) begin
+              arp_state <= ARP_IDLE;
+              arp_pair  <= 1'b0;
+            end
+          end
         end
       end
       if (event_valid && event_ready) event_valid <= 1'b0;
@@ -239,11 +256,14 @@ module v2_live_rule_engine #(
           arp_state <= ARP_OFF;
         end
       end
-      // Advance on the packed event. emit_candidate_type is the registered candidate,
-      // i.e. exactly the state that produced the event one cycle earlier.
+      // Pack the registered candidate.  With PIPELINE_NOTE the FSM already
+      // advanced when this candidate entered the pipe; in combinational mode the
+      // registered copy is the live candidate, so advance here.
       if (arp_mode && emit_candidate_valid && !(event_valid && !event_ready)) begin
-        if (emit_candidate_type == V2_EV_NOTE_OFF)      arp_state <= arp_pair ? ARP_ON : ARP_IDLE;
-        else if (emit_candidate_type == V2_EV_NOTE_ON)  begin arp_state <= ARP_IDLE; arp_pair <= 1'b0; end
+        if (!PIPELINE_NOTE) begin
+          if (emit_candidate_type == V2_EV_NOTE_OFF)      arp_state <= arp_pair ? ARP_ON : ARP_IDLE;
+          else if (emit_candidate_type == V2_EV_NOTE_ON)  begin arp_state <= ARP_IDLE; arp_pair <= 1'b0; end
+        end
         packed_event = 96'd0;
         packed_event[94:91] = emit_candidate_type;
         packed_event[90:88] = TRACK[2:0];

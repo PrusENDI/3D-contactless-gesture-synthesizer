@@ -298,23 +298,23 @@ git commit -m "test: 32 simultaneous voices through the wavetable path do not cl
 **Interfaces:**
 - Consumes: 前五个任务的产物位流。
 
-- [ ] **Step 1: 写脚本**
+- [x] **Step 1: 写脚本**
 
 `board_wt_voice_play.ps1`：上传一帧 → 写 `WT_SELECT`（含 `shift`）→ 进 PLAY → 发一串 NOTE_ON → 读 `STATUS` 与 `active_voice_count`；只用带序号校验的发送函数；结束时回 IDLE。
 
-- [ ] **Step 2: 构建并烧录**
+- [x] **Step 2: 构建并烧录**
 
 Run: `python scripts/synth.py --run-id wt_voice_play`
 Run: `powershell -File scripts\board_wt_voice_play.ps1 -Port COM4`
 Expected: `APPLY err=0`、`STATUS` 进入 PLAY、`active_voice_count > 0`；记录 `bitstream_sha256`。
 
-- [ ] **Step 3: GAO 对比频谱**
+- [ ] **Step 3: GAO 对比频谱** (未做：见进度文档)
 
 同一帧、同一 position 下分别录 LIVE 与 PLAY 各一段（48 kHz 采样时钟、4096 行）：
 Run: `python scripts/gao_capture.py --rao gao/voice_spectrum.rao --out artifacts/gao/voice_play.csv`
 Expected: 两条频谱的 1–16 次谐波相对幅度差 **≤ 3 dB**，基频一致。
 
-- [ ] **Step 4: 记录结论并提交**
+- [x] **Step 4: 记录结论并提交**
 
 把位流 sha256、`0xD4`/`0xE8` 读数、频谱差写进 `docs/progress-2026-11-01.md`。
 

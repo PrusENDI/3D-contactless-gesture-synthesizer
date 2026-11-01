@@ -13,9 +13,11 @@
 // with shift = 11 - velocity[7:6], so a harder note detunes wider:
 // 0.05% at velocity 0..63, 0.39% at 192..255.
 //
-// Two paths write that word: direct_note_on for a free slot and
-// pending_activate for a stolen one.  Both are checked, because the steal path
-// is the one a 33rd note takes and it has its own bank write.
+// Activation always goes through the one-entry mailbox: the engine parks the
+// note at acceptance and writes the bank on the following cycle, so the bank
+// write data comes from registers instead of from the event bus through the
+// note ROM.  That is why this test watches pending_activate for both a free
+// slot and a stolen one.
 //
 // The detune is only useful if it survives the scan, so the first writeback of
 // the free voice is checked as well: after one sample the bank must hold
@@ -46,13 +48,13 @@ module tb_voice_detune;
   logic wt_phase_we;
   logic [31:0] wt_phase_a, wt_phase_b;
 
-  integer ce_count, guard, i, accept_cycles;
+  integer ce_count, guard, i, accept_cycles, before_steal;
   logic [31:0] rom_step_q;
   logic [7:0] last_velocity;
 
-  // Activation writes, by path.
-  logic [255:0] direct_word, steal_word;
-  integer direct_count = 0, steal_count = 0;
+  // Activation writes: the mailbox write is the only one now.
+  logic [255:0] act_word;
+  integer act_count = 0;
   // First scan writeback of the free voice: proves the preset reached the
   // phase accumulator.
   logic [255:0] first_wb_word;
@@ -81,16 +83,12 @@ module tb_voice_detune;
     .wt_rd_slot(wt_rd_slot), .wt_wr_slot(wt_wr_slot), .wt_phase_we(wt_phase_we),
     .wt_phase_a(wt_phase_a), .wt_phase_b(wt_phase_b));
 
-  // The bank write mux has three owners; sample the word in the cycle each one
-  // is active, before the write is registered.
+  // The bank write mux has two owners; sample the word in the cycle each one is
+  // active, before the write is registered.
   always @(posedge clk) begin
-    if (dut.direct_note_on) begin
-      direct_word = dut.bank_wr_data;
-      direct_count = direct_count + 1;
-    end
     if (dut.pending_activate) begin
-      steal_word = dut.bank_wr_data;
-      steal_count = steal_count + 1;
+      act_word = dut.bank_wr_data;
+      act_count = act_count + 1;
     end
     if (dut.calc_valid && dut.calc_active && (dut.calc_slot == 5'd0) && !have_wb) begin
       first_wb_word = dut.bank_wr_data;
@@ -160,6 +158,20 @@ module tb_voice_detune;
     end
   endtask
 
+  task automatic wait_activation(input integer prior, input integer limit,
+                                 input [127:0] name);
+    begin
+      guard = 0;
+      while ((act_count == prior) && guard < limit) begin
+        @(posedge clk);
+        guard = guard + 1;
+      end
+      if (act_count != prior + 1)
+        $fatal(1, "%0s: %0d activation writes appeared instead of 1 after %0d cycles",
+               name, act_count - prior, guard);
+    end
+  endtask
+
   // Check every field of an activation word against the velocity it was
   // played with.
   task automatic check_word(input logic [255:0] w, input logic [7:0] vel,
@@ -199,9 +211,8 @@ module tb_voice_detune;
 
     // 1. A hard note: 0.39% detune, half a cycle of phase offset.
     send_event(make_event(4'd1, 8'd69, 8'd255), "note on 69 vel 255");
-    if (direct_count !== 1)
-      $fatal(1, "%0d direct activation writes, expected 1", direct_count);
-    check_word(direct_word, 8'd255, rom_step_q, "note on vel 255");
+    wait_activation(0, 20000, "note on 69 vel 255");
+    check_word(act_word, 8'd255, rom_step_q, "note on vel 255");
 
     // 2. The first scan writeback proves the preset reached the accumulator:
     //    phase_a = base, phase_b = 0x8000_0000 + base - detune.
@@ -231,11 +242,9 @@ module tb_voice_detune;
 
     // 3. A soft note detunes four times less: velocity 64..127 uses shift 10.
     have_wb = 1'b0;
-    direct_count = 0;
     send_event(make_event(4'd1, 8'd69, 8'd64), "note on 69 vel 64");
-    if (direct_count !== 1)
-      $fatal(1, "%0d direct activation writes for the second note", direct_count);
-    check_word(direct_word, 8'd64, rom_step_q, "note on vel 64");
+    wait_activation(1, 20000, "note on 69 vel 64");
+    check_word(act_word, 8'd64, rom_step_q, "note on vel 64");
     // A harder note must detune wider.  The relation is exact in the shift and
     // only approximate in the value, because base >> 8 and base >> 10 differ by
     // the truncated low bits (38447 * 4 = 153788, not 153791).
@@ -254,22 +263,23 @@ module tb_voice_detune;
     //    a 33rd note: the engine has to release a victim and activate into its
     //    slot.  Note 72 is one of the entries the note ROM actually holds, so
     //    the base increment is not zero.
+    before_steal = act_count;
     for (i = 0; i < VOICES; i = i + 1)
       send_event(make_event(4'd1, 8'd36 + i[7:0], 8'd255), "note on to fill the bank");
     if (active_voice_count !== 6'd32)
       $fatal(1, "%0d voices active, expected 32", active_voice_count);
+    if (act_count !== before_steal + VOICES)
+      $fatal(1, "%0d activation writes for 32 notes", act_count - before_steal);
+    before_steal = act_count;
     send_event(make_event(4'd1, 8'd72, 8'd100), "note on 72 over 32 voices");
     if (last_velocity !== 8'd100) $fatal(1, "the tb lost the velocity of the 33rd note");
     if (rom_step_q == 32'd0) $fatal(1, "note 72 has no increment in the ROM");
-    guard = 0;
-    while ((steal_count == 0) && guard < 500000) begin
-      @(posedge clk);
-      guard = guard + 1;
-    end
-    if (steal_count != 1)
-      $fatal(1, "the 33rd note produced %0d steal activations (steals=%0d) after %0d cycles",
-             steal_count, voice_steal_count, guard);
-    check_word(steal_word, 8'd100, rom_step_q, "33rd note (stolen slot)");
+    // The victim has to finish its bounded release first, so this takes a few
+    // hundred samples rather than one cycle.
+    wait_activation(before_steal, 500000, "33rd note (stolen slot)");
+    if (voice_steal_count != 16'd1)
+      $fatal(1, "the 33rd note reported %0d steals", voice_steal_count);
+    check_word(act_word, 8'd100, rom_step_q, "33rd note (stolen slot)");
 
     if (voice_overflow !== 1'b0) $fatal(1, "voice_overflow set with a stealable bank");
 

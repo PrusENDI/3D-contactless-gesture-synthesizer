@@ -178,7 +178,7 @@ module v2_voice_engine_banked #(
     logic revoice_pending;
     logic [7:0] revoice_note_pending;
     logic [31:0] revoice_target_a_pending, revoice_target_b_pending;
-    logic direct_note_on, pending_activate;
+    logic pending_activate;
 
     // Full-bank victim selection is deliberately serialized.  The metadata
     // arrays are read into one registered stage, then compared against the
@@ -224,8 +224,13 @@ module v2_voice_engine_banked #(
     event_ready = rst_n && !scan_busy && !revoice_pending &&
                       !steal_pending && !victim_scan_active;
         event_accept = event_valid && event_ready;
-        direct_note_on = event_accept && !event_data[95] &&
-                         (event_data[94:91] == V2_EV_NOTE_ON) && (free_slot >= 0);
+        // Every activation is parked in the one-entry mailbox and written by
+        // pending_activate on the following cycle.  The bank write data then
+        // comes from registers instead of from the event bus through the note
+        // ROM, which used to be the longest path in the design: it ended on the
+        // state bank's write-data pins (bank_wr_data[191:160], 21.3 ns against
+        // a 12.5 ns period once the detune was added).
+        //
         // The victim may become inactive in the same writeback edge that
         // completes its release.  Activate the mailbox on that edge so the
         // sample boundary exposes a full voice set, while the final victim
@@ -279,23 +284,6 @@ module v2_voice_engine_banked #(
             bank_wr_data[231:224] = calc_mix_b;
             bank_wr_data[233:232] = calc_env_stage;
             bank_wr_data[249:234] = calc_vibrato_phase;
-        end else if (direct_note_on) begin
-            bank_wr_en = 1'b1;
-            bank_wr_addr = free_slot[4:0];
-            bank_wr_data[31:0]   = 32'd0;
-            bank_wr_data[63:32]  = 32'h8000_0000;   // half a cycle apart
-            bank_wr_data[95:64]  = rom_step;
-            bank_wr_data[127:96] = detuned_step(rom_step, event_data[63:56]);
-            bank_wr_data[159:128] = apply_delta(rom_step, $signed({event_data[55], event_data[55:40]}));
-            bank_wr_data[191:160] = detuned_step(
-                apply_delta(rom_step, -$signed({event_data[55], event_data[55:40]})),
-                event_data[63:56]);
-            bank_wr_data[207:192] = 16'd0;
-            bank_wr_data[215:208] = event_data[63:56];
-            bank_wr_data[223:216] = (event_data[39:24] == 16'd0) ? DEFAULT_MIX_A : event_data[39:32];
-            bank_wr_data[231:224] = (event_data[39:24] == 16'd0) ? DEFAULT_MIX_B : event_data[31:24];
-            bank_wr_data[233:232] = ENV_ATTACK;
-            bank_wr_data[249:234] = 16'd0;
         end
     end
 
@@ -523,32 +511,31 @@ module v2_voice_engine_banked #(
 
             if (event_accept && !event_data[95]) begin
                 if (event_data[94:91] == V2_EV_NOTE_ON) begin
+                    // Park the note in the mailbox first; pending_activate owns
+                    // the bank write one cycle later.  free_slot is only read
+                    // here to decide between "free slot" and "steal a victim".
+                    steal_note_pending <= event_data[71:64];
+                    steal_velocity_pending <= event_data[63:56];
+                    steal_pitch_pending <= $signed(event_data[55:40]);
+                    steal_timbre_pending <= event_data[39:24];
+                    steal_base_step_pending <= rom_step;
+                    steal_track_pending <= event_data[90:88];
+                    steal_tick_pending <= event_data[87:80];
+                    steal_duration_pending <= event_data[79:72];
+                    steal_flags_pending <= event_data[7:0];
                     if (free_slot >= 0) begin
-                        active[free_slot] <= 1'b1;
-                        releasing[free_slot] <= 1'b0;
-                        note[free_slot] <= event_data[71:64];
-                        velocity[free_slot] <= event_data[63:56];
-                        age[free_slot] <= age_counter;
-                        age_counter <= age_counter + 16'd1;
-                    end else if (free_slot < 0) begin
-                        // Keep the incoming note in the one-entry mailbox
-                        // while the registered metadata scan selects a
-                        // deterministic victim over several cycles.
-                        steal_note_pending <= event_data[71:64];
-                        steal_velocity_pending <= event_data[63:56];
-                        steal_pitch_pending <= $signed(event_data[55:40]);
-                        steal_timbre_pending <= event_data[39:24];
-                        steal_base_step_pending <= rom_step;
-                        steal_track_pending <= event_data[90:88];
-                        steal_tick_pending <= event_data[87:80];
-                        steal_duration_pending <= event_data[79:72];
-                        steal_flags_pending <= event_data[7:0];
+                        steal_slot_pending <= free_slot[4:0];
+                        steal_pending <= 1'b1;
+                    end else begin
+                        // Keep the incoming note in the mailbox while the
+                        // registered metadata scan selects a deterministic
+                        // victim over several cycles.
                         victim_scan_active <= 1'b1;
                         victim_scan_index <= 6'd0;
                         victim_scan_meta_valid <= 1'b0;
                         victim_candidate_valid <= 1'b0;
                         voice_steal_count <= voice_steal_count + 16'd1;
-                    end else voice_overflow <= 1'b1;
+                    end
                 end else if (event_data[94:91] == V2_EV_NOTE_OFF) begin
                     for (i = 0; i < VOICES; i = i + 1)
                         if (active[i] && note[i] == event_data[71:64]) releasing[i] <= 1'b1;

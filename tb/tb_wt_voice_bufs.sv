@@ -4,10 +4,15 @@
 // and writes samples. Both sides address one slot per cycle, so the test checks
 // that a write on one side is visible to the other on the next cycle and that
 // neighbouring slots are untouched.
+//
+// The scan side has a read address (the voice the pipeline is calculating) and a
+// phase-write address (the voice the bank is writing one stage later); the last
+// case checks that the two can differ in the same cycle.
 module tb_wt_voice_bufs;
   logic clk = 0, rst_n = 0;
   logic        scan_en = 0;
   logic [4:0]  scan_slot = 5'd0;
+  logic [4:0]  scan_wr_slot = 5'd0;
   logic        scan_phase_we = 0;
   logic [31:0] scan_phase_a = 32'd0, scan_phase_b = 32'd0;
   logic signed [15:0] scan_sample_a, scan_sample_b;
@@ -20,7 +25,7 @@ module tb_wt_voice_bufs;
 
   v2_wt_voice_bufs dut (
     .clk, .rst_n,
-    .scan_en, .scan_slot, .scan_phase_we, .scan_phase_a, .scan_phase_b,
+    .scan_en, .scan_slot, .scan_wr_slot, .scan_phase_we, .scan_phase_a, .scan_phase_b,
     .scan_sample_a, .scan_sample_b,
     .eng_en, .eng_slot,
     .eng_phase_a, .eng_phase_b,
@@ -36,7 +41,7 @@ module tb_wt_voice_bufs;
     repeat (2) @(negedge clk);
 
     // 1. Reset leaves every slot empty.
-    eng_en = 1; eng_slot = 5'd7; scan_en = 1; scan_slot = 5'd7;
+    eng_en = 1; eng_slot = 5'd7; scan_en = 1; scan_slot = 5'd7; scan_wr_slot = 5'd7;
     #1;
     if (eng_phase_a !== 32'd0 || eng_phase_b !== 32'd0)
       $fatal(1, "FAIL reset phases slot7: %h %h", eng_phase_a, eng_phase_b);
@@ -45,7 +50,7 @@ module tb_wt_voice_bufs;
     $display("PASS reset clears slot 7");
 
     // 2. Scan side writes phases; engine side must see them.
-    scan_slot = 5'd7; scan_phase_we = 1;
+    scan_slot = 5'd7; scan_wr_slot = 5'd7; scan_phase_we = 1;
     scan_phase_a = 32'h1234_5678; scan_phase_b = 32'h9ABC_DEF0;
     step;
     scan_phase_we = 0;
@@ -73,7 +78,8 @@ module tb_wt_voice_bufs;
     $display("PASS slot 8 untouched");
 
     // 5. Writing slot 31 works and does not disturb slot 7.
-    scan_slot = 5'd31; scan_phase_we = 1; scan_phase_a = 32'hFFFF_0000; scan_phase_b = 32'h0000_FFFF;
+    scan_slot = 5'd31; scan_wr_slot = 5'd31; scan_phase_we = 1;
+    scan_phase_a = 32'hFFFF_0000; scan_phase_b = 32'h0000_FFFF;
     eng_slot = 5'd31; eng_sample_we = 1; eng_sample_a = 16'sd30000; eng_sample_b = -16'sd30000;
     step;
     scan_phase_we = 0; eng_sample_we = 0;
@@ -87,6 +93,20 @@ module tb_wt_voice_bufs;
     if (scan_sample_a !== 16'sd1111)
       $fatal(1, "FAIL slot 7 disturbed by slot 31: %0d", scan_sample_a);
     $display("PASS slot 31 write, slot 7 intact");
+
+    // 6. Read and phase-write addresses are independent in one cycle: the scan
+    //    reads slot 8's sample while it writes slot 7's phase.
+    scan_slot = 5'd8; scan_wr_slot = 5'd7; scan_phase_we = 1;
+    scan_phase_a = 32'h0BAD_F00D; scan_phase_b = 32'hC0FF_EE00;
+    step;
+    scan_phase_we = 0;
+    eng_slot = 5'd7; #1;
+    if (eng_phase_a !== 32'h0BAD_F00D || eng_phase_b !== 32'hC0FF_EE00)
+      $fatal(1, "FAIL split-address phase write: %h %h", eng_phase_a, eng_phase_b);
+    scan_slot = 5'd8; eng_slot = 5'd8; #1;
+    if (eng_phase_a !== 32'd0)
+      $fatal(1, "FAIL the phase write went to the read address: %h", eng_phase_a);
+    $display("PASS split read and phase-write addresses");
 
     $finish;
   end

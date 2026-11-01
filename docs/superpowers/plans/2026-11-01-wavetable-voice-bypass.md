@@ -33,6 +33,13 @@
 
 ### Task 1: 相位缓冲与样本缓冲
 
+> **Note (2026-11-01, Task 3/4):** the scan side needs two addresses.  The sample
+> it consumes belongs to the voice the pipeline is calculating (the bank read has
+> just captured, `rd_slot`), while the phase it publishes belongs to the voice the
+> bank writes one stage later (`bank_wr_addr`); those are different slots in the
+> same cycle.  `v2_wt_voice_bufs` therefore has `scan_slot` (read) and
+> `scan_wr_slot` (phase write).
+
 **Files:**
 - Create: `rtl/v2_wt_voice_bufs.sv`
 - Test: `tb/tb_wt_voice_bufs.sv`
@@ -56,7 +63,7 @@
   );
   ```
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```systemverilog
 // tb/tb_wt_voice_bufs.sv
@@ -65,21 +72,21 @@
 ```
 断言用 `!==`，失败走 `$fatal(1, ...)`，与 `tb/tb_wt_mix.sv` 同风格。
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `python scripts/sim_unit.py --tb tb_wt_voice_bufs`
 Expected: FAIL（`v2_wt_voice_bufs` 未定义）
 
-- [ ] **Step 3: 实现 `v2_wt_voice_bufs`**
+- [x] **Step 3: 实现 `v2_wt_voice_bufs`**
 
 两个 `VOICES × 32` 的寄存器阵列（相位）与 `VOICES × 32`（样本，`{a,b}` 各 16 bit）。读是组合的（`assign` 索引），写在 `clk` 上升沿；复位清零全部内容。不用 BSRAM（32×64 bit 太小，Gowin 会拆成 LUT，反而省事且时序可控）。
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `python scripts/sim_unit.py --tb tb_wt_voice_bufs`
 Expected: PASS
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add rtl/v2_wt_voice_bufs.sv tb/tb_wt_voice_bufs.sv filelist.f
@@ -117,7 +124,7 @@ git commit -m "feat: phase and sample buffers for the 32-voice wavetable path"
   );
   ```
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```systemverilog
 // tb/tb_wt_voice_engine.sv
@@ -129,21 +136,21 @@ git commit -m "feat: phase and sample buffers for the 32-voice wavetable path"
 ```
 同时断言：`sample_we` 在 32 声部走完后只再拉高一拍（收尾），不会长期为 1。
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `python scripts/sim_unit.py --tb tb_wt_voice_engine`
 Expected: FAIL（模块未定义）
 
-- [ ] **Step 3: 实现 `v2_wt_voice_engine`**
+- [x] **Step 3: 实现 `v2_wt_voice_engine`**
 
 状态机：`E_IDLE → E_REQ0 → E_WAIT0 → E_REQ1 → E_WAIT1 → E_NEXT`。`rd_index = phase[31:22]`；第 1 拍读 `(frame_a, idx_a)` 与 `(frame_b, idx_a)`，第 2 拍读 `(frame_a, idx_b)` 与 `(frame_b, idx_b)`；两次都过 `v2_wt_mix`（`frac`），结果 `>> shift` 写入样本缓冲的 a/b。`rd_valid` 缺失时该声部写 0（表未上传 → 静音）。
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `python scripts/sim_unit.py --tb tb_wt_voice_engine`
 Expected: PASS
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add rtl/v2_wt_voice_engine.sv tb/tb_wt_voice_engine.sv filelist.f
@@ -168,7 +175,7 @@ git commit -m "feat: two-cycle-per-voice wavetable engine that fills the sample 
   input  logic signed [15:0] wt_sample_a, input logic signed [15:0] wt_sample_b
   ```
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```systemverilog
 // tb/tb_voice_wt_source.sv
@@ -177,22 +184,22 @@ git commit -m "feat: two-cycle-per-voice wavetable engine that fills the sample 
 // 并且再发一个 NOTE_ON 改变音高后输出不变（说明不再看内部相位）。
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `python scripts/sim_unit.py --tb tb_voice_wt_source`
 Expected: FAIL（端口不存在）
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `calc_osc_sum <= attenuate(USE_WT_SOURCE ? {1'b0,wt_sample_a} : osc_a, ...)` 形式：把现有 `oscillator_value(...)` 的结果先存进局部信号，再用参数在它与 `wt_sample_*` 之间二选一交给 `attenuate`。`attenuate` 内部逻辑不动。
 
-- [ ] **Step 4: 跑测试确认通过（含回归）**
+- [x] **Step 4: 跑测试确认通过（含回归）**
 
 Run: `python scripts/sim_unit.py --tb tb_voice_wt_source`
 Run: `python scripts/sim.py`
 Expected: 两个都 PASS，`sim.py` 不新增失败。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add rtl/v2_voice_engine_banked.sv tb/tb_voice_wt_source.sv

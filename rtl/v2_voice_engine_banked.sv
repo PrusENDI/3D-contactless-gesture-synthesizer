@@ -6,7 +6,10 @@
 // pipeline is quiescent, so the bank has exactly one write owner per cycle.
 module v2_voice_engine_banked #(
     parameter integer VOICES = 32,
-    parameter integer USE_GOWIN_RAM = 0
+    parameter integer USE_GOWIN_RAM = 0,
+    // 1 = the oscillator sample pair comes from the wavetable buffers instead of
+    // the internal saw.  The saw path stays bit-exact when this is 0.
+    parameter integer USE_WT_SOURCE = 0
 ) (
     input  logic                   clk,
     input  logic                   rst_n,
@@ -25,7 +28,16 @@ module v2_voice_engine_banked #(
     output logic [5:0]             active_voice_count,
   output logic [1:0]             dbg_busy,   // {scan_busy, victim_scan_active}
     output logic [15:0]            vibrato_phase,
-    output logic signed [15:0]     vibrato_delta_cents
+    output logic signed [15:0]     vibrato_delta_cents,
+    // Wavetable source: the sample pair for the slot being calculated, and the
+    // phase mirror that keeps the buffers in step with this engine's bank.
+    input  logic signed [15:0]     wt_sample_a,
+    input  logic signed [15:0]     wt_sample_b,
+    output logic [4:0]             wt_rd_slot,
+    output logic [4:0]             wt_wr_slot,
+    output logic                   wt_phase_we,
+    output logic [31:0]            wt_phase_a,
+    output logic [31:0]            wt_phase_b
 );
     import v2_contract_pkg::*;
 
@@ -129,6 +141,13 @@ module v2_voice_engine_banked #(
     logic signed [15:0] calc_vibrato_delta_cents;
     logic        calc_active_next;
     logic        calc_releasing;
+
+    // The oscillator source of the sample being calculated: the internal saw's
+    // phase, or the wavetable pair for the same slot.  Both go through the same
+    // attenuation, so stage/velocity/mix keep their meaning either way.
+    wire [1:0]         osc_stage = rd_releasing ? ENV_RELEASE : rd_env_stage;
+    wire signed [47:0] wt_raw_a = {{32{wt_sample_a[15]}}, wt_sample_a};
+    wire signed [47:0] wt_raw_b = {{32{wt_sample_b[15]}}, wt_sample_b};
 
     integer i;
     integer count_idx;
@@ -251,6 +270,18 @@ module v2_voice_engine_banked #(
         end
     end
 
+    // Phase mirror for the wavetable buffers.  It republishes exactly the write
+    // the bank gets, so a slot's buffered phase cannot drift from the engine's
+    // own phase state: activation writes zero, the scan write carries the next
+    // phase, and both keep the bank's address.  The read slot is the one whose
+    // bank word is being calculated, one pipeline stage earlier, which is why
+    // the buffers take separate read and write addresses.
+    assign wt_rd_slot  = rd_slot;
+    assign wt_phase_we = bank_wr_en;
+    assign wt_wr_slot  = bank_wr_addr;
+    assign wt_phase_a  = bank_wr_data[31:0];
+    assign wt_phase_b  = bank_wr_data[63:32];
+
     function automatic logic [31:0] apply_delta(
         input logic [31:0] base, input logic signed [16:0] delta
     );
@@ -318,14 +349,12 @@ module v2_voice_engine_banked #(
         end
     endfunction
 
-    function automatic logic signed [47:0] oscillator_value(
-        input logic [31:0] phase, input logic [1:0] stage,
+    function automatic logic signed [47:0] attenuate_sample(
+        input logic signed [47:0] raw, input logic [1:0] stage,
         input logic [7:0] velocity, input logic [7:0] mix
     );
-        logic signed [16:0] raw;
         integer attenuation;
         begin
-            raw = $signed({1'b0, phase[31:16]}) - 17'sd32768;
             attenuation = 0;
             if (stage == ENV_ATTACK) attenuation = attenuation + 2;
             if (stage == ENV_DECAY) attenuation = attenuation + 1;
@@ -336,7 +365,17 @@ module v2_voice_engine_banked #(
             if (mix < 8'd64) attenuation = attenuation + 3;
             else if (mix < 8'd128) attenuation = attenuation + 2;
             else if (mix < 8'd192) attenuation = attenuation + 1;
-            oscillator_value = raw >>> attenuation;
+            attenuate_sample = raw >>> attenuation;
+        end
+    endfunction
+
+    function automatic logic signed [47:0] oscillator_value(
+        input logic [31:0] phase, input logic [1:0] stage,
+        input logic [7:0] velocity, input logic [7:0] mix
+    );
+        begin
+            oscillator_value = attenuate_sample(
+                $signed({1'b0, phase[31:16]}) - 17'sd32768, stage, velocity, mix);
         end
     endfunction
 
@@ -573,8 +612,13 @@ module v2_voice_engine_banked #(
             calc_releasing <= rd_releasing;
             calc_osc_sum <= 48'sd0;
             if (rd_valid && rd_active) begin
-                calc_osc_sum <= oscillator_value(rd_phase_a, rd_releasing ? ENV_RELEASE : rd_env_stage, rd_gain, rd_mix_a)
-                              + oscillator_value(rd_phase_b, rd_releasing ? ENV_RELEASE : rd_env_stage, rd_gain, rd_mix_b);
+                if (USE_WT_SOURCE != 0) begin
+                    calc_osc_sum <= attenuate_sample(wt_raw_a, osc_stage, rd_gain, rd_mix_a)
+                                  + attenuate_sample(wt_raw_b, osc_stage, rd_gain, rd_mix_b);
+                end else begin
+                    calc_osc_sum <= oscillator_value(rd_phase_a, osc_stage, rd_gain, rd_mix_a)
+                                  + oscillator_value(rd_phase_b, osc_stage, rd_gain, rd_mix_b);
+                end
                 calc_step_a <= add_signed_increment(
                     bounded_step(rd_step_a, rd_target_a),
                     vibrato_increment_delta(

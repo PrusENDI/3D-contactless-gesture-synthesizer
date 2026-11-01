@@ -5,14 +5,20 @@
 // consumes the phases.  Each side addresses one slot per cycle, and the two sides
 // never run at the same time, so plain register arrays with combinational reads
 // are enough - no dual-clock RAM, no BSRAM needed at this size.
+//
+// The scan side has two addresses: it reads the sample of the voice its pipeline
+// is calculating while it writes the phase of the voice one stage earlier, and
+// those are different slots in the same cycle.
 module v2_wt_voice_bufs #(
     parameter integer VOICES = 32
 ) (
     input  logic                clk,
     input  logic                rst_n,
-    // Scan side: read the sample, write the phase for this slot.
+    // Scan side: read the sample of `scan_slot`, write the phase of
+    // `scan_wr_slot` (the bank's write address, one pipeline stage later).
     input  logic                scan_en,
     input  logic [4:0]          scan_slot,
+    input  logic [4:0]          scan_wr_slot,
     input  logic                scan_phase_we,
     input  logic [31:0]         scan_phase_a,
     input  logic [31:0]         scan_phase_b,
@@ -45,8 +51,8 @@ module v2_wt_voice_bufs #(
             end
         end else begin
             if (scan_en && scan_phase_we) begin
-                phase_a[scan_slot] <= scan_phase_a;
-                phase_b[scan_slot] <= scan_phase_b;
+                phase_a[scan_wr_slot] <= scan_phase_a;
+                phase_b[scan_wr_slot] <= scan_phase_b;
             end
             if (eng_en && eng_sample_we) begin
                 sample_a[eng_slot] <= eng_sample_a;

@@ -104,19 +104,22 @@ try {
 
   $p = X 0x02 0x04 4
   Log ("MODE=PLAY err={0}" -f $p.Err)
+  # Page 2: {voice busies, active count, overflow, steal count}.
+  [void](X 0x02 0x34 2)
+  $first_steal = -1
   $end = (Get-Date).AddSeconds($Seconds)
   while ((Get-Date) -lt $end) {
     $dbg = (X 0x01 0xF8 0).Val
     $status = (X 0x01 0x00 0).Val
     $st38 = (X 0x01 0x38 0).Val
-    $sched = ($dbg -shr 2) -band 0xFF
-    $voice = $dbg -band 0x3
-    Log ("0xF8=0x{0:X4} sched=0x{1:X2} (scan={2} wait={3} ev={4} bstage={5} pass={6} slot0={7}) voice(scan={8} victim={9}) STATUS=0x{10:X8} 0x38=0x{11:X8}" -f `
-      $dbg, $sched, (($sched -shr 7) -band 1), (($sched -shr 6) -band 1), (($sched -shr 5) -band 1), `
-      (($sched -shr 3) -band 3), (($sched -shr 1) -band 3), ($sched -band 1), `
-      (($voice -shr 1) -band 1), ($voice -band 1), $status, $st38)
+    $steals = $dbg -band 0xFFFF
+    if ($first_steal -lt 0) { $first_steal = $steals }
+    Log ("page2=0x{0:X8} steals={1} overflow={2} voices={3} voice_busy={4} STATUS=0x{5:X8} 0x38=0x{6:X8}" -f `
+      $dbg, $steals, (($dbg -shr 16) -band 1), (($dbg -shr 17) -band 0x3F), (($dbg -shr 23) -band 3), `
+      $status, $st38)
     Start-Sleep -Milliseconds 250
   }
+  Log ("steal count over the run: {0} -> {1}" -f $first_steal, ((X 0x01 0xF8 0).Val -band 0xFFFF))
 } finally {
   $sp.Close()
   $sp.Dispose()

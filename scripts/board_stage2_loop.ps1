@@ -127,17 +127,30 @@ try {
   Log 'COMMIT'
   $commit = X 0x02 0x28 1
   if (-not $commit.Ok) { Log ("FATAL: COMMIT refused err={0}" -f $commit.Err); exit 6 }
+  # Page 1 of the probe shows why the write port would refuse an event:
+  # bit0 full, 1 purify, 2 run, 3 done, 4 dp busy, 5 store busy, 6 commit pending,
+  # 7 write_ready, 8 write_valid, 9 ctrl pending, [14:10] write slot,
+  # [20:15] shadow record count, [26:21] committed event count.
+  [void](X 0x02 0x34 1)
   $deadline = (Get-Date).AddSeconds(10)
   $status = 0
-  while ((Get-Date) -lt $deadline) {
-    $st = X 0x01 0x38 0
-    if ($st.Ok) {
-      $status = $st.Val
-      if (($status -band 0x01) -ne 0) { break }
-    }
-    Start-Sleep -Milliseconds 20
+  $lastW = 0
+  do {
+    $w = (X 0x01 0xF8 0).Val
+    $lastW = $w
+    $status = (X 0x01 0x38 0).Val
+    Log ("page1=0x{0:X8} full={1} purify={2} run={3} done={4} dpbusy={5} storebusy={6} pend={7} wrready={8} wrvalid={9} ctrlpend={10} slot={11} rec={12} cnt={13} 0x38=0x{14:X8}" -f `
+      $w, ($w -band 1), (($w -shr 1) -band 1), (($w -shr 2) -band 1), (($w -shr 3) -band 1), `
+      (($w -shr 4) -band 1), (($w -shr 5) -band 1), (($w -shr 6) -band 1), (($w -shr 7) -band 1), `
+      (($w -shr 8) -band 1), (($w -shr 9) -band 1), (($w -shr 10) -band 0x1F), `
+      (($w -shr 15) -band 0x3F), (($w -shr 21) -band 0x3F), $status)
+    if (($status -band 0x01) -ne 0) { break }
+    Start-Sleep -Milliseconds 300
+  } while ((Get-Date) -lt $deadline)
+  if (($status -band 0x01) -eq 0) {
+    Log ("FATAL: DP never finished (0x38=0x{0:X8}, page1=0x{1:X8})" -f $status, $lastW)
+    exit 7
   }
-  if (($status -band 0x01) -eq 0) { Log ("FATAL: DP never finished (0x38=0x{0:X8})" -f $status); exit 7 }
   if (($status -band 0x04) -ne 0) { Log 'FATAL: DP overflowed the event buffer'; exit 8 }
   Log 'commit done'
 

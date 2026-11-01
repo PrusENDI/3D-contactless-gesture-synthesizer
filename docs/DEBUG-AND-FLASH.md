@@ -245,3 +245,5 @@ scripts/board_*.ps1        板上各类探针（见 §4）
 host/cursor_view.py        遥测显示（Tk / 控制台）
 host/wavetable_from_capture.py  采集曲线 → 波表
 ```
+
+控制面全集（CSR 表、工作流、GUI 约束）见 `docs/host-tools-and-gui-controls.md`。

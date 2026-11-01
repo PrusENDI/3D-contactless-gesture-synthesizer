@@ -5,19 +5,26 @@
 // sample, with the velocity and both per-voice mixes at maximum (255: no extra
 // attenuation, the loudest a voice can be).
 //
-// The default gain (WT_VOICE_SHIFT = 2) is chosen for level, not only headroom:
-// one note has to be audible after the per-voice attenuation and the -12 dB
-// output trim.  Two full-scale voices then sum to 29490 and still fit; three or
-// more saturate in the mix.  This test therefore pins what the hardware really
-// guarantees: the mix saturates at full scale instead of wrapping, a single
-// loud voice stays inside int16, and voices are released one by one.  Making
-// loud single notes AND 32 clip-free voices at once needs a real gain stage.
+// The default gain (WT_VOICE_SHIFT = 2) is chosen for level, not only headroom.
+// On top of it the VCA scales each voice by (envelope * velocity >> 8) >> 16,
+// which in sustain is 48960 / 65536 = 0.747, so one full-scale voice produces
+// 16382 * 0.747 = 12238 instead of 16382.  Two voices then sum to 24476 and
+// still fit; three or more saturate in the mix.  This test therefore pins what
+// the hardware really guarantees: the mix saturates at full scale instead of
+// wrapping, a single loud voice stays inside int16, and voices are released one
+// by one.  Making loud single notes AND 32 clip-free voices at once needs a real
+// gain stage.
 module tb_wt_voice_poly;
   localparam integer VOICES = 32;
   // The table engine has already applied WT_VOICE_SHIFT = 2 to these, so they
   // are the largest samples the voice engine can ever see.
   localparam logic signed [15:0] PEAK_POS = 16'sd8191;
   localparam logic signed [15:0] PEAK_NEG = -16'sd8192;
+  // Velocity 255 in sustain: (49152 * 255) >> 8.
+  localparam integer SUSTAIN_GAIN = (49152 * 255) >> 8;
+  // The loudest a single voice can be: both oscillators at PEAK_POS, scaled by
+  // the VCA in sustain.  2 * 8191 = 16382, then 16382 * 48960 >> 16 = 12238.
+  localparam integer ONE_VOICE_LEVEL = (2 * PEAK_POS * SUSTAIN_GAIN) / 65536;
 
   logic clk = 0, rst_n = 0, sample_ce = 0;
   logic event_valid = 0;
@@ -171,7 +178,8 @@ module tb_wt_voice_poly;
     wt_sample_a = PEAK_POS; wt_sample_b = PEAK_POS;
 
     // Release one voice at a time and check the count follows exactly.  After 31
-    // releases the last voice must fit: 2 * 8191 = 16382, no saturation.
+    // releases the last voice must fit inside int16: 2 * 8191 = 16382 before the
+    // VCA, 16382 * 48960 >> 16 = 12238 after it, no saturation.
     for (i = 0; i < VOICES; i = i + 1) begin
       send_event(make_note_off(8'd36 + i[7:0]), "note off");
       guard = 0;
@@ -186,8 +194,9 @@ module tb_wt_voice_poly;
         hold_samples(2);
         max_seen = -40000; min_seen = 40000; samples_seen = 0;
         hold_samples(20);
-        if (max_seen !== 16382)
-          $fatal(1, "one loud voice produced %0d, expected 16382 (2 x 8191)", max_seen);
+        if (max_seen !== ONE_VOICE_LEVEL)
+          $fatal(1, "one loud voice produced %0d, expected %0d (2 x 8191 through the VCA)",
+                 max_seen, ONE_VOICE_LEVEL);
         if (min_seen < -32768) $fatal(1, "single voice wrapped: min %0d", min_seen);
       end
     end
@@ -196,7 +205,7 @@ module tb_wt_voice_poly;
       $fatal(1, "silent engine still produced %0d", mixed_sample);
 
     $display("PASS 32 voices: saturates at %0d/%0d (no wrap), one loud voice %0d, all released one by one",
-             pos_peak, neg_peak, 2 * PEAK_POS);
+             pos_peak, neg_peak, ONE_VOICE_LEVEL);
     $finish;
   end
 

@@ -138,6 +138,11 @@ module v2_voice_engine_banked #(
     logic [31:0] calc_phase_a, calc_phase_b, calc_step_a, calc_step_b;
     logic [31:0] calc_target_a, calc_target_b;
     logic [15:0] calc_envelope;
+    // The envelope and the velocity become one 16-bit gain at the rd->calc
+    // boundary, so the audio path only needs a single multiply per slot. The
+    // 24-bit product cannot exceed 65535*255, so the shift back to 16 bits is
+    // exact enough: 65280 is the maximum gain.
+    logic [15:0] calc_env_gain;
     logic [7:0]  calc_gain, calc_mix_a, calc_mix_b;
     logic [1:0]  calc_env_stage;
     logic [15:0] calc_vibrato_phase;
@@ -154,6 +159,14 @@ module v2_voice_engine_banked #(
     // The wavetable source only exists when the top wires it in, and only the
     // modes that fill the buffers may use it.
     wire               wt_source = (USE_WT_SOURCE != 0) && wt_source_sel;
+
+    // VCA: the slot's oscillator sum is scaled by envelope*velocity before it
+    // joins the mix accumulator, so a note fades in and out instead of
+    // switching on and off at full amplitude.  calc_osc_sum stays within
+    // +/-65536 and the gain is 0..65280, so the product needs 33 bits and the
+    // 48-bit bus below cannot lose anything.
+    wire signed [47:0] calc_osc_vca =
+        ($signed(calc_osc_sum[31:0]) * $signed({1'b0, calc_env_gain})) >>> 16;
 
     integer i;
     integer count_idx;
@@ -375,6 +388,20 @@ module v2_voice_engine_banked #(
         end
     endfunction
 
+    // Envelope times velocity as one 16-bit gain.  The 24-bit product must be
+    // built in a wide variable: writing "(env * gain) >>> 8" straight into the
+    // 16-bit register makes the tool size the multiply to 16 bits and wrap
+    // (49152*255 would arrive as 61440 instead of 12533760).
+    function automatic logic [15:0] envelope_gain(
+        input logic [15:0] env, input logic [7:0] gain
+    );
+        logic [23:0] product;
+        begin
+            product = env * gain;
+            envelope_gain = product[23:8];
+        end
+    endfunction
+
     function automatic logic signed [47:0] oscillator_value(
         input logic [31:0] phase, input logic [1:0] stage,
         input logic [7:0] velocity, input logic [7:0] mix
@@ -440,6 +467,7 @@ module v2_voice_engine_banked #(
             calc_slot <= 5'd0; calc_osc_sum <= 0;
             calc_phase_a <= 0; calc_phase_b <= 0; calc_step_a <= 0; calc_step_b <= 0;
             calc_target_a <= 0; calc_target_b <= 0; calc_envelope <= 0;
+            calc_env_gain <= 16'd0;
             calc_gain <= 0; calc_mix_a <= DEFAULT_MIX_A; calc_mix_b <= DEFAULT_MIX_B;
             calc_env_stage <= ENV_ATTACK; calc_vibrato_phase <= 16'd0;
             calc_vibrato_delta_cents <= 16'sd0; calc_active_next <= 1'b0;
@@ -563,7 +591,7 @@ module v2_voice_engine_banked #(
             end
 
             if (calc_valid && calc_active) begin
-                mix_acc <= mix_acc + calc_osc_sum;
+                mix_acc <= mix_acc + calc_osc_vca;
                 if (calc_releasing && (calc_slot == steal_slot_pending) &&
                     (steal_hold_value != 0))
                     steal_hold_value <= steal_hold_value - 16'd1;
@@ -583,7 +611,7 @@ module v2_voice_engine_banked #(
                 steal_pending <= 1'b0;
             end
             if (calc_valid && calc_last) begin
-                mixed_sample <= calc_active ? saturate_sample(mix_acc + calc_osc_sum) : saturate_sample(mix_acc);
+                mixed_sample <= calc_active ? saturate_sample(mix_acc + calc_osc_vca) : saturate_sample(mix_acc);
                 sample_valid <= 1'b1;
                 scan_index <= 6'd0;
                 scan_base <= (scan_base == VOICES - 1) ? 6'd0 : scan_base + 6'd1;
@@ -609,6 +637,7 @@ module v2_voice_engine_banked #(
             calc_target_a <= rd_target_a;
             calc_target_b <= rd_target_b;
             calc_envelope <= rd_envelope;
+            calc_env_gain <= envelope_gain(rd_envelope, rd_gain);
             calc_env_stage <= rd_env_stage;
             calc_vibrato_phase <= rd_vibrato_phase + vibrato_phase_increment(vibrato_hz_q8_8);
             calc_vibrato_delta_cents <= vibrato_cents(

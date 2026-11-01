@@ -11,7 +11,9 @@
 // aimed at that voice's slot, carrying the next phase.
 module tb_voice_wt_source;
   localparam integer VOICES = 32;
-  localparam logic [1:0] ENV_ATTACK = 2'd0;
+  // The VCA holds the envelope in sustain at this 16-bit level, so every level
+  // check below is taken after the note has settled and is a steady number.
+  localparam logic [15:0] SUSTAIN_LEVEL = 16'd49152;
 
   logic clk = 0, rst_n = 0, sample_ce = 0;
   logic event_valid = 0;
@@ -34,7 +36,7 @@ module tb_voice_wt_source;
   logic wt_phase_we;
   logic [31:0] wt_phase_a, wt_phase_b;
 
-  integer ce_count, guard, accept_cycles;
+  integer ce_count, guard, accept_cycles, i;
   logic signed [15:0] want;
   logic [31:0] rom_step_q;
   // Phase-write observations, one sample interval at a time.
@@ -83,6 +85,20 @@ module tb_voice_wt_source;
       else if (mix < 8'd128) a = a + 2;
       else if (mix < 8'd192) a = a + 1;
       att = raw >>> a;
+    end
+  endfunction
+
+  // The VCA the engine applies after the attenuation: envelope times velocity,
+  // then the product scales the slot's oscillator sum.
+  function automatic logic signed [15:0] vca(input logic signed [47:0] osc_sum,
+                                             input logic [15:0] env,
+                                             input logic [7:0] gain);
+    logic signed [31:0] env_gain;
+    logic signed [63:0] product;
+    begin
+      env_gain = (env * {8'd0, gain}) >>> 8;
+      product = $signed(osc_sum[31:0]) * env_gain;
+      vca = product >>> 16;
     end
   endfunction
 
@@ -175,17 +191,17 @@ module tb_voice_wt_source;
     if (wt_phase_we !== 1'b0) $fatal(1, "phase write is high before any scan");
 
     // 1. A note takes its sample from the wavetable pair, not from the saw.
-    //    1000 with attack (+2), velocity 127 (+2) and mix 128 (+1) is 1000 >>> 5.
+    //    The VCA starts the envelope at zero, so the note-on sample is silent;
+    //    the steady level is checked once the envelope has reached sustain.
     wt_sample_a = 16'sd1000; wt_sample_b = 16'sd0;
     we_count_total = 0;
     send_event(make_event(4'd1, 8'd69, 8'd127), "note on 69");
     wait_sample("sample after note on");
     if (active_voice_count != 6'd1)
       $fatal(1, "expected one active voice, got %0d", active_voice_count);
-    want = att(48'sd1000, ENV_ATTACK, 8'd127, 8'd128);
-    if (mixed_sample !== want)
-      $fatal(1, "sample %0d expected %0d (wt 1000 at attack/v127/mix128)",
-             mixed_sample, want);
+    if (mixed_sample !== 16'sd0)
+      $fatal(1, "first sample after note on is %0d, expected 0 (the envelope starts at 0)",
+             mixed_sample);
 
     // 2. The phase mirror published this voice's next phase for that sample.
     //    The interval also contains the activation write (phase zero), so the
@@ -204,21 +220,31 @@ module tb_voice_wt_source;
       $fatal(1, "second sample phase 0x%08h, expected two steps 0x%08h",
              we_phase_a, (rom_step_q << 1));
 
-    // 3. A negative sample keeps its sign: -1000 >>> 5 is -32, not 2055.
+    // 3. At sustain the level is the attenuation followed by the VCA:
+    //    1000 >>> 3 (velocity 127 is the +2 bucket, mix 128 is +1) = 125, then
+    //    125 * (49152 * 127 >> 8) >> 16 = 46.
+    for (i = 0; i < 150; i = i + 1) wait_sample("sustain");
+    want = vca(att(48'sd1000, 2'd2, 8'd127, 8'd128), SUSTAIN_LEVEL, 8'd127);
+    if (mixed_sample !== want)
+      $fatal(1, "sustain sample %0d expected %0d (wt 1000, velocity 127, mix 128)",
+             mixed_sample, want);
+
+    // 4. A negative sample keeps its sign: -1000 >>> 3 is -125, and the VCA's
+    //    arithmetic shift floors -125 * 24384 / 65536 to -47, not -46.
     wt_sample_a = -16'sd1000;
     wait_sample("sample with a negative wavetable value");
-    want = att(-48'sd1000, ENV_ATTACK, 8'd127, 8'd128);
+    want = vca(att(-48'sd1000, 2'd2, 8'd127, 8'd128), SUSTAIN_LEVEL, 8'd127);
     if (mixed_sample !== want)
       $fatal(1, "negative sample %0d expected %0d", mixed_sample, want);
 
-    // 4. Silence in the buffer means silence out: the saw must not leak through.
+    // 5. Silence in the buffer means silence out: the saw must not leak through.
     wt_sample_a = 16'sd0; wt_sample_b = 16'sd0;
     wait_sample("sample with an empty buffer");
     if (mixed_sample !== 16'sd0)
       $fatal(1, "empty wavetable buffer produced %0d", mixed_sample);
     wt_sample_a = 16'sd1000;
 
-    // 5. Pitch no longer matters: same pair, note an octave and a fifth higher
+    // 6. Pitch no longer matters: same pair, note an octave and a fifth higher
     //    after the first voice has released, same output.
     send_event(make_event(4'd2, 8'd69, 8'd127), "note off 69");
     wait_silence(400000);
@@ -227,18 +253,20 @@ module tb_voice_wt_source;
     if (active_voice_count != 6'd1)
       $fatal(1, "expected one active voice for the second note, got %0d",
              active_voice_count);
-    want = att(48'sd1000, ENV_ATTACK, 8'd127, 8'd128);
+    for (i = 0; i < 150; i = i + 1) wait_sample("sustain");
+    want = vca(att(48'sd1000, 2'd2, 8'd127, 8'd128), SUSTAIN_LEVEL, 8'd127);
     if (mixed_sample !== want)
       $fatal(1, "note 84 sample %0d expected %0d; the output still follows the pitch",
              mixed_sample, want);
 
-    // 6. Nothing overflowed or was stolen for two single notes.
+    // 7. Nothing overflowed or was stolen for two single notes.
     if (voice_steal_count !== 16'd0)
       $fatal(1, "single notes stole %0d voices", voice_steal_count);
     if (voice_overflow !== 1'b0) $fatal(1, "voice_overflow set for single notes");
 
-    $display("PASS wavetable source: 1000 -> %0d, -1000 -> -32, one phase write per voice per sample",
-             att(48'sd1000, ENV_ATTACK, 8'd127, 8'd128));
+    $display("PASS wavetable source: sustain 1000 -> %0d, -1000 -> %0d, one phase write per voice per sample",
+             vca(att(48'sd1000, 2'd2, 8'd127, 8'd128), SUSTAIN_LEVEL, 8'd127),
+             vca(att(-48'sd1000, 2'd2, 8'd127, 8'd128), SUSTAIN_LEVEL, 8'd127));
     $finish;
   end
 endmodule

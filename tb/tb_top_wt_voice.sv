@@ -5,7 +5,8 @@
 //   1. with no table uploaded, PLAY is silent (the engine gets rd_valid=0 and
 //      writes zeros into the sample buffers, so no saw leaks through);
 //   2. with a constant table uploaded and applied, PLAY plays that table:
-//      sample = (0x3000 >>> WT_SELECT[7:4]) attenuated by stage/velocity/mix;
+//      sample = (0x3000 >>> WT_SELECT[7:4]) attenuated by stage/velocity/mix and
+//      then scaled by the voice's VCA (envelope * velocity);
 //   3. the read port belongs to the table engine in PLAY: WT_DATA reads 0 there
 //      and the normal readback returns after going back to IDLE.
 //
@@ -24,6 +25,8 @@ module tb_top_wt_voice;
   // Ramp slope: the table spans 1024 * 63, so one index step is 63.
   localparam logic signed [15:0] RAMP_STEP = 16'sd63;
   localparam logic [1:0] RAMP_TABLE = 2'd1;
+  // The VCA's sustain level: the 16-bit envelope value the audio path settles at.
+  localparam logic [15:0] SUSTAIN_LEVEL = 16'd49152;
 
   logic clk_50m = 1'b0, uart_rx = 1'b1;
   tri mgc_sda, mgc_scl, mgc_ts, mgc_mclr;
@@ -88,6 +91,19 @@ module tb_top_wt_voice;
       else if (mix < 8'd128) a = a + 2;
       else if (mix < 8'd192) a = a + 1;
       att = raw >>> a;
+    end
+  endfunction
+
+  // Independent copy of the VCA the engine applies after the attenuation.
+  function automatic logic signed [15:0] vca(input logic signed [47:0] osc_sum,
+                                             input logic [15:0] env,
+                                             input logic [7:0] gain);
+    logic signed [31:0] env_gain;
+    logic signed [63:0] product;
+    begin
+      env_gain = (env * {8'd0, gain}) >>> 8;
+      product = $signed(osc_sum[31:0]) * env_gain;
+      vca = product >>> 16;
     end
   endfunction
 
@@ -316,11 +332,20 @@ module tb_top_wt_voice;
 
     play_note(8'd69, VELOCITY);
     wait_sample("first sample from the table");
+    // The envelope starts at zero in the bank, so the note-on sample is silent.
+    if (dut.voice_sample !== 16'sd0)
+      $fatal(1, "the first PLAY sample is %0d, expected 0 (the envelope starts at 0)",
+             dut.voice_sample);
     // Each voice runs two oscillators (phase a and b) and both now read the
-    // table, so a constant table gives twice the single-oscillator value.
-    want = 2 * att({{32{TABLE_VALUE[15]}}, TABLE_VALUE} >>> SHIFT, 2'd0, VELOCITY, 8'd128);
+    // table, so a constant table gives twice the single-oscillator value; the
+    // VCA then scales it by (49152 * 127 >> 8) >> 16 = 0.372 in sustain.
+    // 2 * ((0x3000 >>> 4) >>> 3) = 192 and 192 * 24384 >> 16 = 71, where the
+    // >>> 3 is velocity 127 (+2) plus mix 128 (+1).
+    for (i = 0; i < 150; i = i + 1) next_sample;
+    want = vca(2 * att({{32{TABLE_VALUE[15]}}, TABLE_VALUE} >>> SHIFT, 2'd2, VELOCITY, 8'd128),
+               SUSTAIN_LEVEL, VELOCITY);
     if (dut.voice_sample !== want)
-      $fatal(1, "PLAY sample %0d, expected %0d (2 x table 0x%04h >>> %0d)",
+      $fatal(1, "PLAY sustain sample %0d, expected %0d (2 x table 0x%04h >>> %0d through the VCA)",
              dut.voice_sample, want, TABLE_VALUE, SHIFT);
 
     // ---- 3. The read port belongs to the engine while PLAY runs -----------
@@ -342,7 +367,9 @@ module tb_top_wt_voice;
     // A constant table cannot tell a running oscillator from a frozen phase, so
     // this phase uses a ramp: with note 55 the phase advances 4.18 table points
     // per sample, i.e. 63 * 4.18 * 2 oscillators = 527 units, then >>> 4 (shift)
-    // and >>> 3 (velocity + mix) leaves about 33 units per 8 samples.
+    // and >>> 3 (velocity 127 + mix 128) leaves about 33 units per 8 samples.
+    // The VCA then scales the whole window by its sustain gain
+    // (49152 * 127 >> 8) / 65536 = 0.372, so it shrinks from about 33 to about 12.
     upload_ramp(RAMP_TABLE);
     inject_control(8'h02, 8'h60, 8'h6D, {23'd0, 1'b0, SHIFT, 2'd0, RAMP_TABLE});  // select, shift
     inject_control(8'h01, 8'h60, 8'h70, 32'd0);
@@ -360,8 +387,10 @@ module tb_top_wt_voice;
     first_val = dut.voice_sample;
     for (i = 0; i < 8; i = i + 1) next_sample;
     last_val = dut.voice_sample;
-    if (last_val - first_val < 20 || last_val - first_val > 50)
-      $fatal(1, "the ramp advanced %0d units over 8 samples, expected about 33; the phase is not running",
+    // The old window was 20..50 for a nominal 33; scaling it by 0.372 and
+    // allowing one LSB of truncation at each end gives 6..20 for a nominal 12.
+    if (last_val - first_val < 6 || last_val - first_val > 20)
+      $fatal(1, "the ramp advanced %0d units over 8 samples, expected about 12; the phase is not running",
              last_val - first_val);
     inject_control(8'h02, 8'h14, 8'h6F, 32'd1);                        // STOP
     wait_silence;

@@ -149,7 +149,10 @@ module v2_live_rule_engine #(
         candidate_note = arp_note;
         candidate_flags = rule_touch ? V2_FLAG_TOUCH : V2_FLAG_BOW;
       end
-    end else if (rule_frame_in_valid && !bad_frame) begin
+    end else if (rule_frame_in_valid && !rule_frame_gap) begin
+      // `degraded` means reduced precision, not an unusable Y: only a real frame
+      // gap blocks the note path.  Gating it on !bad_frame silenced track mode
+      // whenever the validity stage flagged most frames.
       if (!active && arm_now && gate_now && candidate_due) begin
         candidate_valid=1'b1; candidate_type=V2_EV_NOTE_ON;
         candidate_flags = rule_touch ? V2_FLAG_TOUCH : V2_FLAG_BOW;
@@ -228,7 +231,7 @@ module v2_live_rule_engine #(
       if (!(event_valid && !event_ready)) gate_state <= gate_now;
       // A stalled output freezes the rule state.  This keeps the pending
       // event and its metadata stable until the ready handshake.
-      if (rule_frame_in_valid && !bad_frame && !(event_valid && !event_ready)) begin
+      if (rule_frame_in_valid && !rule_frame_gap && !(event_valid && !event_ready)) begin
         // The edge sample only starts arming; a final rightward sample commits it.
         if (!left_edge_armed && !edge_pending && (rule_left_edge || rule_x <= X_EDGE)) begin
           if (!prev_valid || rule_x >= prev_x) edge_pending <= 1'b1;
@@ -259,11 +262,11 @@ module v2_live_rule_engine #(
           arp_state <= ARP_OFF;
         end
       end
-      // Pack the registered candidate.  With PIPELINE_NOTE the FSM already
-      // advanced when this candidate entered the pipe; in combinational mode the
-      // registered copy is the live candidate, so advance here.
-      if (arp_mode && emit_candidate_valid && !(event_valid && !event_ready)) begin
-        if (!PIPELINE_NOTE) begin
+      // Pack the registered candidate.  This must run in BOTH modes: gating it
+      // on arp_mode meant track mode generated candidates that were never
+      // packed, so `active` never set and Y never reached active_note.
+      if (emit_candidate_valid && !(event_valid && !event_ready)) begin
+        if (arp_mode && !PIPELINE_NOTE) begin
           if (emit_candidate_type == V2_EV_NOTE_OFF)      arp_state <= arp_pair ? ARP_ON : ARP_IDLE;
           else if (emit_candidate_type == V2_EV_NOTE_ON)  begin arp_state <= ARP_IDLE; arp_pair <= 1'b0; end
         end

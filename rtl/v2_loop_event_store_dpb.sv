@@ -71,7 +71,7 @@ module v2_loop_event_store_dpb #(
         ram_b_addr = logical_addr(shadow_bank, copy_write_index/DEPTH, copy_write_index%DEPTH);
         ram_b_data = {dpb_doa[5],dpb_doa[4],dpb_doa[3],dpb_doa[2],dpb_doa[1],dpb_doa[0]};
       end
-    end else if (read_enable && !busy && read_track<TRACKS) begin
+    end else if (read_enable && !copy_active && read_track<TRACKS) begin
       ram_a_en=1'b1; ram_a_addr=logical_addr(active_bank,read_track,read_index);
     end else if (write_valid && write_ready) begin
       ram_b_en=1'b1; ram_b_addr=logical_addr(shadow_bank,write_track,write_slot); ram_b_data=write_data;
@@ -158,7 +158,7 @@ module v2_loop_event_store_dpb #(
       if(read_pending) begin
         read_pending<=0; read_valid<=1; read_slot_valid<=read_pending_slot_valid;
         read_reg<={dpb_doa[5],dpb_doa[4],dpb_doa[3],dpb_doa[2],dpb_doa[1],dpb_doa[0]};
-      end else if(read_enable&&!busy&&read_track<TRACKS) begin
+      end else if(read_enable&&!copy_active&&read_track<TRACKS) begin
         read_pending<=1; read_pending_slot_valid<=read_index<counts[active_bank][read_track];
       end
     end

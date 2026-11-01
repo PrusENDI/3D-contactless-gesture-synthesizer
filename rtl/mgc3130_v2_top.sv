@@ -281,6 +281,15 @@ logic signed [31:0] cursor_last_z;
     logic [6:0]  tick_now;
     logic [23:0] samples_per_tick;
     wire mode_live = (mode_reg == LIVE);
+    // The tempo mapping runs in every mode, so its single write pulse usually
+    // happens while IDLE masks bpm_auto_we away from the divider.  Entering LIVE
+    // must therefore reprogram the divider once with the already-settled tempo.
+    logic mode_live_q;
+    always_ff @(posedge clk_sys_100m or negedge rst_sys_n) begin
+        if (!rst_sys_n) mode_live_q <= 1'b0;
+        else            mode_live_q <= mode_live;
+    end
+    wire bpm_sel_we = (mode_live ? bpm_auto_we : bpm_we_q) || (mode_live && !mode_live_q);
     wire mode_record = (mode_reg == RECORD);
     wire mode_play = (mode_reg == PLAY);
 wire mode_wt_play = (mode_reg == WT_PLAY);
@@ -685,7 +694,7 @@ end
     v2_tick_gen u_tick_gen (
         .clk(clk_sys_100m), .rst_n(rst_sys_n), .sample_ce(sample_ce),
         .bpm(mode_live ? bpm_auto_q : bpm_reg),
-        .bpm_we(mode_live ? bpm_auto_we : bpm_we_q),
+        .bpm_we(bpm_sel_we),
         .tick_pulse(tick_pulse), .tick(tick_now), .samples_per_tick(samples_per_tick)
     );
     v2_note_increment_rom u_wt_note_increment(.note(thresholds_reg[7:0]), .increment(wt_note_increment));

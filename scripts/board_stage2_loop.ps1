@@ -169,8 +169,10 @@ try {
   # The real question is whether the DP produced notes, not whether the samples
   # are non-zero: y=0 is a legal sample, and an all-rest contour legitimately
   # commits nothing.
-  $afterCommit = (X 0x01 0xF8 0).Val      # page 1 was already selected
-  $committed = ($afterCommit -shr 21) -band 0x3F
+  # Use the page-1 word captured while waiting for done: the contour dump below
+  # advances the 0x34 pointer, which is also the probe page selector, so a later
+  # read of 0xF8 would no longer be page 1.
+  $committed = ($lastW -shr 21) -band 0x3F
   if ($committed -eq 0) {
     Log 'FAIL: the commit produced no notes (all rest, or nothing captured); there will be no sound'
     exit 12

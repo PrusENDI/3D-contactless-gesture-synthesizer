@@ -56,6 +56,19 @@ module tb_stage2_loop_e2e;
     end
   end
 
+  function automatic [95:0] make_note_on(input [7:0] tick, input [7:0] note);
+    logic [95:0] e;
+    begin
+      e = 96'd0;
+      e[94:91] = 4'd1;
+      e[87:80] = tick;
+      e[79:72] = 8'd4;
+      e[71:64] = note;
+      e[63:56] = 8'd100;
+      make_note_on = e;
+    end
+  endfunction
+
   function automatic [15:0] crc_byte(input [15:0] crc_in, input [7:0] value);
     reg [15:0] c;
     integer b;
@@ -155,6 +168,20 @@ module tb_stage2_loop_e2e;
         $fatal(1, "0x34 sample[%0d]=%0d expected %0d", i, dut.rsp_data & 32'hFFFF,
                (16'd2000 * (i + 1)) >> 6);
     end
+
+    // A LIVE note landing in the lead track while RECORD is armed is what broke
+    // the board: the recorder owned that track, the shadow count went non-zero,
+    // and the commit writer then started at slot 0 against a full track so the
+    // store refused every event.  The commit must clear the track first.
+    @(negedge clk_50m);
+    force dut.live_event_data = make_note_on(8'd0, 8'd64);
+    force dut.live_event_valid = 1'b1;
+    repeat (2) @(posedge clk_50m);
+    release dut.live_event_valid;
+    release dut.live_event_data;
+    repeat (10) @(posedge clk_50m);
+    if (dut.loop_record_count[5:0] == 6'd0)
+      $fatal(1, "the injected LIVE event never reached the shadow lead track");
 
     inject_control(8'h02, 8'h28, 8'h34, 32'd1);
     guard = 0;

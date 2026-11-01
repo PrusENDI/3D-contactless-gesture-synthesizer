@@ -375,6 +375,7 @@ logic [9:0] wt_read_index_sel;
     // The store's single write port belongs to the recorder, except while a
     // commit streams the Potts result into the shadow lead track.
     logic potts_commit_kick, potts_commit_run, potts_commit_done, potts_commit_req;
+    logic commit_prep_wait, commit_prep_sent, writer_kick, writer_kick_q;
     logic [5:0] potts_commit_count;
     logic potts_writer_start, potts_writer_ready, potts_writer_valid;
     logic [4:0] potts_writer_slot;
@@ -511,7 +512,7 @@ logic [9:0] wt_read_index_sel;
     assign record_write_ready = potts_commit_run ? 1'b0 : loop_write_ready;
 
     v2_loop_commit_writer u_commit_writer (
-        .clk(clk_sys_100m), .rst_n(rst_sys_n), .kick(potts_commit_kick),
+        .clk(clk_sys_100m), .rst_n(rst_sys_n), .kick(writer_kick),
         .dp_ready(potts_purify_done_seen && !loop_busy),
         .potts_start(potts_writer_start), .potts_busy(potts_busy), .potts_done(potts_done),
         .potts_event_valid(potts_event_valid), .potts_event_ready(potts_writer_ready),
@@ -911,7 +912,12 @@ end
     // Keep commands queued while a loop control operation or table APPLY is
     // busy.  Reads remain available during APPLY so software can observe the
     // status; writes are held until the owning bank returns to S_IDLE.
-    assign cmd_ready = !loop_ctrl_pending &&
+    // STOP and RESET are exempt from the control-queue gate: if a store command
+    // is ever stuck waiting for the bank, refusing STOP would lock the whole
+    // command link and only a reflash could recover.
+    wire cmd_is_abort = (cmd_op == V2_OP_WRITE) &&
+                        ((cmd_address == V2_CSR_STOP) || (cmd_address == V2_CSR_RESET));
+    assign cmd_ready = (!loop_ctrl_pending || cmd_is_abort) &&
                        !((cmd_op == V2_OP_WRITE) &&
                          (patch_apply_busy || wt_apply_busy)) &&
                        // Hold off one cycle after a staged one-shot so two staged
@@ -947,6 +953,7 @@ end
             bpm_reg <= 16'd120; bpm_we_q <= 1'b0;
             loop_ctrl_valid <= 1'b0; loop_ctrl_op <= 3'd0; loop_ctrl_track <= 3'd0;
             loop_ctrl_pending <= 1'b0; loop_ctrl_pending_op <= 3'd0;
+            commit_prep_wait <= 1'b0; commit_prep_sent <= 1'b0; writer_kick <= 1'b0;
             test_response_pending <= 1'b0; test_response_sequence <= 8'd0;
             csr_read_pending <= 1'b0; csr_read_sequence <= 8'd0; csr_read_address <= 8'd0;
             patch_apply_response_pending <= 1'b0; patch_apply_response_sequence <= 8'd0;
@@ -959,6 +966,22 @@ end
             loop_ctrl_valid <= loop_ctrl_pending;
             // The commit writer asks for the bank swap only after the DP result
             // has been written into the shadow track.
+            // A commit first clears the lead track: while RECORD was armed the
+            // recorder kept writing the LIVE stream into that same track, so the
+            // writer would otherwise start at slot 0 against a non-zero count
+            // and the store would refuse every event.
+            if (potts_commit_kick) commit_prep_wait <= 1'b1;
+            if (commit_prep_wait && !loop_ctrl_pending && !commit_prep_sent) begin
+                loop_ctrl_op <= 3'd1;
+                loop_ctrl_track <= 3'd0;
+                loop_ctrl_pending_op <= 3'd1;
+                loop_ctrl_pending <= 1'b1;
+                commit_prep_sent <= 1'b1;
+            end
+            if (commit_prep_sent && loop_ctrl_done && (loop_ctrl_pending_op == 3'd1)) begin
+                commit_prep_sent <= 1'b0; commit_prep_wait <= 1'b0; writer_kick <= 1'b1;
+            end
+            if (writer_kick) writer_kick <= 1'b0;
             if (potts_commit_req && !loop_ctrl_pending) begin
                 loop_ctrl_op <= 3'd3;
                 loop_ctrl_track <= 3'd0;

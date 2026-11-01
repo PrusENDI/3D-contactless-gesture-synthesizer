@@ -6,7 +6,7 @@
 // the DP terminates, it emits at least two events for a two-step contour, and
 // the held event stays stable while the consumer stalls.
 module tb_v2_potts_commit;
-  logic clk = 0, rst_n = 0, start = 0, ready = 1;
+  logic clk = 0, rst_n = 0, start = 0, abort = 0, ready = 1;
   logic busy, done, overflow, bt, ev;
   logic [15:0] lam = 16'd0;
   logic [127:0] rest = 128'd0;
@@ -20,7 +20,7 @@ module tb_v2_potts_commit;
   always @(posedge clk) if (rst_n && busy) cycles = cycles + 1;
 
   v2_potts_commit_fsm dut (
-    .clk(clk), .rst_n(rst_n), .abort(1'b0), .start(start), .lambda_q16(lam), .rest_mask(rest),
+    .clk(clk), .rst_n(rst_n),  .abort(abort), .start(start), .lambda_q16(lam), .rest_mask(rest),
     .contour(c), .busy(busy), .progress(prog), .done(done), .overflow(overflow),
     .backtrace_valid(bt), .event_valid(ev), .event_ready(ready),
     .event_data(data), .event_count(count));
@@ -31,6 +31,26 @@ module tb_v2_potts_commit;
     for (i = 0; i < 128; i = i + 1) c[i] = (i < 64) ? 135 : 978;
     repeat (2) @(posedge clk);
     rst_n = 1;
+
+    // Abort must return a running DP to idle: the board hung with the DP busy
+    // and STOP/RESET could not release it.
+    @(negedge clk);
+    start = 1;
+    @(posedge clk);
+    #1;
+    start = 0;
+    repeat (20) @(posedge clk);
+    #1;
+    if (!busy) $fatal(1, "DP did not start for the abort case");
+    @(negedge clk);
+    abort = 1'b1;
+    @(negedge clk);
+    abort = 1'b0;
+    repeat (2) @(posedge clk);
+    #1;
+    if (busy) $fatal(1, "abort did not release a busy DP");
+    if (ev) $fatal(1, "abort left an event asserted");
+
     @(negedge clk);
     start = 1;
     @(posedge clk);

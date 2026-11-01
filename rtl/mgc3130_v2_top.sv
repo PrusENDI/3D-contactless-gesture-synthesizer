@@ -376,6 +376,7 @@ logic [9:0] wt_read_index_sel;
     // commit streams the Potts result into the shadow lead track.
     logic potts_commit_kick, potts_commit_run, potts_commit_done, potts_commit_req;
     logic commit_prep_wait, commit_prep_sent, writer_kick, writer_kick_q;
+    logic [2:0] commit_track;
     logic [5:0] potts_commit_count;
     logic potts_writer_start, potts_writer_ready, potts_writer_valid;
     logic [4:0] potts_writer_slot;
@@ -506,7 +507,7 @@ logic [9:0] wt_read_index_sel;
     // While the writer runs, the Potts event stream owns the store's single
     // write port and targets the lead track; otherwise the recorder keeps it.
     assign loop_write_valid = potts_commit_run ? potts_writer_valid : record_write_valid;
-    assign loop_write_track = potts_commit_run ? 3'd0 : record_event_data[90:88];
+    assign loop_write_track = potts_commit_run ? commit_track : record_event_data[90:88];
     assign loop_write_slot  = potts_commit_run ? potts_writer_slot : recorder_write_slot;
     assign loop_write_data  = potts_commit_run ? potts_event_data : record_event_data;
     assign record_write_ready = potts_commit_run ? 1'b0 : loop_write_ready;
@@ -976,7 +977,7 @@ end
             bpm_reg <= 16'd120; bpm_we_q <= 1'b0;
             loop_ctrl_valid <= 1'b0; loop_ctrl_op <= 3'd0; loop_ctrl_track <= 3'd0;
             loop_ctrl_pending <= 1'b0; loop_ctrl_pending_op <= 3'd0;
-            commit_prep_wait <= 1'b0; commit_prep_sent <= 1'b0; writer_kick <= 1'b0;
+            commit_prep_wait <= 1'b0; commit_prep_sent <= 1'b0; writer_kick <= 1'b0; commit_track <= 3'd0;
             test_response_pending <= 1'b0; test_response_sequence <= 8'd0;
             csr_read_pending <= 1'b0; csr_read_sequence <= 8'd0; csr_read_address <= 8'd0;
             patch_apply_response_pending <= 1'b0; patch_apply_response_sequence <= 8'd0;
@@ -993,10 +994,15 @@ end
             // recorder kept writing the LIVE stream into that same track, so the
             // writer would otherwise start at slot 0 against a non-zero count
             // and the store would refuse every event.
-            if (potts_commit_kick) commit_prep_wait <= 1'b1;
+            if (potts_commit_kick) begin
+                commit_prep_wait <= 1'b1;
+                // Latch the target track now: a later 0x0C write must not move
+                // the commit onto another track mid-flight.
+                commit_track <= selected_track;
+            end
             if (commit_prep_wait && !loop_ctrl_pending && !commit_prep_sent) begin
                 loop_ctrl_op <= 3'd1;
-                loop_ctrl_track <= 3'd0;
+                loop_ctrl_track <= commit_track;
                 loop_ctrl_pending_op <= 3'd1;
                 loop_ctrl_pending <= 1'b1;
                 commit_prep_sent <= 1'b1;

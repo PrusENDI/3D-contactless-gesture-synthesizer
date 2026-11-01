@@ -63,13 +63,30 @@ module tb_live_arp_rate;
     end
   endtask
 
+  // Backpressure: the voice engine is busy for ~32 cycles every sample, so a
+  // tick can hit a stalled event_ready.  The FSM must not re-pack the held step.
+  task automatic do_tick_stalled();
+    begin
+      @(negedge clk); tick_pulse = 1;
+      @(negedge clk); tick_pulse = 0;
+      repeat (3) @(negedge clk);
+      event_ready = 0;
+      repeat (40) @(negedge clk);
+      event_ready = 1;
+      repeat (40) @(negedge clk);
+    end
+  endtask
+
   initial begin
     repeat (4) @(negedge clk); rst_n = 1;
     repeat (4) @(negedge clk);
     pulse_frame();                 // load y into the pipeline so map_note is valid
     pulse_frame();
 
-    for (i = 0; i < 9; i = i + 1) do_tick();
+    for (i = 0; i < 9; i = i + 1) begin
+      if (i == 3) do_tick_stalled();
+      else        do_tick();
+    end
 
     // First tick only starts a note (no OFF); the other eight ticks are OFF+ON.
     if (ons != 9 || offs != 8 || others != 0)

@@ -396,9 +396,10 @@ logic [9:0] wt_read_index_sel;
         .commit_timeout(loop_commit_timeout), .commit_wait_cycles(loop_commit_wait_cycles)
     );
     (* keep_hierarchy = "yes" *)
-    v2_loop_scheduler u_loop_sched (
+    v2_loop_scheduler #(.LOOP_TICKS(32)) u_loop_sched (
         .clk(clk_sys_100m), .rst_n(rst_sys_n), .run(loop_probe_run), .stop(!loop_probe_run), .flush(1'b0),
-        .selected_track(selected_track), .loop_tick(sample_index[6:0]), .read_valid(loop_read_valid),
+        .tick_start(tick_pulse),
+        .selected_track(selected_track), .loop_tick(tick_now), .read_valid(loop_read_valid),
         .read_slot_valid(loop_read_slot_valid), .read_data(loop_read_data),
         .read_enable(loop_read_enable), .read_track(loop_read_track), .read_index(loop_read_index),
         .event_valid(loop_event_valid), .event_ready(loop_event_ready), .event_data(loop_event_data),

@@ -32,7 +32,7 @@ module tb_loop_publish;
   logic active_valid, commit_timeout;
   logic [31:0] commit_wait_cycles;
 
-  logic run = 0, stop = 0, flush = 0;
+  logic run = 0, stop = 0, flush = 0, tick_start = 0;
   logic [2:0] selected_track = 0;
   logic [6:0] loop_tick = 0;
   logic event_valid, event_ready = 1;
@@ -60,8 +60,8 @@ module tb_loop_publish;
     .overflow(overflow), .active_valid(active_valid),
     .commit_timeout(commit_timeout), .commit_wait_cycles(commit_wait_cycles));
 
-  v2_loop_scheduler #(.TRACKS(TRACKS), .DEPTH(DEPTH)) u_sched (
-    .clk(clk), .rst_n(rst_n), .run(run), .stop(stop), .flush(flush),
+  v2_loop_scheduler #(.TRACKS(TRACKS), .DEPTH(DEPTH), .LOOP_TICKS(128)) u_sched (
+    .clk(clk), .rst_n(rst_n), .run(run), .stop(stop), .flush(flush), .tick_start(tick_start),
     .selected_track(selected_track), .loop_tick(loop_tick),
     .read_valid(read_valid), .read_slot_valid(read_slot_valid), .read_data(read_data),
     .read_enable(read_enable), .read_track(read_track), .read_index(read_index),
@@ -130,6 +130,15 @@ module tb_loop_publish;
     end
   end
 
+  task automatic pulse_tick;
+    begin
+      @(negedge clk);
+      tick_start = 1'b1;
+      @(negedge clk);
+      tick_start = 1'b0;
+    end
+  endtask
+
   initial begin : run_tb
     repeat (4) @(posedge clk);
     rst_n = 1;
@@ -152,8 +161,9 @@ module tb_loop_publish;
     run = 1;
     loop_tick = 7'd127;
     settle = 0;
-    while (boundary_count == 0 && settle < 4000) begin
-      @(posedge clk);
+    while (boundary_count == 0 && settle < 400) begin
+      pulse_tick();
+      repeat (20) @(posedge clk);
       settle = settle + 1;
     end
     if (boundary_count == 0)
@@ -166,14 +176,16 @@ module tb_loop_publish;
     // The events now live in the active bank; let the scheduler match them.
     loop_tick = 7'd0;
     settle = 0;
-    while (tick0_events == 0 && settle < 4000) begin
-      @(posedge clk);
+    while (tick0_events == 0 && settle < 400) begin
+      pulse_tick();
+      repeat (20) @(posedge clk);
       settle = settle + 1;
     end
     loop_tick = 7'd16;
     settle = 0;
-    while (tick16_events == 0 && settle < 4000) begin
-      @(posedge clk);
+    while (tick16_events == 0 && settle < 400) begin
+      pulse_tick();
+      repeat (20) @(posedge clk);
       settle = settle + 1;
     end
     run = 0;

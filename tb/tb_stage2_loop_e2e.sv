@@ -22,6 +22,15 @@ module tb_stage2_loop_e2e;
   integer voice_all_off = 0;
   integer stop_cycles = -1;
   integer ev_tick = -1, ev_dur = -1, ev_note = -1, ev_count = 0;
+  // Two-track case: what each track handed to the voice engine while PLAY ran,
+  // and the largest number of voices that were sounding at the same time.
+  integer n, trk, max_voices = 0;
+  integer take1_count = 0, take2_count = 0;
+  integer boundary_before = 0, note_gap = 0;
+  time trk_note_time [0:5];
+  integer trk_note [0:5];
+  integer trk_note_tick [0:5];
+  integer trk_note_count [0:5];
 
   always #5 clk_50m = ~clk_50m;
   GSR GSR(.GSRI(1'b1));
@@ -57,6 +66,31 @@ module tb_stage2_loop_e2e;
         ev_note = dut.potts_event_data[71:64];
       end
       ev_count = ev_count + 1;
+    end
+    // Committed events carry no track number (the DP leaves [90:88] zero), so
+    // the source track is the one the scheduler is reading from when it hands
+    // the held slot over.
+    if (dut.active_voice_count > max_voices) max_voices = dut.active_voice_count;
+    if (dut.loop_event_valid && dut.loop_event_ready &&
+        dut.loop_event_data[94:91] == 4'd1) begin
+      trk = dut.loop_read_track;
+      if (trk < 6) begin
+        if (trk_note_count[trk] == 0) begin
+          trk_note[trk] = dut.loop_event_data[71:64];
+          trk_note_tick[trk] = dut.loop_event_data[87:80];
+          trk_note_time[trk] = $time;
+        end
+        trk_note_count[trk] = trk_note_count[trk] + 1;
+      end
+    end
+  end
+
+  initial begin
+    for (n = 0; n < 6; n = n + 1) begin
+      trk_note[n] = -1;
+      trk_note_tick[n] = -1;
+      trk_note_count[n] = 0;
+      trk_note_time[n] = 0;
     end
   end
 
@@ -136,6 +170,46 @@ module tb_stage2_loop_e2e;
       // than that, otherwise a sweep straddles two ticks and half of them are
       // never scanned.
       repeat (2600) @(posedge clk_50m);
+    end
+  endtask
+
+  // Write 0x28 and wait for the DP to stream its last event.  A new take clears
+  // the previous take's done flag on the kick, so wait for run to drop instead
+  // of trusting a done flag that may still be set from the take before.
+  task automatic commit_wait;
+    begin
+      guard = 0;
+      while (dut.potts_commit_done && !dut.potts_commit_run && guard < 1000) begin
+        @(posedge clk_50m);
+        guard = guard + 1;
+      end
+      while ((dut.potts_commit_run || !dut.potts_commit_done) && guard < 3_000_000) begin
+        @(posedge clk_50m);
+        guard = guard + 1;
+      end
+      if (dut.potts_commit_run || !dut.potts_commit_done)
+        $fatal(1, "the DP never finished (run=%b done=%b)", dut.potts_commit_run,
+               dut.potts_commit_done);
+      if (dut.potts_overflow) $fatal(1, "the DP overflowed the event buffer");
+    end
+  endtask
+
+  task automatic commit_take(input [7:0] seq);
+    begin
+      inject_control(8'h02, 8'h28, seq, 32'd1);
+      commit_wait;
+    end
+  endtask
+
+  task automatic clear_track_stats;
+    begin
+      for (n = 0; n < 6; n = n + 1) begin
+        trk_note[n] = -1;
+        trk_note_tick[n] = -1;
+        trk_note_count[n] = 0;
+        trk_note_time[n] = 0;
+      end
+      max_voices = 0;
     end
   endtask
 
@@ -268,13 +342,141 @@ module tb_stage2_loop_e2e;
       $fatal(1, "partial take event t%0d/d%0d/n%0d expected t0/d12/n72",
              ev_tick, ev_dur, ev_note);
 
+    // ---- Two tracks ------------------------------------------------------
+    // Each take must land on the track that was selected when 0x28 was written,
+    // and both tracks must then sound together.
+    //
+    // The store publishes its whole shadow bank at one loop boundary, so the
+    // takes are published one at a time: take 1 to track 0, publish it, then
+    // take 2 to track 1.  PREPARE_RECORD copies the active bank into the shadow
+    // bank, which is what carries track 0 into the second take.
+    //
+    // The per-track counts live in the shadow bank and the swap clears the
+    // retired bank, so they are read right after each commit, before PLAY.
+    inject_control(8'h02, 8'h14, 8'h60, 32'd1);       // STOP: abort the pending partial take
+    guard = 0;
+    while ((dut.loop_commit_pending || dut.loop_busy) && guard < 100000) begin
+      @(posedge clk_50m);
+      guard = guard + 1;
+    end
+    if (dut.loop_commit_pending || dut.loop_busy)
+      $fatal(1, "the store did not release the aborted commit");
+
+    // Take 1: the rising contour goes to track 0.
+    inject_control(8'h02, 8'h0C, 8'h61, 32'd0);
+    inject_control(8'h02, 8'h18, 8'h62, 32'd1);
+    for (t = 0; t < 32; t = t + 1)
+      advance_tick(t, 16'd2000 * (t + 1), 1'b1);
+    if (!dut.potts_capture_full) $fatal(1, "two-track take 1 capture did not complete");
+    commit_take(8'h63);
+    if (dut.potts_commit_count < 1) $fatal(1, "two-track take 1 produced no events");
+    take1_count = dut.potts_commit_count;
+    if (dut.loop_record_count[5:0] != take1_count)
+      $fatal(1, "take 1 stored %0d events in track 0, the DP produced %0d",
+             dut.loop_record_count[5:0], take1_count);
+    if (dut.loop_record_count[11:6] != 0)
+      $fatal(1, "take 1 leaked %0d events into track 1", dut.loop_record_count[11:6]);
+    if (|dut.loop_overflow) $fatal(1, "the store flagged overflow (0x%02h)", dut.loop_overflow);
+
+    // Publish take 1 so the next PREPARE copies it into the new shadow bank.
+    inject_control(8'h02, 8'h04, 8'h64, 32'd4);       // MODE=PLAY
+    if (!dut.mode_play) $fatal(1, "MODE=PLAY was rejected for take 1");
+    for (sweep = 0; sweep < 2; sweep = sweep + 1)
+      for (t = 0; t < 32; t = t + 1) advance_tick(t, 16'd0, 1'b0);
+    if (!dut.loop_active_valid) $fatal(1, "take 1 was never published");
+    if (dut.loop_commit_pending) $fatal(1, "take 1 is still pending after the boundary");
+
+    // Take 2: a held high note goes to track 1 while track 0 stays put.
+    inject_control(8'h02, 8'h14, 8'h65, 32'd1);       // STOP -> IDLE
+    guard = 0;
+    while (dut.active_voice_count != 0 && guard < 300000) begin
+      @(posedge clk_50m);
+      guard = guard + 1;
+    end
+    if (dut.mode_play) $fatal(1, "STOP did not leave PLAY before take 2");
+    inject_control(8'h02, 8'h0C, 8'h66, 32'd1);       // select track 1
+    inject_control(8'h02, 8'h18, 8'h67, 32'd1);       // PREPARE_RECORD copies track 0
+    for (t = 0; t < 32; t = t + 1) advance_tick(t, 16'd60000, 1'b1);
+    if (!dut.potts_capture_full) $fatal(1, "two-track take 2 capture did not complete");
+    inject_control(8'h02, 8'h28, 8'h68, 32'd1);       // COMMIT latches track 1
+    // Retarget mid-commit: the latched track must win, so this write may not
+    // move the events onto track 0.
+    inject_control(8'h02, 8'h0C, 8'h69, 32'd0);
+    if (!dut.potts_commit_run)
+      $fatal(1, "take 2 finished before the mid-commit 0x0C write; the latch is untested");
+    commit_wait;
+    if (dut.potts_commit_count != 1)
+      $fatal(1, "take 2 produced %0d events, expected 1", dut.potts_commit_count);
+    take2_count = dut.potts_commit_count;
+    if (dut.loop_record_count[11:6] != take2_count)
+      $fatal(1, "take 2 stored %0d events in track 1, expected %0d",
+             dut.loop_record_count[11:6], take2_count);
+    if (dut.loop_record_count[5:0] != take1_count)
+      $fatal(1, "take 2 overwrote track 0 (%0d events, was %0d)",
+             dut.loop_record_count[5:0], take1_count);
+
+    // Play both: the two takes must reach the voice engine as separate notes.
+    // The first loop still scans the bank from take 1 and publishes the new one
+    // at its boundary, so the measurement is taken on the second loop, where
+    // every event can only come from the two committed tracks.
+    inject_control(8'h02, 8'h04, 8'h6A, 32'd4);       // MODE=PLAY
+    if (!dut.mode_play) $fatal(1, "MODE=PLAY was rejected for the two tracks");
+    boundary_before = boundary_count;
+    for (t = 0; t < 32; t = t + 1) advance_tick(t, 16'd0, 1'b0);
+    if (boundary_count <= boundary_before)
+      $fatal(1, "the two-track commit never published at a boundary");
+    if (!dut.loop_active_valid) $fatal(1, "the store reports no active track");
+    if (dut.loop_commit_pending) $fatal(1, "the two-track commit is still pending");
+
+    clear_track_stats;
+    for (t = 0; t < 32; t = t + 1) advance_tick(t, 16'd0, 1'b0);
+    if (trk_note_count[0] < 1) $fatal(1, "track 0 played no note");
+    if (trk_note_count[1] < 1) $fatal(1, "track 1 played no note");
+    if (trk_note[0] == trk_note[1])
+      $fatal(1, "both tracks play note %0d; the takes are not independent", trk_note[0]);
+    if (trk_note_tick[0] != 0 || trk_note_tick[1] != 0)
+      $fatal(1, "both tracks should start at tick 0 (t%0d and t%0d)",
+             trk_note_tick[0], trk_note_tick[1]);
+    // Both first notes were accepted inside one sweep, so the engine holds two
+    // different notes at the same tick: that is the two tracks sounding
+    // together.  (A sweep scans the six tracks in about 25 us here.)
+    if (trk_note_time[0] > trk_note_time[1])
+      note_gap = trk_note_time[0] - trk_note_time[1];
+    else
+      note_gap = trk_note_time[1] - trk_note_time[0];
+    if (note_gap > 25000)
+      $fatal(1, "the two tracks' first notes are %0d ns apart, not one sweep", note_gap);
+    // Sanity number only: the compressed tick (2600 cycles) is about 1.5 audio
+    // samples, so a single track's release tails overlap by themselves and the
+    // count can exceed 2.  Two voices at once is the floor, not the proof.
+    if (max_voices < 2)
+      $fatal(1, "at most %0d voice(s) sounded at once", max_voices);
+    if (dut.voice_steal_count != 0)
+      $fatal(1, "the voice engine stole %0d voices for two tracks", dut.voice_steal_count);
+
+    inject_control(8'h02, 8'h14, 8'h6B, 32'd1);       // STOP after the two-track play
+    guard = 0;
+    while (dut.active_voice_count != 0 && guard < 300000) begin
+      @(posedge clk_50m);
+      guard = guard + 1;
+    end
+    if (dut.active_voice_count != 0)
+      $fatal(1, "%0d voices still sounding after the two-track STOP",
+             dut.active_voice_count);
+    if (dut.loop_commit_pending)
+      $fatal(1, "the store still holds a commit after the two-track STOP");
+
     $display("PASS tb_stage2_loop_e2e boundaries=%0d voices_seen=%0d commit_events=%0d stop_cycles=%0d",
              boundary_count, voices_seen, dut.potts_commit_count, stop_cycles);
+    $display("PASS two tracks t0=%0d events/t1=%0d events notes=%0d/%0d max_voices=%0d steals=0",
+             take1_count, take2_count, trk_note[0], trk_note[1], max_voices);
+    $display("PASS two tracks first notes %0d ns apart, both at tick %0d",
+             note_gap, trk_note_tick[0]);
     $finish;
   end
 
   initial begin : timeout
-    #50_000_000;
+    #120_000_000;
     $fatal(1, "tb_stage2_loop_e2e timeout (full=%b run=%b done=%b)",
            dut.potts_capture_full, dut.potts_commit_run, dut.potts_commit_done);
   end

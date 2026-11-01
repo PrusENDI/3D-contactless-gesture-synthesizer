@@ -603,6 +603,57 @@ logic [9:0] wt_read_index_sel;
         .fx_cutoff_q16(16'hffff), .fx_delay_samples(10'd0), .fx_feedback_q15(16'd0),
         .fx_reverb_mix_q15(16'd0), .fx_status_level(fx_status), .fx_clip(fx_clip)
     );
+
+    // ---- P2a parameter CSRs (0x40 / 0x44 / 0x84 / 0x88 / 0x8C / 0x90) -----
+    // Six 32-bit registers, one per address of spec 11.1.  A write stores
+    // v2_csr_clamp(address, cmd_data) and nothing else: the contract owns every
+    // range limit, so a write is accepted with the value clamped and is never
+    // NACKed for range.  Only bits outside the write mask can still be refused,
+    // and that happens in the link before the command reaches this block.
+    //
+    // The reset values are the documented defaults: filter bypassed, LFO off,
+    // FX_B at the 0xFFFF cutoff passthrough, FX_C silent, unity volume, and
+    // FX_A = the build-time reduced FX configuration (spec 11.2 item 2), so a
+    // PLAY note sounds exactly as before until the host writes 0x84.
+    localparam logic [31:0] FX_A_RESET_VALUE =
+        {11'd0, (FX_ENABLE != 0), FX_LEVEL[1:0], 18'h10000};
+    localparam logic [31:0] FX_B_RESET_VALUE     = 32'hFFFF_0000;
+    localparam logic [31:0] VOLUME_RESET_VALUE   = 32'h0001_0000;
+
+    logic [31:0] filter_ctrl, lfo_ctrl, fx_a, fx_b, fx_c, volume_reg;
+    // Unpacked fields of spec 11.1 (plain assigns; no logic of their own).  They
+    // are unused in this task and Task 6 wires them into the audio chain.
+    logic [11:0] ci_reg;
+    logic [7:0]  res_reg;
+    logic        filter_en;
+    logic [15:0] lfo_rate_mhz;
+    logic [7:0]  lfo_depth;
+    logic        lfo_en, lfo_retrig, lfo_unipolar;
+    logic [2:0]  lfo_wave;
+    logic        fx_enable_reg;
+    logic [1:0]  fx_level_reg;
+    logic [17:0] fx_gain_reg;
+    logic [15:0] fx_cutoff_reg;
+    logic [9:0]  fx_delay_reg;
+    logic [15:0] fx_feedback_reg, fx_reverb_reg;
+
+    assign ci_reg          = filter_ctrl[11:0];
+    assign res_reg         = filter_ctrl[19:12];
+    assign filter_en       = filter_ctrl[24];
+    assign lfo_rate_mhz    = lfo_ctrl[15:0];
+    assign lfo_depth       = lfo_ctrl[23:16];
+    assign lfo_en          = lfo_ctrl[24];
+    assign lfo_retrig      = lfo_ctrl[25];
+    assign lfo_unipolar    = lfo_ctrl[26];
+    assign lfo_wave        = lfo_ctrl[29:27];
+    assign fx_gain_reg     = fx_a[17:0];
+    assign fx_level_reg    = fx_a[19:18];
+    assign fx_enable_reg   = fx_a[20];
+    assign fx_delay_reg    = fx_b[9:0];
+    assign fx_cutoff_reg   = fx_b[31:16];
+    assign fx_feedback_reg = fx_c[15:0];
+    assign fx_reverb_reg   = fx_c[31:16];
+
     assign i2s_sample_valid = (mode_wt_play || mode_live) ? wt_play_valid : test_active ? test_sample_valid : voice_sample_valid;
 
     // Paginated loop-plane probe: write the page to 0x34, read 0xF8.
@@ -1071,6 +1122,9 @@ end
             wt_expected_crc <= 16'hffff; wt_apply_version <= 16'd0;
             thresholds_reg <= 32'd0;
             potts_lambda <= 16'd21600;
+            filter_ctrl <= 32'd0; lfo_ctrl <= 32'd0;
+            fx_a <= FX_A_RESET_VALUE; fx_b <= FX_B_RESET_VALUE;
+            fx_c <= 32'd0; volume_reg <= VOLUME_RESET_VALUE;
             bpm_reg <= 16'd120; bpm_we_q <= 1'b0;
             loop_ctrl_valid <= 1'b0; loop_ctrl_op <= 3'd0; loop_ctrl_track <= 3'd0;
             loop_ctrl_pending <= 1'b0; loop_ctrl_pending_op <= 3'd0;
@@ -1154,6 +1208,14 @@ end
                     V2_CSR_POTTS_STATUS: rsp_data <= {27'd0, potts_capture_full, loop_commit_timeout,
                                                       potts_overflow, potts_busy, potts_commit_done};
                     V2_CSR_POTTS_LAMBDA: rsp_data <= {16'd0, potts_lambda};
+                    // P2a parameter registers: the readback is the clamped word
+                    // that was stored, which is what the host wrote (spec 11.6).
+                    V2_CSR_FILTER: rsp_data <= filter_ctrl;
+                    V2_CSR_LFO: rsp_data <= lfo_ctrl;
+                    V2_CSR_FX_A: rsp_data <= fx_a;
+                    V2_CSR_FX_B: rsp_data <= fx_b;
+                    V2_CSR_FX_C: rsp_data <= fx_c;
+                    V2_CSR_VOLUME: rsp_data <= volume_reg;
                     V2_CSR_WT_SELECT: rsp_data <= {wt_lfo_step, wt_morph_en,
                                                     wt_voice_shift, 2'd0, wt_select_table};
                     V2_CSR_WT_INDEX: rsp_data <= {22'd0, wt_select_index};
@@ -1283,6 +1345,20 @@ end
                     wt_lfo_step <= cmd_data[31:9];
                     wt_voice_shift <= cmd_data[7:4];
                 end
+                // P2a parameters: the contract clamp is the only source of range
+                // limits, so every one of the six takes the same shape.
+                if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_FILTER)
+                    filter_ctrl <= v2_csr_clamp(V2_CSR_FILTER, cmd_data);
+                if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_LFO)
+                    lfo_ctrl <= v2_csr_clamp(V2_CSR_LFO, cmd_data);
+                if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_FX_A)
+                    fx_a <= v2_csr_clamp(V2_CSR_FX_A, cmd_data);
+                if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_FX_B)
+                    fx_b <= v2_csr_clamp(V2_CSR_FX_B, cmd_data);
+                if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_FX_C)
+                    fx_c <= v2_csr_clamp(V2_CSR_FX_C, cmd_data);
+                if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_VOLUME)
+                    volume_reg <= v2_csr_clamp(V2_CSR_VOLUME, cmd_data);
             if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_BPM)
                     bpm_reg <= cmd_data[15:0];
                 bpm_we_q <= bpm_write;

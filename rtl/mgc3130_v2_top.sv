@@ -422,23 +422,57 @@ logic [9:0] wt_read_index_sel;
     logic [127:0] potts_rest_mask;
     logic potts_start, potts_busy, potts_done, potts_overflow, potts_backtrace_valid;
     logic potts_event_valid, potts_event_ready; logic [95:0] potts_event_data; logic [5:0] potts_event_count;
+    logic [15:0] potts_lambda;
     integer contour_i;
-    // Record NOTE_ON events into the lead contour as they drain from the
-    // recorder holding register. COMMIT therefore consumes the actual
-    // recorded contour; an empty slot remains a non-rest zero pitch.
+
+    // The contour is sampled once per musical tick from the cursor, not tapped
+    // off the LIVE event stream: the two paths are independent, and the event
+    // tick field is only valid in arpeggiator mode.
+    logic potts_capture_arm, potts_capture_full;
+    logic [31:0] potts_valid, potts_purified;
+    logic [15:0] potts_samples [0:31];
+    logic [4:0] contour_rd_index;
+    logic [15:0] contour_rd_data;
+    logic potts_purify_start, potts_purify_busy, potts_purify_done, potts_purify_done_seen;
+
+    v2_loop_contour_capture #(.K(32)) u_contour (
+        .clk(clk_sys_100m), .rst_n(rst_sys_n), .arm(potts_capture_arm),
+        .tick_pulse(tick_pulse), .mtick(tick_now),
+        .y(cursor_y[15:0]), .engaged(cursor_engaged),
+        .rd_index(contour_rd_index), .rd_data(contour_rd_data),
+        .samples(potts_samples), .valid_mask(potts_valid), .full(potts_capture_full)
+    );
+
     always_ff @(posedge clk_sys_100m or negedge rst_sys_n) begin
-        if (!rst_sys_n) begin
-            potts_rest_mask <= 128'd0;
-            for (contour_i=0; contour_i<128; contour_i=contour_i+1)
-                potts_contour[contour_i] <= 16'sd0;
-        end else if (record_write_valid && record_event_data[94:91] == 4'd1) begin
-            potts_contour[record_event_data[87:80]] <= $signed({8'd0, record_event_data[71:64]});
-        end
+        if (!rst_sys_n) potts_purify_done_seen <= 1'b0;
+        else if (potts_capture_arm) potts_purify_done_seen <= 1'b0;
+        else if (potts_purify_done) potts_purify_done_seen <= 1'b1;
     end
+    assign potts_purify_start = potts_capture_full && !potts_purify_done_seen;
+    // Wired to the PREPARE_RECORD command and to CSR 0x34 in the commit task.
+    assign potts_capture_arm = 1'b0;
+    assign contour_rd_index = 5'd0;
+
+    // Absorb rest runs shorter than the DP's minimum segment length, otherwise
+    // a two-tick hand-off leaves the DP with no valid segmentation at all.
+    v2_loop_rest_purify #(.K(32)) u_purify (
+        .clk(clk_sys_100m), .rst_n(rst_sys_n), .start(potts_purify_start),
+        .raw_valid(potts_valid), .purified_valid(potts_purified),
+        .busy(potts_purify_busy), .done(potts_purify_done)
+    );
+
+    always_comb begin
+        for (contour_i = 0; contour_i < 128; contour_i = contour_i + 1)
+            potts_contour[contour_i] = (contour_i < 32)
+                ? $signed({6'd0, potts_samples[contour_i]})
+                : 16'sd0;
+    end
+    assign potts_rest_mask = {{96{1'b1}}, ~potts_purified};
+
     generate if (USE_POTTS) begin : g_potts
     wire potts_run_start = (PRESERVE_POTTS_PLANE != 0) ? (sample_index == 32'd64) : potts_start;
     v2_potts_commit_fsm #(.HORIZON(POTTS_HORIZON)) u_potts (
-        .clk(clk_sys_100m), .rst_n(rst_sys_n), .start(potts_run_start), .lambda_q16(16'hffff),
+        .clk(clk_sys_100m), .rst_n(rst_sys_n), .start(potts_run_start), .lambda_q16(potts_lambda),
         .rest_mask(potts_rest_mask), .contour(potts_contour), .busy(potts_busy), .progress(), .done(potts_done),
         .overflow(potts_overflow), .backtrace_valid(potts_backtrace_valid), .event_valid(potts_event_valid),
         .event_ready(potts_event_ready), .event_data(potts_event_data), .event_count(potts_event_count)
@@ -850,6 +884,7 @@ end
             wt_select_index <= 10'd0; wt_length <= 16'd1024;
             wt_expected_crc <= 16'hffff; wt_apply_version <= 16'd0;
             thresholds_reg <= 32'd0;
+            potts_lambda <= 16'd21600;
             bpm_reg <= 16'd120; bpm_we_q <= 1'b0;
             loop_ctrl_valid <= 1'b0; loop_ctrl_op <= 3'd0; loop_ctrl_track <= 3'd0;
             loop_ctrl_pending <= 1'b0; loop_ctrl_pending_op <= 3'd0;

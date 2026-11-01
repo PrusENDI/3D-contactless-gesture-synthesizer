@@ -57,7 +57,12 @@ module v2_potts_commit_fsm #(
  logic [7:0] wr_e_q, wr_s_q;
  logic [2:0] wr_d_q;
  logic [31:0] wr_cost_q;
- function automatic integer note(input integer k); case(k)0:note=57;1:note=60;2:note=62;3:note=64;default:note=67;endcase endfunction
+ // Two tables: `level` is the contour value a degree is fitted against (the
+ // midpoint of that note's cursor_y interval, decided by the map in
+ // v2_live_rule_engine and shifted by six), `midi_note` is what the event
+ // carries.  Using one table for both would put 30..978 into the note field.
+ function automatic integer level(input integer k); case(k)0:level=30;1:level=135;2:level=286;3:level=421;4:level=557;5:level=707;6:level=858;default:level=978;endcase endfunction
+ function automatic integer midi_note(input integer k); case(k)0:midi_note=55;1:midi_note=57;2:midi_note=60;3:midi_note=62;4:midi_note=64;5:midi_note=67;6:midi_note=69;default:midi_note=72;endcase endfunction
  function automatic [31:0] sat(input integer v); if(v>32'sh3fffffff)sat=32'sh3fffffff; else if(v<0)sat=32'd0; else sat=v[31:0]; endfunction
  assign busy=state!=IDLE; assign event_valid=ev_valid_q; assign event_data=ev_valid_q?ev_q:96'd0;
  assign dp_rd_addr = (state==RD1) ? s[7:0] : e[7:0];
@@ -136,7 +141,7 @@ module v2_potts_commit_fsm #(
         if (rest_mask[seg_t]) has_rest_acc=1;
         else begin
           has_data_acc=1;
-          err_acc=err_acc+(contour[seg_t]-note(d))*(contour[seg_t]-note(d));
+          err_acc=err_acc+(contour[seg_t]-level(d))*(contour[seg_t]-level(d));
         end
         seg_t=seg_t+1;
       end else state<=RD1;
@@ -147,8 +152,8 @@ module v2_potts_commit_fsm #(
       err=err_acc; has_rest=has_rest_acc; has_data=has_data_acc;
       commit_upd_q <= commit_upd;
       wr_e_q <= e[7:0]; wr_s_q <= s[7:0]; wr_d_q <= d; wr_cost_q <= commit_cost;
-      last_cell <= (e==HORIZON && s==HORIZON-1 && d==4);
-      if(d==4)begin d<=0;if(s==e-1)begin s<=0;e<=e+1;progress<=e;end else s<=s+1;end else d<=d+1;
+      last_cell <= (e==HORIZON && s==HORIZON-1 && d==7);
+      if(d==7)begin d<=0;if(s==e-1)begin s<=0;e<=e+1;progress<=e;end else s<=s+1;end else d<=d+1;
       state<=WRITE;
     end
     WRITE: begin
@@ -160,7 +165,7 @@ module v2_potts_commit_fsm #(
     end
     TRACE: begin
       if(trace_end==0)begin backtrace_valid<=1;event_count<=wr;rd<=0;if(wr==0)begin ev_valid_q<=1'b0;state<=IDLE;done<=1;end else begin ev_q<=events[0];ev_valid_q<=1'b1;state<=EMIT;end end
-      else begin trace_start=bp_s[trace_end];trace_deg=bp_d[trace_end];if(!rest_mask[trace_start]&&wr<EV_CAP)begin temp_event=0;temp_event[94:91]=4'd1;temp_event[87:80]=trace_start;temp_event[79:72]=trace_end-trace_start;temp_event[71:64]=note(trace_deg);temp_event[63:56]=8'd100;events[wr]<=temp_event;wr<=wr+1;end else if(wr>=EV_CAP)overflow<=1;trace_end<=trace_start;end
+      else begin trace_start=bp_s[trace_end];trace_deg=bp_d[trace_end];if(!rest_mask[trace_start]&&wr<EV_CAP)begin temp_event=0;temp_event[94:91]=4'd1;temp_event[87:80]=trace_start;temp_event[79:72]=trace_end-trace_start;temp_event[71:64]=midi_note(trace_deg);temp_event[63:56]=8'd100;events[wr]<=temp_event;wr<=wr+1;end else if(wr>=EV_CAP)overflow<=1;trace_end<=trace_start;end
     end
     EMIT: if(ev_valid_q&&event_ready)begin if(rd+1>=wr)begin ev_valid_q<=1'b0;state<=IDLE;done<=1;end else begin rd<=rd+1;ev_q<=events[rd+1];ev_valid_q<=1'b1;end end
    endcase

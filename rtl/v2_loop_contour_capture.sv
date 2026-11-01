@@ -15,6 +15,7 @@ module v2_loop_contour_capture #(
   input  logic engaged,             // cursor_engaged
   input  logic [4:0] rd_index,
   output logic [15:0] rd_data,
+  output logic [15:0] samples [0:K-1],   // whole array for the DP
   output logic [K-1:0] valid_mask,
   output logic full
 );
@@ -25,8 +26,11 @@ module v2_loop_contour_capture #(
   logic armed;
   logic waiting_zero;
   integer i;
+  integer ci;
 
   assign rd_data = {6'd0, mem[rd_index[SB-1:0]]};
+  always_comb
+    for (ci = 0; ci < K; ci = ci + 1) samples[ci] = {6'd0, mem[ci]};
 
   always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin

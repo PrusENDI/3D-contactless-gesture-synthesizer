@@ -8,7 +8,7 @@
 module tb_v2_potts_commit;
   logic clk = 0, rst_n = 0, start = 0, ready = 1;
   logic busy, done, overflow, bt, ev;
-  logic [15:0] lam = 16'd65536;
+  logic [15:0] lam = 16'd0;
   logic [127:0] rest = 128'd0;
   logic signed [15:0] c [0:127];
   logic [7:0] prog;
@@ -27,7 +27,8 @@ module tb_v2_potts_commit;
 
   initial begin : run
     logic [95:0] held;
-    for (i = 0; i < 128; i = i + 1) c[i] = (i < 64) ? 57 : 67;
+    // y-space levels: 135 is note 57, 978 is note 72.
+    for (i = 0; i < 128; i = i + 1) c[i] = (i < 64) ? 135 : 978;
     repeat (2) @(posedge clk);
     rst_n = 1;
     @(negedge clk);

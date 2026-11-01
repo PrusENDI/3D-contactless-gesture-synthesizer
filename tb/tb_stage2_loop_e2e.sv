@@ -19,6 +19,8 @@ module tb_stage2_loop_e2e;
   integer i, t, guard, boundary_count = 0, voices_seen = 0;
   integer sweep;
   integer all_off_events = 0;
+  integer voice_all_off = 0;
+  integer stop_cycles = -1;
   integer ev_tick = -1, ev_dur = -1, ev_note = -1, ev_count = 0;
 
   always #5 clk_50m = ~clk_50m;
@@ -46,6 +48,8 @@ module tb_stage2_loop_e2e;
         dut.loop_event_data[94:91] == 4'd5) all_off_events = all_off_events + 1;
     if (dut.active_voice_count > 0) voices_seen = voices_seen + 1;
     // The events the DP hands to the writer are the melody that gets stored.
+    if (dut.voice_event_valid && dut.voice_event_ready &&
+        dut.voice_event_data[94:91] == 4'd5) voice_all_off = voice_all_off + 1;
     if (dut.potts_event_valid && dut.potts_event_ready) begin
       if (ev_count == 0) begin
         ev_tick = dut.potts_event_data[87:80];
@@ -218,10 +222,36 @@ module tb_stage2_loop_e2e;
     if (all_off_events < boundary_count)
       $fatal(1, "%0d ALL_NOTES_OFF for %0d boundaries", all_off_events, boundary_count);
 
+    // STOP while a note is sounding (still in PLAY here): the loop must send
+    // ALL_NOTES_OFF and the voice must fall silent.  Without it the note hangs,
+    // because the scheduler simply stops scanning when PLAY ends.
+    guard = 0;
+    while (dut.active_voice_count == 0 && guard < 200) begin
+      for (t = 0; t < 32 && dut.active_voice_count == 0; t = t + 1)
+        advance_tick(t, 16'd0, 1'b0);
+      guard = guard + 1;
+    end
+    if (dut.active_voice_count == 0) $fatal(1, "no note was sounding before STOP");
+    voice_all_off = 0;
+    inject_control(8'h02, 8'h14, 8'h39, 32'd1);       // STOP (the contract needs data=1)
+    repeat (10) @(posedge clk_50m);
+    if (dut.mode_play) $fatal(1, "STOP did not leave PLAY (mode_play still high)");
+    guard = 0;
+    // The release is 1024 per sample (about 64 samples), so allow a few hundred.
+    while (dut.active_voice_count != 0 && guard < 300000) begin
+      @(posedge clk_50m);
+      guard = guard + 1;
+    end
+    if (voice_all_off == 0)
+      $fatal(1, "STOP did not send ALL_NOTES_OFF to the voice engine");
+    if (dut.active_voice_count != 0)
+      $fatal(1, "%0d voices still sounding after STOP", dut.active_voice_count);
+    stop_cycles = guard;
+
     // Second take: commit without ever filling the contour.  The untouched
     // ticks were cleared at arm time, so they are rests; the melody must be the
     // 12 captured ticks only, not a tail fitted to the zeroed samples and not an
-    // empty track.
+    // empty track.  (Committing does not need a sounding mode.)
     inject_control(8'h02, 8'h18, 8'h36, 32'd1);
     ev_count = 0; ev_tick = -1; ev_dur = -1; ev_note = -1;
     for (t = 0; t < 12; t = t + 1) advance_tick(t, 16'd60000, 1'b1);
@@ -238,8 +268,8 @@ module tb_stage2_loop_e2e;
       $fatal(1, "partial take event t%0d/d%0d/n%0d expected t0/d12/n72",
              ev_tick, ev_dur, ev_note);
 
-    $display("PASS tb_stage2_loop_e2e boundaries=%0d voices_seen=%0d commit_events=%0d",
-             boundary_count, voices_seen, dut.potts_commit_count);
+    $display("PASS tb_stage2_loop_e2e boundaries=%0d voices_seen=%0d commit_events=%0d stop_cycles=%0d",
+             boundary_count, voices_seen, dut.potts_commit_count, stop_cycles);
     $finish;
   end
 

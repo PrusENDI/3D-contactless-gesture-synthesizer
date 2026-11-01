@@ -96,9 +96,9 @@ try {
   Log ("before: 0x38=0x{0:X8} STATUS=0x{1:X8}" -f $pre.Val, $preStatus.Val)
   if (-not $pre.Ok -or -not $preStatus.Ok) { Log 'FATAL: the board did not answer the status reads'; exit 13 }
   Log 'resetting the loop plane (STOP then RESET)'
-  [void](X 0x02 0x14 0)
+  $stopAck = X 0x02 0x14 1; if (-not $stopAck.Ok) { Log ("FATAL: STOP refused err={0}" -f $stopAck.Err); exit 15 }
   Start-Sleep -Milliseconds 150
-  [void](X 0x02 0x2C 0)
+  $resetAck = X 0x02 0x2C 1; if (-not $resetAck.Ok) { Log ("FATAL: RESET refused err={0}" -f $resetAck.Err); exit 16 }
   Start-Sleep -Milliseconds 150
   $after = X 0x01 0x38 0
   Log ("after reset 0x38=0x{0:X8}" -f $after.Val)
@@ -201,7 +201,21 @@ try {
     exit 11
   }
   Log ("final status 0x{0:X8}" -f $st.Val)
-  Log 'STAGE2 LOOP RESULT: PASS (listen for the loop; it should repeat every 32 ticks)'
+
+  # Stop the loop and prove it went silent.  The contract needs data=1 for STOP;
+  # writing 0 is rejected, which is why earlier attempts kept playing.
+  $stop = X 0x02 0x14 1
+  if (-not $stop.Ok) { Log ("FATAL: STOP refused err={0}" -f $stop.Err); exit 17 }
+  Start-Sleep -Milliseconds 400
+  $after = (X 0x01 0xF8 0).Val
+  $voicesAfter = ($after -shr 17) -band 0x3F
+  Log ("after STOP: voices={0} steals={1}" -f $voicesAfter, ($after -band 0xFFFF))
+  if ($voicesAfter -ne 0) {
+    Log 'FAIL: a voice is still sounding after STOP'
+    exit 18
+  }
+  Log 'STOPPED cleanly'
+  Log 'STAGE2 LOOP RESULT: PASS (loop played, then stopped silently)'
 } finally {
   $sp.Close()
   $sp.Dispose()

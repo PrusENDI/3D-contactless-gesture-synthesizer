@@ -528,8 +528,31 @@ logic [9:0] wt_read_index_sel;
     logic [15:0] voice_steal_count;
     // The Potts result never goes to the voice engine directly: it is written
     // into the shadow track first and only heard after the bank swap.
-    assign voice_event_valid = mode_live ? live_event_valid : mode_play ? loop_event_valid : 1'b0;
-    assign voice_event_data = mode_live ? live_event_data : loop_event_data;
+    // Leaving a sounding mode must release the voices: the scheduler simply
+    // stops scanning when PLAY ends, so a note that was on would hang forever.
+    // One ALL_NOTES_OFF is injected into the voice engine and held until it is
+    // accepted; the voices then run their normal release (about 1.3 ms).
+    logic all_off_pending;
+    logic mode_play_q;
+    wire  all_off_valid = all_off_pending;
+    wire [95:0] all_off_event = {1'b0, 4'd5, 91'd0};
+    wire leaving_sounding = ((mode_play_q && !mode_play) || (mode_live_q && !mode_live)) &&
+                            !all_off_pending;
+    always_ff @(posedge clk_sys_100m or negedge rst_sys_n) begin
+        if (!rst_sys_n) begin
+            all_off_pending <= 1'b0;
+            mode_play_q <= 1'b0;
+        end else begin
+            mode_play_q <= mode_play;
+            if (leaving_sounding) all_off_pending <= 1'b1;
+            else if (all_off_valid && voice_event_ready) all_off_pending <= 1'b0;
+        end
+    end
+
+    assign voice_event_valid = all_off_valid ||
+                               (mode_live ? live_event_valid : mode_play ? loop_event_valid : 1'b0);
+    assign voice_event_data = all_off_valid ? all_off_event
+                                            : (mode_live ? live_event_data : loop_event_data);
     assign loop_event_ready = mode_play ? voice_event_ready : 1'b0;
     assign potts_event_ready = potts_writer_ready;
     // Held in reset outside LIVE/PLAY so no note can survive a mode change.

@@ -72,8 +72,8 @@ function X {
 }
 
 try {
-  [void](X 0x02 0x14 0); Start-Sleep -Milliseconds 100
-  [void](X 0x02 0x2C 0); Start-Sleep -Milliseconds 100
+  $stopAck = X 0x02 0x14 1; if (-not $stopAck.Ok) { Log ("FATAL: STOP refused err={0}" -f $stopAck.Err); exit 15 }; Start-Sleep -Milliseconds 100
+  $resetAck = X 0x02 0x2C 1; if (-not $resetAck.Ok) { Log ("FATAL: RESET refused err={0}" -f $resetAck.Err); exit 16 }; Start-Sleep -Milliseconds 100
   Log ("0x38 after reset = 0x{0:X8}" -f (X 0x01 0x38 0).Val)
 
   [void](X 0x02 0x0C 0)

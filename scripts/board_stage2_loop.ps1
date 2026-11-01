@@ -165,11 +165,17 @@ try {
   Log ("contour[0..7] = {0}" -f (($contour[0..7] | ForEach-Object { "{0,4}" -f $_ }) -join ''))
   $nonZero = 0
   foreach ($v in $contour) { if ($v -ne 0) { $nonZero++ } }
-  if ($nonZero -eq 0) {
-    Log 'FAIL: the contour is empty (no hand in the field during the capture); nothing was committed, so there will be no sound'
+  Log ("contour has {0}/32 non-zero samples" -f $nonZero)
+  # The real question is whether the DP produced notes, not whether the samples
+  # are non-zero: y=0 is a legal sample, and an all-rest contour legitimately
+  # commits nothing.
+  $afterCommit = (X 0x01 0xF8 0).Val      # page 1 was already selected
+  $committed = ($afterCommit -shr 21) -band 0x3F
+  if ($committed -eq 0) {
+    Log 'FAIL: the commit produced no notes (all rest, or nothing captured); there will be no sound'
     exit 12
   }
-  Log ("contour has {0}/32 non-zero samples" -f $nonZero)
+  Log ("committed {0} note(s)" -f $committed)
 
   Log 'MODE=PLAY (the swap happens at the first loop boundary, up to 8 s at 60 BPM)'
   $play = X 0x02 0x04 4

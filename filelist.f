@@ -21,6 +21,7 @@ rtl/v2_live_rule_engine.sv
 rtl/v2_loop_event_recorder.sv
 rtl/v2_loop_event_store_dpb.sv
 rtl/v2_loop_scheduler.sv
+rtl/v2_loop_contour_capture.sv
 rtl/v2_potts_commit_fsm.sv
 rtl/v2_note_increment_rom.sv
 rtl/v2_voice_state_bank.sv

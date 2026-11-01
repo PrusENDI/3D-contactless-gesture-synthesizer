@@ -24,7 +24,10 @@ module v2_board_top (
         .PRESERVE_POTTS_PLANE(0),
         .POTTS_HORIZON(32),
         .FX_ENABLE(1),
-        .FX_LEVEL(1)
+        .FX_LEVEL(1),
+        // The 1/8/32-note test tones are compiled out of the production build;
+        // a dedicated test bitstream flips this to 1 (TEST_SELECT, 0xA0).
+        .USE_TEST_MODE(0)
     ) u_v2 (
         .clk_50m,
         .mgc_sda,

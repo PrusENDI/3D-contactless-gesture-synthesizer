@@ -39,7 +39,10 @@ module mgc3130_v2_top #(
     // promoted into the audio configuration plane. The board probe enables
     // this path so P&R cannot silently sweep it away.
     parameter integer FX_ENABLE = 0,
-    parameter integer FX_LEVEL = 0
+    parameter integer FX_LEVEL = 0,
+    // On-board test tones (1/8/32 notes).  Off in the production build, on in a
+    // dedicated test bitstream; see the generate block near TEST_SELECT.
+    parameter integer USE_TEST_MODE = 0
 ) (
     input  wire clk_50m,
     inout  wire mgc_sda,
@@ -991,23 +994,41 @@ end
                           (cmd_address == V2_CSR_WT_CRC);
     assign wt_apply_valid_src = cmd_valid && cmd_ready && (cmd_op == V2_OP_WRITE) &&
                             (cmd_address == V2_CSR_WT_APPLY);
-    // The current implementation owns TEST_SELECT_0 only.  Other A0..AF
-    // channels remain reserved for future diagnostic blocks.
-    assign test_csr_valid = cmd_valid && cmd_ready &&
-                            (cmd_address == V2_CSR_TEST_SELECT);
+    // The on-board test tones (1/8/32 notes) are a bring-up aid, not part of the
+    // instrument: they cost about 2500 LUT and 1150 registers, which is more than
+    // the entire single-voice LIVE audio path.  The production build compiles them
+    // out; a separate test bitstream turns USE_TEST_MODE on.
+    generate if (USE_TEST_MODE) begin : g_test_mode
+        assign test_csr_valid = cmd_valid && cmd_ready &&
+                                (cmd_address == V2_CSR_TEST_SELECT);
+        (* syn_preserve = 1 *) v2_test_mode u_test_mode (
+            .clk(clk_sys_100m), .rst_n(rst_sys_n), .sample_ce(sample_ce),
+            .csr_valid(test_csr_valid), .csr_write(test_csr_write),
+            .csr_addr(test_csr_addr), .csr_wdata(test_csr_wdata),
+            .csr_ready(test_csr_ready), .csr_rvalid(test_csr_rvalid),
+            .csr_rdata(test_csr_rdata), .mixed_sample(test_sample),
+            .sample_valid(test_sample_valid), .active_bitmap(test_active_bitmap),
+            .sample_counter(test_sample_counter), .test_active(test_active),
+            .fault(test_fault)
+        );
+    end else begin : g_no_test_mode
+        assign test_csr_valid = 1'b0;
+        assign test_csr_ready = 1'b1;
+        assign test_csr_rvalid = 1'b0;
+        assign test_csr_rdata = 32'd0;
+        assign test_sample = 16'sd0;
+        assign test_sample_valid = 1'b0;
+        assign test_active = 1'b0;
+        assign test_active_bitmap = 32'd0;
+        assign test_sample_counter = 32'd0;
+        assign test_fault = 1'b0;
+    end endgenerate
+    // TEST_SELECT_0 is the only channel the test block owns; A4..AF stay reserved.
+    // These three assignments also serve the disabled branch, where the block is
+    // compiled out and only the generic CSR path answers.
     assign test_csr_write = (cmd_op == V2_OP_WRITE);
     assign test_csr_addr = cmd_address;
     assign test_csr_wdata = cmd_data;
-    (* syn_preserve = 1 *) v2_test_mode u_test_mode (
-        .clk(clk_sys_100m), .rst_n(rst_sys_n), .sample_ce(sample_ce),
-        .csr_valid(test_csr_valid), .csr_write(test_csr_write),
-        .csr_addr(test_csr_addr), .csr_wdata(test_csr_wdata),
-        .csr_ready(test_csr_ready), .csr_rvalid(test_csr_rvalid),
-        .csr_rdata(test_csr_rdata), .mixed_sample(test_sample),
-        .sample_valid(test_sample_valid), .active_bitmap(test_active_bitmap),
-        .sample_counter(test_sample_counter), .test_active(test_active),
-        .fault(test_fault)
-    );
     // Keep commands queued while a loop control operation or table APPLY is
     // busy.  Reads remain available during APPLY so software can observe the
     // status; writes are held until the owning bank returns to S_IDLE.

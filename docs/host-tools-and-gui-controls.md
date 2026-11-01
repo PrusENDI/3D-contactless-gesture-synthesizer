@@ -178,11 +178,16 @@ GUI 必须：**每条命令递增 seq 并校验回显**、校验帧 CRC、超时
 遥测帧固定 22 字节：`5A 02 01 seq[2] x[2] y[2] z[2] … CRC`（x/y/z 大端）。与 ACK 帧同长，
 靠 `[2]==0x01` 区分。
 
-### 3.5 测试模式
+### 3.5 测试模式（生产位流里**已编译掉**）
 
 | 地址 | 名称 | 访问 | 写掩码 | 说明 |
 | --- | --- | --- | --- | --- |
 | 0xA0 | TEST_SELECT | RW | 0xFFFFFFFF | selector=`wdata[7:0]`：**1 = N-tone**，N=`wdata[13:8]`（1..32，0=关闭）；读回 `{tone_count, 18'd0, selector}` |
+
+> **生产位流不含这个块**：`v2_board_top` 传 `USE_TEST_MODE(0)`（约 2500 LUT / 1150 寄存器，
+> 比整条单声部 LIVE 出口还贵）。因此生产板上写 0xA0 会被 ACK 但**没有效果**，读回 0。
+> 需要 1/8/32 音测试时单独出一个位流（把 `v2_board_top.sv` 里 `USE_TEST_MODE` 改成 1），
+> 或直接用 `tb_voice_engine_banked` / `tb_wt_voice_poly` 的仿真证据。
 
 > `test_active` 时音频输出被测试音**取代**（`i2s_sample = test_active ? test_sample : fx_quiet`），
 > GUI 必须把它做成"互锁"开关。实现只占 0xA0，其余 `0xA4..0xAF` 写入会被 ACK 但无效果。
@@ -331,7 +336,7 @@ GUI 必须：**每条命令递增 seq 并校验回显**、校验帧 CRC、超时
 | LIVE 页 | 追踪/琶音开关、BPM（只读，说明由 X 决定）、gate/note/事件计数 | `THRESHOLDS[23]`、`0xD4/0xE8`，W4 |
 | 遥测页 | 开关、周期、实时 x/y/z 画布（复用 `cursor_view.py` 的绘制） | `TLM_CONTROL`，W8 |
 | 诊断页 | 只读寄存器表（0xA4–0xFC）、探针分页、原始坐标/光标坐标 | §3.6，W1 |
-| 测试页 | N-tone 开关 + N（互锁） | `0xA0`，W9 |
+| 测试页 | N-tone 开关 + N（互锁，**仅测试位流**） | `0xA0`，W9 |
 
 ---
 

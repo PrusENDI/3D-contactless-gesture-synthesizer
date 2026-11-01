@@ -161,7 +161,26 @@ try {
   Log 'MODE=PLAY (the swap happens at the first loop boundary, up to 8 s at 60 BPM)'
   $play = X 0x02 0x04 4
   if (-not $play.Ok) { Log ("FATAL: MODE=PLAY refused err={0}" -f $play.Err); exit 10 }
-  Start-Sleep -Seconds 10
+  # Watch the voice engine while the loop plays: page 2 of 0xF8 carries the
+  # steal counter and the active voice count, so a run that never steals and
+  # keeps a handful of voices is healthy.
+  [void](X 0x02 0x34 2)
+  $maxVoices = 0
+  for ($t = 0; $t -lt 20; $t++) {
+    $dbg = (X 0x01 0xF8 0).Val
+    $voices = ($dbg -shr 17) -band 0x3F
+    if ($voices -gt $maxVoices) { $maxVoices = $voices }
+    if (($t % 4) -eq 0) {
+      Log ("play voices={0} steals={1} overflow={2} voice_busy={3}" -f `
+        $voices, ($dbg -band 0xFFFF), (($dbg -shr 16) -band 1), (($dbg -shr 23) -band 3))
+    }
+    Start-Sleep -Milliseconds 500
+  }
+  $finalDbg = (X 0x01 0xF8 0).Val
+  Log ("play summary: max_voices={0} steals={1}" -f $maxVoices, ($finalDbg -band 0xFFFF))
+  if (($finalDbg -band 0xFFFF) -ne 0) {
+    Log 'WARN: the voice engine had to steal; that is not expected for a loop this small'
+  }
 
   $st = X 0x01 0x38 0
   if (($st.Val -band 0x08) -ne 0) {

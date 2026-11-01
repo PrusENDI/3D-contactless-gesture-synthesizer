@@ -245,11 +245,19 @@ module v2_voice_engine_banked #(
             bank_wr_en = 1'b1;
             bank_wr_addr = steal_slot_pending;
             bank_wr_data[31:0] = 32'd0;
-            bank_wr_data[63:32] = 32'd0;
+            // Half a cycle of phase offset: two oscillators that start together
+            // sum to exactly twice one oscillator until the detune pulls them
+            // apart, which is the thin sound the detune is meant to remove.
+            bank_wr_data[63:32] = 32'h8000_0000;
             bank_wr_data[95:64] = steal_base_step_pending;
-            bank_wr_data[127:96] = steal_base_step_pending;
+            bank_wr_data[127:96] = detuned_step(steal_base_step_pending, steal_velocity_pending);
             bank_wr_data[159:128] = apply_delta(steal_base_step_pending, steal_pitch_pending);
-            bank_wr_data[191:160] = apply_delta(steal_base_step_pending, -steal_pitch_pending);
+            // The glide target carries the same offset, otherwise bounded_step
+            // walks the detuned step back to the base within a few hundred
+            // samples and the detune disappears.
+            bank_wr_data[191:160] = detuned_step(
+                apply_delta(steal_base_step_pending, -steal_pitch_pending),
+                steal_velocity_pending);
             bank_wr_data[207:192] = 16'd0;
             bank_wr_data[215:208] = steal_velocity_pending;
             bank_wr_data[223:216] = (steal_timbre_pending == 16'd0) ? DEFAULT_MIX_A : steal_timbre_pending[15:8];
@@ -275,11 +283,13 @@ module v2_voice_engine_banked #(
             bank_wr_en = 1'b1;
             bank_wr_addr = free_slot[4:0];
             bank_wr_data[31:0]   = 32'd0;
-            bank_wr_data[63:32]  = 32'd0;
+            bank_wr_data[63:32]  = 32'h8000_0000;   // half a cycle apart
             bank_wr_data[95:64]  = rom_step;
-            bank_wr_data[127:96] = rom_step;
+            bank_wr_data[127:96] = detuned_step(rom_step, event_data[63:56]);
             bank_wr_data[159:128] = apply_delta(rom_step, $signed({event_data[55], event_data[55:40]}));
-            bank_wr_data[191:160] = apply_delta(rom_step, -$signed({event_data[55], event_data[55:40]}));
+            bank_wr_data[191:160] = detuned_step(
+                apply_delta(rom_step, -$signed({event_data[55], event_data[55:40]})),
+                event_data[63:56]);
             bank_wr_data[207:192] = 16'd0;
             bank_wr_data[215:208] = event_data[63:56];
             bank_wr_data[223:216] = (event_data[39:24] == 16'd0) ? DEFAULT_MIX_A : event_data[39:32];
@@ -310,6 +320,21 @@ module v2_voice_engine_banked #(
             if (sum < 33'sd0) apply_delta = 32'd0;
             else if (sum > 33'sh0FFFFFFFF) apply_delta = 32'hFFFFFFFF;
             else apply_delta = sum[31:0];
+        end
+    endfunction
+
+    // The second oscillator of a voice runs this much slower than the first.
+    // The velocity picks the width in octave-like steps: the two high bits of
+    // the velocity byte select a shift of 11/10/9/8, i.e. 0.05%, 0.10%, 0.20%
+    // or 0.39% of the increment.  It is a plain shift, so no multiplier is
+    // needed and the offset is exact for any pitch.
+    function automatic logic [31:0] detuned_step(
+        input logic [31:0] base, input logic [7:0] gain
+    );
+        logic [3:0] shift;
+        begin
+            shift = 4'd11 - {2'b00, gain[7:6]};
+            detuned_step = base - (base >> shift);
         end
     endfunction
 

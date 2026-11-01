@@ -381,8 +381,12 @@ module tb_top_wt_voice;
     play_note(8'd55, VELOCITY);
     wait_sample("ramp sample");
     // Let the envelope reach sustain (attack 16 + decay 64 samples) so the
-    // attenuation stops changing inside the measured window.
-    for (i = 0; i < 120; i = i + 1) next_sample;
+    // attenuation stops changing inside the measured window.  Stop at 95
+    // samples, not 120: the second oscillator of each voice now starts half a
+    // table ahead (phase_b = 0x80000000), and with 4.18 index steps per sample
+    // its index reaches the end of the table and wraps at about 115 samples,
+    // which would put a -511 * 63 cliff inside the window.
+    for (i = 0; i < 95; i = i + 1) next_sample;
     next_sample;
     first_val = dut.voice_sample;
     for (i = 0; i < 8; i = i + 1) next_sample;

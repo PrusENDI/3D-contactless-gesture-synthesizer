@@ -218,13 +218,19 @@ git commit -m "feat: six P2a CSRs with one clamp function in the contract"
   `lfo_retrig`、`lfo_unipolar`、`lfo_wave[2:0]`、`fx_enable_reg`、`fx_level_reg[1:0]`、`fx_gain_reg[17:0]`、
   `fx_cutoff_reg[15:0]`、`fx_delay_reg[9:0]`、`fx_feedback_reg[15:0]`、`fx_reverb_reg[15:0]`
 
+> **Task 1 已落地的事实**（`c868b8e`）：`0x84–0x90` 原本叫 `V2_CSR_TLM_STATUS/LATENCY/PEAK/RMS`，
+> 现在**已改名**成 `FX_A/FX_B/FX_C/VOLUME`（同一个地址，避免 case 重复导致 vlog 警告），
+> 那四个 `TLM_*_SHIFT` 常量已删；`0x94/0x98/0x9C` 保持原名、RO、掩码 0。
+> 因此 Task 7 的 GUI 文档要写清"PEAK/RMS 这两个名字已经不存在"。
+
 - [ ] **Step 1: 写失败测试 `tb/tb_top_p2_csr.sv`**
 
 复用 `tb/tb_top_wt_voice.sv` 的 `inject_control()`（11 字节帧 + 等回复 + 查 `rsp_error`）。断言：
 
 1. 复位读回：`0x40=0`、`0x44=0`、`0x84=0x0001_0000`（该 tb 用 `FX_ENABLE(0)`）、`0x88=0xFFFF_0000`、`0x8C=0`、`0x90=0x0001_0000`；
-2. 写读往返：写 `0x40=0x0000_10C5` 读回相同（ci=0xC5、res=0x10、enable=1）；
-3. clamp：写 `0x40` 的 ci=0xFFF → 读回 `0x01AF`（423）；写 `0x8C=0xFFFF_FFFF` → 读回 `0x7FFF_7333`；
+2. 写读往返：写 `0x40=0x0101_00C5` 读回相同（ci=0xC5、res=0x10、enable=1；位段 `[11:0]`/`[19:12]`/`[24]`）；
+3. clamp：写 `0x40` 的 ci=0xFFF → 读回 `0x0000_01A7`（423 = `0x1A7`，**不是 `0x1AF`**）；
+   写 `0x8C=0xFFFF_FFFF` → 读回 `0x7FFF_7333`；
 4. **P2b 未实现**：写 `0x9C` 必须 `rsp_error == 8'h02`（BAD_ADDRESS）；
 5. 掩码外的位：写 `0x90 = 0xFFFF_FFFF` → 读回 `0x0002_0000`（夹到 2.0 并清掉掩码外位）。
 

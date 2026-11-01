@@ -119,7 +119,7 @@ localparam logic [7:0] V2_ADDR_DIAG_FIRST   = 8'hB0;
       V2_CSR_COMMIT=8'h28, V2_CSR_RESET=8'h2C,
       V2_CSR_THRESHOLDS=8'h30, V2_CSR_CONTOUR_DATA=8'h34,
       V2_CSR_POTTS_STATUS=8'h38, V2_CSR_POTTS_LAMBDA=8'h3C,
-      V2_CSR_DIAG_AUDIO=8'h40, V2_CSR_DIAG_ROUTER=8'h44;
+      V2_CSR_FILTER=8'h40, V2_CSR_LFO=8'h44;
   localparam logic [7:0] V2_CSR_PATCH_SELECT=8'h48,
       V2_CSR_PATCH_SHADOW_DATA=8'h4C, V2_CSR_PATCH_ACTIVE_DATA=8'h50,
       V2_CSR_PATCH_STATUS=8'h54, V2_CSR_PATCH_CRC=8'h58,
@@ -130,8 +130,8 @@ localparam logic [7:0] V2_ADDR_DIAG_FIRST   = 8'hB0;
       V2_CSR_WT_VERSION=8'h74, V2_CSR_WT_APPLY=8'h78,
       V2_CSR_WT_STATUS=8'h7C;
   localparam logic [7:0] V2_CSR_TLM_CONTROL=8'h80,
-      V2_CSR_TLM_STATUS=8'h84, V2_CSR_TLM_LATENCY=8'h88,
-      V2_CSR_TLM_PEAK=8'h8C, V2_CSR_TLM_RMS=8'h90,
+      V2_CSR_FX_A=8'h84, V2_CSR_FX_B=8'h88,
+      V2_CSR_FX_C=8'h8C, V2_CSR_VOLUME=8'h90,
       V2_CSR_TLM_FIFO=8'h94, V2_CSR_TLM_FAULT=8'h98,
       V2_CSR_TLM_TABLE_VERSION=8'h9C;
   localparam logic [7:0] V2_CSR_TEST_SELECT=8'hA0;
@@ -166,8 +166,8 @@ localparam logic [7:0] V2_ADDR_DIAG_FIRST   = 8'hB0;
   localparam logic [31:0] V2_CSR_CONTOUR_DATA_WRITE_MASK=32'h0000001F;
   localparam logic [31:0] V2_CSR_POTTS_STATUS_WRITE_MASK=32'h00000000;
   localparam logic [31:0] V2_CSR_POTTS_LAMBDA_WRITE_MASK=32'h0000FFFF;
-  localparam logic [31:0] V2_CSR_DIAG_AUDIO_WRITE_MASK=32'h00000000;
-  localparam logic [31:0] V2_CSR_DIAG_ROUTER_WRITE_MASK=32'h00000000;
+  localparam logic [31:0] V2_CSR_FILTER_WRITE_MASK=32'h010FFFFF;
+  localparam logic [31:0] V2_CSR_LFO_WRITE_MASK=32'h3FFFFFFF;
   localparam logic [31:0] V2_CSR_PATCH_SELECT_WRITE_MASK=32'h0000FF1F;
   localparam logic [31:0] V2_CSR_PATCH_SHADOW_DATA_WRITE_MASK=32'hFFFFFFFF;
   localparam logic [31:0] V2_CSR_PATCH_ACTIVE_DATA_WRITE_MASK=32'h00000000;
@@ -183,10 +183,10 @@ localparam logic [7:0] V2_ADDR_DIAG_FIRST   = 8'hB0;
   localparam logic [31:0] V2_CSR_WT_APPLY_WRITE_MASK=32'h8000FFFF;
   localparam logic [31:0] V2_CSR_WT_STATUS_WRITE_MASK=32'h00000000;
   localparam logic [31:0] V2_CSR_TLM_CONTROL_WRITE_MASK=32'hFFFF0001;
-  localparam logic [31:0] V2_CSR_TLM_STATUS_WRITE_MASK=32'h00000000;
-  localparam logic [31:0] V2_CSR_TLM_LATENCY_WRITE_MASK=32'h00000000;
-  localparam logic [31:0] V2_CSR_TLM_PEAK_WRITE_MASK=32'h00000000;
-  localparam logic [31:0] V2_CSR_TLM_RMS_WRITE_MASK=32'h00000000;
+  localparam logic [31:0] V2_CSR_FX_A_WRITE_MASK=32'h001FFFFF;
+  localparam logic [31:0] V2_CSR_FX_B_WRITE_MASK=32'hFFFF03FF;
+  localparam logic [31:0] V2_CSR_FX_C_WRITE_MASK=32'hFFFFFFFF;
+  localparam logic [31:0] V2_CSR_VOLUME_WRITE_MASK=32'h0003FFFF;
   localparam logic [31:0] V2_CSR_TLM_FIFO_WRITE_MASK=32'h00000000;
   localparam logic [31:0] V2_CSR_TLM_FAULT_WRITE_MASK=32'h00000000;
   localparam logic [31:0] V2_CSR_TLM_TABLE_VERSION_WRITE_MASK=32'h00000000;
@@ -218,10 +218,6 @@ localparam logic [7:0] V2_ADDR_DIAG_FIRST   = 8'hB0;
   localparam int V2_CSR_POTTS_STATUS_TIMEOUT_SHIFT=3;
   localparam int V2_CSR_POTTS_STATUS_FULL_SHIFT=4;
   localparam int V2_CSR_POTTS_LAMBDA_VALUE_SHIFT=0;
-  localparam int V2_CSR_DIAG_AUDIO_UNDERRUN_COUNT_SHIFT=0;
-  localparam int V2_CSR_DIAG_AUDIO_PEAK_Q15_SHIFT=16;
-  localparam int V2_CSR_DIAG_ROUTER_DROP_COUNT_SHIFT=0;
-  localparam int V2_CSR_DIAG_ROUTER_FIFO_LEVEL_SHIFT=16;
   localparam int V2_CSR_PATCH_SELECT_FAMILY_SHIFT=0;
   localparam int V2_CSR_PATCH_SELECT_TRACK_SHIFT=2;
   localparam int V2_CSR_PATCH_SELECT_INDEX_SHIFT=8;
@@ -261,11 +257,6 @@ localparam logic [7:0] V2_ADDR_DIAG_FIRST   = 8'hB0;
   localparam int V2_CSR_WT_STATUS_LAST_ERROR_SHIFT=24;
   localparam int V2_CSR_TLM_CONTROL_ENABLE_SHIFT=0;
   localparam int V2_CSR_TLM_CONTROL_PERIOD_MS_SHIFT=16;
-  localparam int V2_CSR_TLM_STATUS_LAST_TYPE_SHIFT=0;
-  localparam int V2_CSR_TLM_STATUS_SEQUENCE_SHIFT=8;
-  localparam int V2_CSR_TLM_LATENCY_LATENCY_US_SHIFT=0;
-  localparam int V2_CSR_TLM_PEAK_PEAK_Q15_SHIFT=0;
-  localparam int V2_CSR_TLM_RMS_RMS_Q15_SHIFT=0;
   localparam int V2_CSR_TLM_FIFO_RX_LEVEL_SHIFT=0;
   localparam int V2_CSR_TLM_FIFO_TX_LEVEL_SHIFT=8;
   localparam int V2_CSR_TLM_FIFO_EVENT_LEVEL_SHIFT=16;
@@ -351,10 +342,9 @@ localparam logic [7:0] V2_ADDR_DIAG_FIRST   = 8'hB0;
     if (address[1:0] != 2'b00 || !v2_address_valid(address)) return V2_ACCESS_NONE;
     case (address)
       V2_CSR_STATUS, V2_CSR_POTTS_STATUS,
-      V2_CSR_DIAG_AUDIO, V2_CSR_DIAG_ROUTER,
       V2_CSR_PATCH_ACTIVE_DATA, V2_CSR_PATCH_STATUS,
-      V2_CSR_WT_STATUS, V2_CSR_TLM_STATUS, V2_CSR_TLM_LATENCY,
-      V2_CSR_TLM_PEAK, V2_CSR_TLM_RMS, V2_CSR_TLM_FIFO,
+      V2_CSR_WT_STATUS,
+      V2_CSR_TLM_FIFO,
       V2_CSR_TLM_FAULT, V2_CSR_TLM_TABLE_VERSION: return V2_ACCESS_RO;
       V2_CSR_PLAY, V2_CSR_STOP, V2_CSR_RECORD, V2_CSR_OVERDUB,
       V2_CSR_CLEAR_TRACK, V2_CSR_CLEAR_ALL, V2_CSR_COMMIT,
@@ -382,8 +372,8 @@ localparam logic [7:0] V2_ADDR_DIAG_FIRST   = 8'hB0;
       V2_CSR_CONTOUR_DATA: return V2_CSR_CONTOUR_DATA_WRITE_MASK;
       V2_CSR_POTTS_STATUS: return V2_CSR_POTTS_STATUS_WRITE_MASK;
       V2_CSR_POTTS_LAMBDA: return V2_CSR_POTTS_LAMBDA_WRITE_MASK;
-      V2_CSR_DIAG_AUDIO: return V2_CSR_DIAG_AUDIO_WRITE_MASK;
-      V2_CSR_DIAG_ROUTER: return V2_CSR_DIAG_ROUTER_WRITE_MASK;
+      V2_CSR_FILTER: return V2_CSR_FILTER_WRITE_MASK;
+      V2_CSR_LFO: return V2_CSR_LFO_WRITE_MASK;
       V2_CSR_PATCH_SELECT: return V2_CSR_PATCH_SELECT_WRITE_MASK;
       V2_CSR_PATCH_SHADOW_DATA: return V2_CSR_PATCH_SHADOW_DATA_WRITE_MASK;
       V2_CSR_PATCH_ACTIVE_DATA: return V2_CSR_PATCH_ACTIVE_DATA_WRITE_MASK;
@@ -399,15 +389,54 @@ localparam logic [7:0] V2_ADDR_DIAG_FIRST   = 8'hB0;
       V2_CSR_WT_APPLY: return V2_CSR_WT_APPLY_WRITE_MASK;
       V2_CSR_WT_STATUS: return V2_CSR_WT_STATUS_WRITE_MASK;
       V2_CSR_TLM_CONTROL: return V2_CSR_TLM_CONTROL_WRITE_MASK;
-      V2_CSR_TLM_STATUS: return V2_CSR_TLM_STATUS_WRITE_MASK;
-      V2_CSR_TLM_LATENCY: return V2_CSR_TLM_LATENCY_WRITE_MASK;
-      V2_CSR_TLM_PEAK: return V2_CSR_TLM_PEAK_WRITE_MASK;
-      V2_CSR_TLM_RMS: return V2_CSR_TLM_RMS_WRITE_MASK;
+      V2_CSR_FX_A: return V2_CSR_FX_A_WRITE_MASK;
+      V2_CSR_FX_B: return V2_CSR_FX_B_WRITE_MASK;
+      V2_CSR_FX_C: return V2_CSR_FX_C_WRITE_MASK;
+      V2_CSR_VOLUME: return V2_CSR_VOLUME_WRITE_MASK;
       V2_CSR_TLM_FIFO: return V2_CSR_TLM_FIFO_WRITE_MASK;
       V2_CSR_TLM_FAULT: return V2_CSR_TLM_FAULT_WRITE_MASK;
       V2_CSR_TLM_TABLE_VERSION: return V2_CSR_TLM_TABLE_VERSION_WRITE_MASK;
       default: return 32'h00000000;
     endcase
+  endfunction
+  // Single source of truth for parameter validation: a write succeeds with the
+  // value clamped (spec 2026-11-01 section 11.6), it is never NACKed for range.
+  // Addresses outside the six P2a CSRs are not parameter surfaces yet (0x94 /
+  // 0x98 / 0x9C are P2b and stay read-only), so they pass through untouched.
+  // For the six, the final AND with the write mask guarantees that a write can
+  // never leave a bit outside the mask behind.
+  function automatic logic [31:0] v2_csr_clamp(input logic [7:0] address,
+                                               input logic [31:0] data);
+    logic [31:0] clamped;
+    begin
+      clamped = data;
+      case (address)
+        V2_CSR_FILTER: begin
+          // res[19:12] is already inside the mask, so 0..255 needs no clamp.
+          if (clamped[11:0] > 12'd423) clamped[11:0] = 12'd423;
+        end
+        V2_CSR_LFO: begin
+          // depth[23:16] is already inside the mask, so 0..255 needs no clamp.
+          if (clamped[15:0] > 16'd20000) clamped[15:0] = 16'd20000;
+        end
+        V2_CSR_FX_A: begin
+          if (clamped[17:0] > 18'h10000) clamped[17:0] = 18'h10000;
+        end
+        V2_CSR_FX_B: begin
+          // delay_samples is a truncation, not a saturation (spec 11.2); the
+          // mask alone defines it.
+        end
+        V2_CSR_FX_C: begin
+          if (clamped[15:0] > 16'h7333) clamped[15:0] = 16'h7333;
+          if (clamped[31:16] > 16'h7FFF) clamped[31:16] = 16'h7FFF;
+        end
+        V2_CSR_VOLUME: begin
+          if (clamped[17:0] > 18'h20000) clamped[17:0] = 18'h20000;
+        end
+        default: return data;
+      endcase
+      return (clamped & v2_csr_write_mask(address));
+    end
   endfunction
   // Indexed parameter metadata is generated from the frozen table in tools/v2_contract.py.
   localparam int V2_PARAM_F0_I0_FAMILY=0;

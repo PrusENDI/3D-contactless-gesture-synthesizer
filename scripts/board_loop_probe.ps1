@@ -83,11 +83,22 @@ try {
 
   $c = X 0x02 0x28 1
   Log ("COMMIT err={0}" -f $c.Err)
-  $deadline = (Get-Date).AddSeconds(3)
+  # Page 1 is the commit/write-port/store word: bits [0] full, [1] purify_done,
+  # [2] commit_run, [3] commit_done, [4] dp_busy, [5] store_busy,
+  # [6] commit_pending, [7] write_ready, [8] write_valid, [9] ctrl_pending,
+  # [14:10] write_slot, [20:15] record_count, [26:21] commit_count.
+  [void](X 0x02 0x34 1)
+  $deadline = (Get-Date).AddSeconds(4)
   do {
+    $w = (X 0x01 0xF8 0).Val
     $st = (X 0x01 0x38 0).Val
-    if (($st -band 0x01) -ne 0) { break }
-    Start-Sleep -Milliseconds 50
+    Log ("page1=0x{0:X8} full={1} purify={2} run={3} done={4} dpbusy={5} storebusy={6} pend={7} wrready={8} wrvalid={9} ctrlpend={10} slot={11} rec={12} cnt={13} 0x38=0x{14:X8}" -f `
+      $w, ($w -band 1), (($w -shr 1) -band 1), (($w -shr 2) -band 1), (($w -shr 3) -band 1), `
+      (($w -shr 4) -band 1), (($w -shr 5) -band 1), (($w -shr 6) -band 1), (($w -shr 7) -band 1), `
+      (($w -shr 8) -band 1), (($w -shr 9) -band 1), (($w -shr 10) -band 0x1F), `
+      (($w -shr 15) -band 0x3F), (($w -shr 21) -band 0x3F), $st)
+    if (($st -band 1) -ne 0) { break }
+    Start-Sleep -Milliseconds 100
   } while ((Get-Date) -lt $deadline)
   Log ("0x38 after commit = 0x{0:X8}" -f $st)
 

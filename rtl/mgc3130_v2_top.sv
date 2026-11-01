@@ -363,6 +363,7 @@ logic [9:0] wt_read_index_sel;
     logic [95:0] loop_read_data;
     logic loop_boundary /* synthesis syn_keep=1 */;
     logic [7:0] loop_dbg_state;
+    logic [31:0] loop_probe_word;
     logic [1:0] voice_dbg_busy;
     logic loop_commit_pending /* synthesis syn_keep=1 */;
     logic loop_commit_ack, loop_busy;
@@ -511,7 +512,7 @@ logic [9:0] wt_read_index_sel;
 
     v2_loop_commit_writer u_commit_writer (
         .clk(clk_sys_100m), .rst_n(rst_sys_n), .kick(potts_commit_kick),
-        .dp_ready(potts_purify_done_seen && loop_write_ready),
+        .dp_ready(potts_purify_done_seen && !loop_busy),
         .potts_start(potts_writer_start), .potts_busy(potts_busy), .potts_done(potts_done),
         .potts_event_valid(potts_event_valid), .potts_event_ready(potts_writer_ready),
         .potts_event_data(potts_event_data), .store_write_ready(loop_write_ready),
@@ -559,6 +560,25 @@ logic [9:0] wt_read_index_sel;
         .fx_reverb_mix_q15(16'd0), .fx_status_level(fx_status), .fx_clip(fx_clip)
     );
     assign i2s_sample_valid = (mode_wt_play || mode_live) ? wt_play_valid : test_active ? test_sample_valid : voice_sample_valid;
+
+    // Paginated loop-plane probe: write the page to 0x34, read 0xF8.
+    //   page 0: scheduler sweep state + voice busies
+    //   page 1: commit / write-port / store state, the one that decides whether
+    //           the DP is allowed to start
+    //   page 2: voice allocation
+    always_comb begin
+        case (contour_rd_index)
+            5'd0: loop_probe_word = {22'd0, loop_dbg_state, voice_dbg_busy};
+            5'd1: loop_probe_word = {4'd0, potts_commit_count, loop_record_count[5:0],
+                                     loop_write_slot, loop_ctrl_pending,
+                                     loop_write_valid, loop_write_ready,
+                                     loop_commit_pending, loop_busy,
+                                     potts_busy, potts_commit_done, potts_commit_run,
+                                     potts_purify_done_seen, potts_capture_full};
+            5'd2: loop_probe_word = {18'd0, active_voice_count, 8'd0, voice_dbg_busy};
+            default: loop_probe_word = 32'd0;
+        endcase
+    end
     // The voice path has no volume control yet; -12 dB keeps a sustained note at a
 // listenable level while the gain register is still missing.
 wire signed [15:0] fx_quiet = fx_sample >>> 2;
@@ -1023,7 +1043,7 @@ end
                     8'hF4: rsp_data <= (V2_DEBUG_CSR != 0) ? {26'd0, reader_state} : 32'd0;
                     // 0xF8 is the loop-plane probe: {scheduler[7:0], voice[1:0]}
                     // while the stage-2 deadlock is being chased on the board.
-                    8'hF8: rsp_data <= (V2_DEBUG_CSR != 0) ? {22'd0, loop_dbg_state, voice_dbg_busy} : 32'd0;
+                    8'hF8: rsp_data <= (V2_DEBUG_CSR != 0) ? loop_probe_word : 32'd0;
                     8'hFC: rsp_data <= (V2_DEBUG_CSR != 0) ? raw_y : 32'd0;      // raw sensor Y (signed)
                     8'hA4: rsp_data <= (V2_DEBUG_CSR != 0) ? {30'd0, dbg_apply_reject_reason} : 32'd0;
                     8'hA8: rsp_data <= (V2_DEBUG_CSR != 0) ? {16'd0, dbg_expected_crc_captured} : 32'd0;

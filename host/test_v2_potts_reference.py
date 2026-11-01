@@ -7,10 +7,23 @@ Run from the repo root:
 """
 import unittest
 
-from host.v2_potts_reference import NOTES, PottsEvent, solve
+from host.v2_potts_reference import NOTES, PottsEvent, purify_valid, solve
 
 
 class PottsTests(unittest.TestCase):
+    def test_purify_matches_the_hardware_cases(self):
+        # Same seven cases as tb/tb_loop_rest_purify.sv.
+        cases = [
+            (0xFFFFFFFF, 0xFFFFFFFF),   # all data
+            (0x00000000, 0x00000000),   # all rest
+            (0xFFFCFFFF, 0xFFFFFFFF),   # two-tick rest absorbed
+            (0xFFE0FFFF, 0xFFE0FFFF),   # five-tick rest kept
+            (0xFFFF0FFF, 0xFFFF0FFF),   # exactly four ticks kept
+            (0xFFFFFFFC, 0xFFFFFFFC),   # short first run kept
+            (0x00000CFF, 0x00000FFF),   # two short runs collapse in a row
+        ]
+        for raw, expected in cases:
+            self.assertEqual(purify_valid(raw, 32), expected, hex(raw))
     def test_constant_and_min_length(self):
         e = solve([60] * 128, lambda_q16=65536, min_length=4)
         self.assertEqual(len(e), 1)

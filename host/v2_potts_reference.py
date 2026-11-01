@@ -9,6 +9,33 @@ from dataclasses import dataclass
 
 NOTES = (57, 60, 62, 64, 67)
 N = 128
+MIN_RUN = 4
+
+
+def purify_valid(mask, k=32, min_run=MIN_RUN):
+    """Rewrite every valid run shorter than ``min_run`` into the previous run.
+
+    The DP forbids a segment that mixes rest and data, so a short run leaves no
+    valid segmentation at all.  Runs are rewritten in place (a chain of short
+    runs keeps collapsing) and the first run is allowed to stay short, matching
+    the first-segment exception in ``solve``.
+    """
+    pur = [(mask >> i) & 1 for i in range(k)]
+    run_start = 0
+    i = 1
+    while i < k:
+        if pur[i] != pur[i - 1]:
+            if (i - run_start) < min_run and run_start != 0:
+                value = pur[run_start - 1]
+                for j in range(run_start, i):
+                    pur[j] = value
+            run_start = i
+        i += 1
+    if (k - run_start) < min_run and run_start != 0:
+        value = pur[run_start - 1]
+        for j in range(run_start, k):
+            pur[j] = value
+    return sum(bit << index for index, bit in enumerate(pur))
 
 
 @dataclass(frozen=True)
@@ -23,6 +50,10 @@ class PottsEvent:
 
 def solve(contour, rest_mask=0, lambda_q16=65536, min_length=4):
     x = [int(contour[i]) if i < len(contour) else 0 for i in range(N)]
+    # The hardware pipeline purifies the valid mask before the DP, so the
+    # reference does the same and both see the same feasible problem.
+    valid = purify_valid(~rest_mask & ((1 << N) - 1), N)
+    rest_mask = ~valid & ((1 << N) - 1)
     lam = max(0, int(lambda_q16))
     L = max(1, int(min_length))
     inf = 1 << 62

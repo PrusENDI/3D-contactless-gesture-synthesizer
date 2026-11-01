@@ -24,7 +24,14 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 PROJECT = os.path.dirname(HERE)
 
-SIMS = ("tb_v2_potts_commit", "tb_v2_potts_commit_fsm", "tb_mgc3130_v2_top_potts")
+SIMS = ("tb_v2_potts_commit",
+        "tb_v2_potts_commit_fsm",
+        "tb_loop_contour_capture",
+        "tb_loop_rest_purify",
+        "tb_loop_commit_writer",
+        "tb_loop_scheduler_tick",
+        "tb_loop_publish",
+        "tb_stage2_loop_e2e")
 
 
 def run(cmd: list[str]) -> tuple[int, str]:

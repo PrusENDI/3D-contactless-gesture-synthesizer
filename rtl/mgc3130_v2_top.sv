@@ -264,14 +264,17 @@ logic signed [31:0] cursor_last_z;
     // contract's THRESHOLDS validity rule satisfied).
     logic [31:0] thresholds_reg;
     logic [15:0] bpm_reg;
-    // X axis drives the arpeggiator tempo in LIVE: cursor_x 0..65535 -> 30..59 BPM
-    // as 30 + (x * 30 >> 16).  bpm_auto_we is delayed two clocks so the divider
-    // sees the already-updated value.
+    // X axis drives the arpeggiator tempo in LIVE: cursor_x 0..65535 -> 30..59 BPM.
+    // The mapping lives in v2_live_tempo because it must update on cursor frames,
+    // not on UART command arrival (it used to sit inside the command gate and the
+    // divider kept its 120 BPM reset value forever).
     logic [15:0] bpm_auto_q;
-    logic        bpm_auto_we, bpm_auto_we_d, bpm_auto_d;
-    wire  [23:0] bpm_scaled = ({8'd0, cursor_x[15:0]} << 5) - ({8'd0, cursor_x[15:0]} << 1);
-    // bpm_scaled = cursor_x * 30; >>16 gives 0..29 on top of the 30 BPM floor.
-    wire  [15:0] bpm_auto   = 16'd30 + {1'b0, bpm_scaled[20:16]};
+    logic        bpm_auto_we;
+    v2_live_tempo u_live_tempo (
+        .clk(clk_sys_100m), .rst_n(rst_sys_n),
+        .frame_done(cursor_frame_done), .x(cursor_x[15:0]),
+        .bpm(bpm_auto_q), .bpm_we(bpm_auto_we)
+    );
     logic        bpm_we_q;
     wire         bpm_write;
     logic        tick_pulse;
@@ -838,7 +841,6 @@ end
             wt_expected_crc <= 16'hffff; wt_apply_version <= 16'd0;
             thresholds_reg <= 32'd0;
             bpm_reg <= 16'd120; bpm_we_q <= 1'b0;
-            bpm_auto_q <= 16'd120; bpm_auto_we <= 1'b0; bpm_auto_we_d <= 1'b0; bpm_auto_d <= 1'b0;
             loop_ctrl_valid <= 1'b0; loop_ctrl_op <= 3'd0; loop_ctrl_track <= 3'd0;
             loop_ctrl_pending <= 1'b0; loop_ctrl_pending_op <= 3'd0;
             test_response_pending <= 1'b0; test_response_sequence <= 8'd0;
@@ -1006,10 +1008,6 @@ end
                     wt_morph_en <= cmd_data[8];
                     wt_lfo_step <= cmd_data[31:9];
                 end
-                bpm_auto_d  <= cursor_frame_done && (bpm_auto != bpm_auto_q);
-            bpm_auto_we <= bpm_auto_we_d;
-            bpm_auto_we_d <= bpm_auto_d;
-            if (bpm_auto_d) bpm_auto_q <= bpm_auto;
             if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_BPM)
                     bpm_reg <= cmd_data[15:0];
                 bpm_we_q <= bpm_write;

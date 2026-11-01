@@ -11,10 +11,12 @@
   `docs/superpowers/plans/2026-11-01-vca-and-detune.md` 的「实施记录」。
 - 板上跑的是 `impl/v2_board_top_vca_detune_mbox/impl/pnr/v2_board_top.fs`
   （sha256 `6ab982d6a8d7d0f857a2dd8b1f9ee8a9a267caa174d07ae61b677038ecffc27b`），
-  自检：`0xB0 = 0x5A5A0003`；1024 点上传 PASS；遥测通。
+  自检：`0xB0 = 0x5A5A0003`；1024 点上传 PASS；
+  `board_wt_voice_play.ps1` 全流程 PASS（32 tick 轮廓 29/32 非零、8 音符、published、
+  PLAY voices peak 2、WT_DATA 0、STOP 后静音）。
+- 唯一还缺的证据是**听感**（脚本证明不了"好不好听"），要人耳确认。
 - **下一步：P2 —— 整机一个 2 阶低通 + 三角 LFO 扫截止**（路线图 §3 P2）。
   还没写任务级计划；按流程先 `brainstorming` 定控制面，再 `writing-plans`。
-- 未验证（需要手/耳朵）：`board_stage2_loop.ps1 -Tracks 1` 全流程、听感、GAO 起音斜坡。
 
 ## 1. 开工前必须读（按顺序，约 15 分钟）
 

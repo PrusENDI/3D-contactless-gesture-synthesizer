@@ -79,7 +79,12 @@ module v2_lfo_triangle (
     logic signed [27:0] offset_abs;
     logic signed [27:0] offset_out;
 
-    assign inc        = ({16'd0, rate_mhz} * {16'd0, RATE_Q9}) >> 9;
+    // Every multiply below is kept at its natural 16-bit operand width.  A
+    // {16'd0, x} zero extension makes the operand 32 bits, which the
+    // synthesizer turns into a 32x32 LUT multiplier; the 16x16 form fits one
+    // MULTALU27X18 slice, and because the true product is < 2^32 the low 32
+    // bits (all this code slices) are bit-identical.
+    assign inc        = (rate_mhz * RATE_Q9) >> 9;
     assign phase_sum  = {1'b0, phase} + {1'b0, inc};
     assign period_end = sample_ce && phase_sum[32];
 
@@ -103,12 +108,12 @@ module v2_lfo_triangle (
     assign sine_neg  = bipolar[31];
     assign sine_mag  = sine_neg ? (~bipolar[30:0] + 31'd1) : bipolar[30:0];
     assign u_q15     = sine_mag[30:15];
-    assign u_sq_full = {16'd0, u_q15} * {16'd0, u_q15};
-    assign u_sq_q15  = u_sq_full[30:15];
-    assign sine_prod = {16'd0, SINE_C_Q15} * {16'd0, u_sq_q15};
-    assign sine_term = sine_prod >> 15;
-    assign sine_poly = SINE_A_Q15 - sine_term[15:0];
-    assign sine_prod2 = {16'd0, u_q15} * {16'd0, sine_poly};
+    assign u_sq_full  = u_q15 * u_q15;              // 16x16 -> 32-bit product
+    assign u_sq_q15   = u_sq_full[30:15];
+    assign sine_prod  = SINE_C_Q15 * u_sq_q15;      // 16x16
+    assign sine_term  = sine_prod >> 15;
+    assign sine_poly  = SINE_A_Q15 - sine_term[15:0];
+    assign sine_prod2 = u_q15 * sine_poly;          // 16x16
     assign sine_q15  = sine_prod2[30:15];
     assign sine_abs  = {16'd0, sine_q15} << 15;
     assign sine_b    = sine_neg ? -$signed(sine_abs) : $signed(sine_abs);

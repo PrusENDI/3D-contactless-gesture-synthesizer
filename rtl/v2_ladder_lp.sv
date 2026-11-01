@@ -116,12 +116,17 @@ module v2_ladder_lp (
     assign g4_c  = g2_sq[31:16];
 
     // stage 4: x = K G^4 in Q16 = (res G^4) * 960 >> 16
+    // 960 = 1024 - 64: two shifts and a subtract, because res_g4 is 25 bits
+    // and the 960 constant would make the other operand 34 bits wide, too
+    // large for the 27x18 slice (it fell back to a LUT multiplier).
     assign res_g4   = res_q * g4_r;
-    assign x_scaled = res_g4 * 34'd960;
+    assign x_scaled = (res_g4 << 10) - (res_g4 << 6);
     assign x_c      = x_scaled[33:16];
 
     // stage 5: reciprocal index, and the first Horner step of S
-    assign rid_mul = x_r * 27'd271;            // 271/65536 ~ 1/242, the table's index scale
+    // 271 = 256 + 8 + 4 + 2 + 1, again a shift-add instead of a multiply whose
+    // constant operand would be 27 bits wide.
+    assign rid_mul = (x_r << 8) + (x_r << 3) + (x_r << 2) + (x_r << 1) + x_r;
     assign ridx_c  = (rid_mul[23:16] > 8'd255) ? 8'd255 : rid_mul[23:16];
     assign gw1     = $signed({1'b0, g_r}) * w1;
     assign h1_c    = w2 + (gw1 >>> 16);
@@ -140,8 +145,10 @@ module v2_ladder_lp (
     assign s_c = osm >>> 16;
 
     // stage 9: K S
+    // 960 = 1024 - 64 again; res_s is 36 bits, so the multiply was far outside
+    // the slice and became a LUT array.
     assign res_s     = $signed({1'b0, res_q}) * s_r;
-    assign ks_scaled = res_s * 46'sd960;
+    assign ks_scaled = (res_s << 10) - (res_s << 6);
     assign ks_c      = ks_scaled >>> 16;
 
     // stage 10: u = (x - K S) / (1 + K G^4)

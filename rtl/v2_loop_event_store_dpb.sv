@@ -7,7 +7,8 @@ module v2_loop_event_store_dpb #(
   parameter integer SLOT_BITS=(DEPTH <= 1) ? 1 : $clog2(DEPTH),
   parameter integer COUNT_BITS=$clog2(DEPTH+1),
   parameter integer COPY_BITS=(TRACKS*DEPTH <= 1) ? 1 : $clog2(TRACKS*DEPTH),
-  // 34 seconds at the 100 MHz system clock, matching the V2 wire contract.
+  // 34 seconds at 100 MHz, i.e. 42.5 s at this design's 80 MHz system clock
+// (the clk_sys_100m nets are named for the old 100 MHz plan).
   // Tests and lower-level integrations may override this with a short value.
   parameter [31:0] BOUNDARY_TIMEOUT_CYCLES=32'd3_400_000_000
 ) (

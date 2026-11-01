@@ -134,6 +134,13 @@ try {
     $contour.Add($s.Val -band 0xFFFF)
   }
   Log ("contour[0..7] = {0}" -f (($contour[0..7] | ForEach-Object { "{0,4}" -f $_ }) -join ''))
+  $nonZero = 0
+  foreach ($v in $contour) { if ($v -ne 0) { $nonZero++ } }
+  if ($nonZero -eq 0) {
+    Log 'FAIL: the contour is empty (no hand in the field during the capture); nothing was committed, so there will be no sound'
+    exit 12
+  }
+  Log ("contour has {0}/32 non-zero samples" -f $nonZero)
 
   Log 'MODE=PLAY (the swap happens at the first loop boundary, up to 8 s at 60 BPM)'
   $play = X 0x02 0x04 4

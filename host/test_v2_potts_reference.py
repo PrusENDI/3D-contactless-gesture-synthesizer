@@ -1,13 +1,13 @@
-"""Regression for the integer-note Potts reference.
+"""Regression for the y-space Potts reference.
 
-Ported from mgc3130_uart/tools/test_v2_potts_reference.py (same five cases).
-Run from the repo root:
+The contour is cursor_y>>6, the fit uses LEVELS and the event carries NOTES, the
+same two tables the hardware uses.  Run from the repo root:
 
     python -m unittest host.test_v2_potts_reference -v
 """
 import unittest
 
-from host.v2_potts_reference import NOTES, PottsEvent, purify_valid, solve
+from host.v2_potts_reference import LEVELS, NOTES, PottsEvent, purify_valid, solve
 
 
 class PottsTests(unittest.TestCase):
@@ -24,32 +24,39 @@ class PottsTests(unittest.TestCase):
         ]
         for raw, expected in cases:
             self.assertEqual(purify_valid(raw, 32), expected, hex(raw))
+
+    def test_exact_h32_event_stream(self):
+        # The same contour and the same expectation as tb_v2_potts_commit_fsm:
+        # level 30 is note 55, level 978 is note 72.
+        contour = [30] * 8 + [978] * 24
+        events = solve(contour, lambda_q16=0, min_length=4, horizon=32)
+        got = sorted((e.tick, e.duration, e.note) for e in events)
+        self.assertEqual(got, [(0, 8, 55), (8, 24, 72)])
+
     def test_constant_and_min_length(self):
-        e = solve([60] * 128, lambda_q16=65536, min_length=4)
+        e = solve([30] * 32, lambda_q16=21600, min_length=4, horizon=32)
         self.assertEqual(len(e), 1)
-        self.assertEqual((e[0].tick, e[0].duration, e[0].note), (0, 128, 60))
+        self.assertEqual((e[0].tick, e[0].duration, e[0].note), (0, 32, 55))
 
     def test_change_and_rest(self):
-        x = [57] * 64 + [67] * 64
-        e = solve(x, lambda_q16=0, min_length=4)
+        contour = [30] * 16 + [978] * 16
+        e = solve(contour, lambda_q16=0, min_length=4, horizon=32)
         self.assertEqual([(a.tick, a.duration, a.note) for a in e],
-                         [(0, 64, 57), (64, 64, 67)])
-        e = solve([57] * 128, rest_mask=(1 << 64) - 1, lambda_q16=0, min_length=4)
-        self.assertEqual(e[0].tick, 64)
-        self.assertEqual(e[0].duration, 64)
+                         [(0, 16, 55), (16, 16, 72)])
+        # A full rest on the first half forces the note to start at tick 16.
+        e = solve(contour, rest_mask=(1 << 16) - 1, lambda_q16=0, horizon=32)
+        self.assertEqual([(a.tick, a.duration, a.note) for a in e], [(16, 16, 72)])
 
     def test_bounded_input(self):
-        self.assertLessEqual(len(solve([i % 5 + 57 for i in range(128)])), 32)
+        contour = [LEVELS[i % len(LEVELS)] for i in range(32)]
+        self.assertLessEqual(len(solve(contour, horizon=32)), 8)
 
-    def test_full_rest_and_lambda(self):
-        self.assertEqual(solve([57] * 128, rest_mask=(1 << 128) - 1), [])
-        alternating = [57 if i % 2 == 0 else 67 for i in range(128)]
-        self.assertLessEqual(len(solve(alternating, lambda_q16=65536)),
-                             len(solve(alternating, lambda_q16=0)))
+    def test_full_rest_is_silent(self):
+        self.assertEqual(solve([30] * 32, rest_mask=(1 << 32) - 1, horizon=32), [])
 
     def test_tie_prefers_low_degree(self):
-        e = solve([58] * 128, lambda_q16=0)
-        self.assertEqual(e[0].note, 57)
+        e = solve([58] * 32, lambda_q16=0, horizon=32)
+        self.assertEqual(e[0].note, 55)
 
 
 if __name__ == "__main__":

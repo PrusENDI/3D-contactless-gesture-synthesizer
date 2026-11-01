@@ -26,6 +26,7 @@ module v2_loop_rest_purify #(
 
   logic [1:0] state;
   logic [K-1:0] pur;
+  logic start_q;
   logic [SB:0] idx;
   logic [SB:0] run_start;
   logic [SB:0] wpos, wend;
@@ -53,9 +54,12 @@ module v2_loop_rest_purify #(
       done <= 1'b0;
     end else begin
       done <= 1'b0;
+      start_q <= start;
       case (state)
         IDLE: begin
-          if (start) begin
+          // One shot: a level held high after done must not re-run and briefly
+          // republish the raw mask while the DP may already be reading it.
+          if (start && !start_q) begin
             pur <= raw_valid;
             idx <= {{(SB-1){1'b0}}, 1'b1};
             run_start <= '0;

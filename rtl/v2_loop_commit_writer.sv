@@ -7,6 +7,7 @@
 module v2_loop_commit_writer (
   input  logic clk, rst_n,
   input  logic kick,                        // 0x28 write pulse
+  input  logic dp_ready,                    // the DP's input data is ready
   output logic potts_start,
   input  logic potts_busy,
   input  logic potts_done,
@@ -44,7 +45,10 @@ module v2_loop_commit_writer (
         count <= 6'd0;
         start_sent <= 1'b0;
       end else if (run) begin
-        if (!start_sent && !potts_busy) begin
+        // Wait until the data the DP will read (the purified valid mask) is
+        // ready; a commit that arrives before the capture or purifier is done
+        // must still start the DP afterwards.
+        if (!start_sent && !potts_busy && dp_ready) begin
           potts_start <= 1'b1;
           start_sent <= 1'b1;
         end

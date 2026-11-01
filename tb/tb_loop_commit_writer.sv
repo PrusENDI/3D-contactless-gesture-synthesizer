@@ -23,7 +23,7 @@ module tb_loop_commit_writer;
   always #5 clk = ~clk;
 
   v2_loop_commit_writer dut (
-    .clk(clk), .rst_n(rst_n), .kick(kick),
+    .clk(clk), .rst_n(rst_n), .kick(kick), .dp_ready(1'b1),
     .potts_start(potts_start),
     .potts_busy(potts_busy), .potts_done(potts_done),
     .potts_event_valid(potts_event_valid), .potts_event_ready(potts_event_ready),

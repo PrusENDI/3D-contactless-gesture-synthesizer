@@ -46,7 +46,7 @@ module tb_loop_publish;
   GSR GSR(.GSRI(1'b1));
 
   v2_loop_event_store_dpb #(
-    .TRACKS(TRACKS), .DEPTH(DEPTH), .BOUNDARY_TIMEOUT_CYCLES(32'd4_000_000)
+    .TRACKS(TRACKS), .DEPTH(DEPTH), .BOUNDARY_TIMEOUT_CYCLES(32'd20_000)
   ) u_store (
     .clk(clk), .rst_n(rst_n), .abort(abort), .loop_boundary(loop_boundary),
     .ctrl_valid(ctrl_valid), .ctrl_ready(ctrl_ready), .ctrl_op(ctrl_op),
@@ -194,6 +194,25 @@ module tb_loop_publish;
     if (tick16_events < 1) $fatal(1, "the tick-16 event never reached the scheduler");
     $display("PASS tb_loop_publish boundaries=%0d tick0=%0d tick16=%0d",
              boundary_count, tick0_events, tick16_events);
+
+    // A commit that never reaches a loop boundary must be dropped and reported,
+    // not held forever: prepare a fresh take, request the commit, and then stop
+    // ticking so no boundary can arrive.
+    run = 0;
+    control(3'd5);
+    write_event(2'd0, 8'd40, 8'd64);
+    control(3'd3);
+    if (!commit_pending) $fatal(1, "second commit was not requested");
+    settle = 0;
+    while (!commit_timeout && settle < 60000) begin
+      @(posedge clk);
+      settle = settle + 1;
+    end
+    if (!commit_timeout) $fatal(1, "the commit never timed out without a boundary");
+    if (commit_pending) $fatal(1, "commit stayed pending after the timeout");
+    if (record_count[COUNT_BITS-1:0] != 3'd0)
+      $fatal(1, "the dropped take left %0d events in the shadow", record_count[COUNT_BITS-1:0]);
+    $display("PASS tb_loop_publish timeout honoured after %0d cycles", settle);
     $finish;
   end
 

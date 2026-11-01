@@ -460,7 +460,11 @@ logic [9:0] wt_read_index_sel;
         else if (potts_capture_arm) potts_purify_done_seen <= 1'b0;
         else if (potts_purify_done) potts_purify_done_seen <= 1'b1;
     end
-    assign potts_purify_start = potts_capture_full && !potts_purify_done_seen;
+    // The purifier must run for every commit, not only after a full capture:
+    // an early COMMIT still has to absorb the short runs of whatever was
+    // captured, otherwise the DP sees a stale mask from the previous take.
+    assign potts_purify_start = !potts_purify_done_seen &&
+                                (potts_capture_full || potts_commit_kick);
 
     // Absorb rest runs shorter than the DP's minimum segment length, otherwise
     // a two-tick hand-off leaves the DP with no valid segmentation at all.
@@ -479,7 +483,10 @@ logic [9:0] wt_read_index_sel;
     assign potts_rest_mask = {{96{1'b1}}, ~potts_purified};
 
     generate if (USE_POTTS) begin : g_potts
-    wire potts_run_start = (PRESERVE_POTTS_PLANE != 0) ? (sample_index == 32'd64) : potts_writer_start;
+    // Hold the DP until the purifier has produced the mask it will read.
+    wire potts_run_start = (PRESERVE_POTTS_PLANE != 0)
+        ? (sample_index == 32'd64)
+        : potts_writer_start;
     v2_potts_commit_fsm #(.HORIZON(POTTS_HORIZON)) u_potts (
         .clk(clk_sys_100m), .rst_n(rst_sys_n), .start(potts_run_start), .lambda_q16(potts_lambda),
         .rest_mask(potts_rest_mask), .contour(potts_contour), .busy(potts_busy), .progress(), .done(potts_done),
@@ -502,6 +509,7 @@ logic [9:0] wt_read_index_sel;
 
     v2_loop_commit_writer u_commit_writer (
         .clk(clk_sys_100m), .rst_n(rst_sys_n), .kick(potts_commit_kick),
+        .dp_ready(potts_purify_done_seen),
         .potts_start(potts_writer_start), .potts_busy(potts_busy), .potts_done(potts_done),
         .potts_event_valid(potts_event_valid), .potts_event_ready(potts_writer_ready),
         .potts_event_data(potts_event_data), .store_write_ready(loop_write_ready),

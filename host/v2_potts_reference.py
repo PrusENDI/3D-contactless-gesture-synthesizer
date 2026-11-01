@@ -1,13 +1,15 @@
-"""Deterministic fixed-point reference for the V2 128-tick Potts commit.
+"""Deterministic fixed-point reference for the V2 stage-2 Potts commit.
 
-Ported verbatim from mgc3130_uart/tools/v2_potts_reference.py.  This is the
-integer-note contract the RTL `v2_potts_commit_fsm` is compared against: the
-contour holds MIDI note numbers, the level set is five degrees, and lambda is
-paid once per non-initial segment.
+The contour is what the capture block stores: ``cursor_y >> 6``.  The fit runs
+against ``LEVELS`` (the midpoint of each note's y interval) while the event
+carries ``NOTES`` (the MIDI degree), exactly like the hardware's two tables.
 """
 from dataclasses import dataclass
 
-NOTES = (57, 60, 62, 64, 67)
+# y>>6 midpoints of the eight pentatonic degrees, from v2_live_rule_engine's
+# note map: 55, 57, 60, 62, 64, 67, 69, 72.
+LEVELS = (30, 135, 286, 421, 557, 707, 858, 978)
+NOTES = (55, 57, 60, 62, 64, 67, 69, 72)
 N = 128
 MIN_RUN = 4
 
@@ -48,19 +50,20 @@ class PottsEvent:
     event_type: int = 1
 
 
-def solve(contour, rest_mask=0, lambda_q16=65536, min_length=4):
-    x = [int(contour[i]) if i < len(contour) else 0 for i in range(N)]
+def solve(contour, rest_mask=0, lambda_q16=21600, min_length=4, horizon=32):
+    n = int(horizon)
+    x = [int(contour[i]) if i < len(contour) else 0 for i in range(n)]
     # The hardware pipeline purifies the valid mask before the DP, so the
     # reference does the same and both see the same feasible problem.
-    valid = purify_valid(~rest_mask & ((1 << N) - 1), N)
-    rest_mask = ~valid & ((1 << N) - 1)
+    valid = purify_valid(~rest_mask & ((1 << n) - 1), n)
+    rest_mask = ~valid & ((1 << n) - 1)
     lam = max(0, int(lambda_q16))
     L = max(1, int(min_length))
     inf = 1 << 62
-    dp = [inf] * (N + 1)
-    prev = [None] * (N + 1)
+    dp = [inf] * (n + 1)
+    prev = [None] * (n + 1)
     dp[0] = 0
-    for end in range(1, N + 1):
+    for end in range(1, n + 1):
         for start in range(0, end):
             length = end - start
             if length < L and start != 0:
@@ -68,16 +71,16 @@ def solve(contour, rest_mask=0, lambda_q16=65536, min_length=4):
             vals = [x[t] for t in range(start, end) if not (rest_mask >> t) & 1]
             if vals and len(vals) != length:
                 continue
-            for k, note in enumerate(NOTES):
-                err = sum((v - note) * (v - note) for v in vals)
+            for k, level in enumerate(LEVELS):
+                err = sum((v - level) * (v - level) for v in vals)
                 cost = dp[start] + (0 if start == 0 else lam) + err
                 if cost < dp[end]:
                     dp[end] = cost
                     prev[end] = (start, k)
-    if prev[N] is None:
+    if prev[n] is None:
         return []
     seg = []
-    end = N
+    end = n
     while end:
         start, k = prev[end]
         seg.append((start, end, k))
@@ -90,4 +93,4 @@ def solve(contour, rest_mask=0, lambda_q16=65536, min_length=4):
     return out
 
 
-__all__ = ["NOTES", "PottsEvent", "solve"]
+__all__ = ["LEVELS", "NOTES", "PottsEvent", "purify_valid", "solve"]

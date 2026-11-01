@@ -209,14 +209,15 @@ localparam logic [7:0] V2_ADDR_DIAG_FIRST   = 8'hB0;
   localparam int V2_CSR_RESET_TRIGGER_SHIFT=0;
   localparam int V2_CSR_THRESHOLDS_RELEASE_SHIFT=16;
   localparam int V2_CSR_THRESHOLDS_ENGAGE_SHIFT=0;
-  localparam int V2_CSR_CONTOUR_DATA_TICK_SHIFT=0;
-  localparam int V2_CSR_CONTOUR_DATA_ACTIVE_VALID_SHIFT=8;
-  localparam int V2_CSR_CONTOUR_DATA_COMMIT_PENDING_SHIFT=9;
-  localparam int V2_CSR_CONTOUR_DATA_FAULT_SHIFT=10;
+  // 0x34 is a window: the write selects the sample, the read returns it and
+  // advances the pointer.
+  localparam int V2_CSR_CONTOUR_DATA_INDEX_SHIFT=0;
   localparam int V2_CSR_POTTS_STATUS_DONE_SHIFT=0;
-  localparam int V2_CSR_POTTS_STATUS_BUSY_SHIFT=8;
-  localparam int V2_CSR_POTTS_LAMBDA_INVALID_COUNT_SHIFT=0;
-  localparam int V2_CSR_POTTS_LAMBDA_GAP_COUNT_SHIFT=16;
+  localparam int V2_CSR_POTTS_STATUS_BUSY_SHIFT=1;
+  localparam int V2_CSR_POTTS_STATUS_OVERFLOW_SHIFT=2;
+  localparam int V2_CSR_POTTS_STATUS_TIMEOUT_SHIFT=3;
+  localparam int V2_CSR_POTTS_STATUS_FULL_SHIFT=4;
+  localparam int V2_CSR_POTTS_LAMBDA_VALUE_SHIFT=0;
   localparam int V2_CSR_DIAG_AUDIO_UNDERRUN_COUNT_SHIFT=0;
   localparam int V2_CSR_DIAG_AUDIO_PEAK_Q15_SHIFT=16;
   localparam int V2_CSR_DIAG_ROUTER_DROP_COUNT_SHIFT=0;

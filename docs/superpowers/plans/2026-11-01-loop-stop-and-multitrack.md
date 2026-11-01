@@ -40,7 +40,7 @@
 - Consumes: `loop_event_*`（scheduler 输出）、`mode_play`。
 - Produces: 声部引擎在离开 PLAY 时收到一个 `EV_ALL_NOTES_OFF` 事件（type `4'd5`），之后自行释放。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```systemverilog
 // tb_stage2_loop_e2e.sv，在已有 PLAY 断言之后追加：
@@ -49,22 +49,22 @@
 // 3) 断言 dut.active_voice_count 回到 0。
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `python scripts/sim_unit.py --tb tb_stage2_loop_e2e`
 Expected: FAIL（`no ALL_NOTES_OFF after STOP`）
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `mode_play` 下降沿置一个 `leave_play_oneshot`；在 `loop_event_valid` 的 mux 之外，用同一个 `voice_event_*` 入口优先注入
 `{type=5, track=0, tick=loop_tick, note=0}` 一拍，等 `voice_event_ready` 后清除。
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `python scripts/sim_unit.py --tb tb_stage2_loop_e2e`
 Expected: PASS，且断言 3 看到 `active_voice_count==0`
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add rtl/mgc3130_v2_top.sv tb/tb_stage2_loop_e2e.sv
@@ -78,16 +78,16 @@ git commit -m "fix: send ALL_NOTES_OFF when the loop leaves PLAY"
 **Files:**
 - Modify: `scripts/board_stage2_loop.ps1`
 
-- [ ] **Step 1: 改脚本**
+- [x] **Step 1: 改脚本**
 
 播放观测结束后：写 `0x14`（STOP）→ 等 300 ms → 读 page 2，若 `voices != 0` 打印 `FAIL: note still sounding after STOP` 并返回非零；否则打印 `STOPPED cleanly` 再退出。
 
-- [ ] **Step 2: 在板上验证**
+- [x] **Step 2: 在板上验证**
 
 Run: `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/board_stage2_loop.ps1 -Port COM4`
 Expected: 结束时 `STOPPED cleanly`，耳朵确认静音。
 
-- [ ] **Step 3: 提交**
+- [x] **Step 3: 提交**
 
 ```bash
 git add scripts/board_stage2_loop.ps1
@@ -97,6 +97,15 @@ git commit -m "feat: stop the loop and verify silence at the end of the board ru
 ---
 
 ### Task 3: 多轨提交
+
+> **Note (2026-11-01, landed as commit bc76824):** the step order above cannot be
+> run as written: after the first COMMIT_REQUEST the store is busy with
+> commit_pending, so the second PREPARE_RECORD is refused and loop_ctrl_pending
+> then blocks cmd_ready (the UART stops accepting commands).  The takes are
+> therefore committed and published one at a time: commit track 0, MODE=PLAY
+> until the boundary swaps the banks, then take track 1.  PREPARE_RECORD copies
+> the active bank into the shadow bank, which is what carries the earlier tracks
+> forward.  See docs/progress-2026-11-01.md, section "LOOP 多轨".
 
 **Files:**
 - Modify: `rtl/mgc3130_v2_top.sv`
@@ -110,7 +119,7 @@ git commit -m "feat: stop the loop and verify silence at the end of the board ru
   ```
   writer 的 `write_track`、提交前的 clear 都用 `commit_track`；`commit_track` 在提交结束前不变。
 
-- [ ] **Step 1: 写失败测试**
+- [x] **Step 1: 写失败测试**
 
 ```systemverilog
 // tb_stage2_loop_e2e.sv 新增用例（复用现有注入方式）：
@@ -120,22 +129,22 @@ git commit -m "feat: stop the loop and verify silence at the end of the board ru
 //    且 track0 的第一条事件音高与 track1 的不同（用 dut.u_store 的读口或事件流观察）。
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 Run: `python scripts/sim_unit.py --tb tb_stage2_loop_e2e`
 Expected: FAIL（第二次提交写到了 track 0，把第一条覆盖掉；voices 只到 1）
 
-- [ ] **Step 3: 实现**
+- [x] **Step 3: 实现**
 
 `0x28` 的 kick 处锁存 `commit_track <= selected_track`；clear 用 `commit_track`；writer 的 `store_write_track`
 （现由 top 常量 `3'd0` 驱动）改为 `commit_track`；`commit_track` 在 writer `done` 后才允许再变。
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `python scripts/sim_unit.py --tb tb_stage2_loop_e2e`
 Expected: PASS（voices 见到 2，两轨事件并存）
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add rtl/mgc3130_v2_top.sv tb/tb_stage2_loop_e2e.sv scripts/board_stage2_loop.ps1
@@ -149,23 +158,23 @@ git commit -m "feat: commit to the selected track so the loop can hold six parts
 **Files:**
 - Modify: `docs/progress-2026-11-01.md`
 
-- [ ] **Step 1: 回归**
+- [x] **Step 1: 回归**
 
 Run: `python scripts/test_potts_plane.py`、`python scripts/sim.py`
 Expected: `POTTS PLANE: PASS`；`SIM: PASS`（失败集不超出基线）
 
-- [ ] **Step 2: 构建并烧录**
+- [x] **Step 2: 构建并烧录**
 
 Run: `python scripts/synth.py --run-id loop_stop_multitrack`
 Run: `powershell -File "C:/weizijian/documents/gowin fpga/mgc3130_uart/.worktrees/v2-integration/scripts/board_program.ps1" -FsFile <impl/.../v2_board_top.fs> -Operation 4`
 Expected: `SYNTH: PASS` + `PROGRAM PASS`；记录 `bitstream_sha256`
 
-- [ ] **Step 3: 两轨板测**
+- [x] **Step 3: 两轨板测**
 
 Run: `powershell -File scripts/board_stage2_loop.ps1 -Port COM4 -Tracks 2`
 Expected: 两次 `commit done`，`play voices` 见到 ≥2，`steals=0`，结束 `STOPPED cleanly`
 
-- [ ] **Step 4: 记录并提交**
+- [x] **Step 4: 记录并提交**
 
 把 sha256、两次 contour 回读、`voices` 峰值、STOP 后 voices=0 写进进度文档。
 

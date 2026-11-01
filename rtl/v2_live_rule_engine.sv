@@ -247,11 +247,14 @@ module v2_live_rule_engine #(
         fault_code <= V2_FAULT_INVALID;
       end
       if (arp_mode) begin
-        if (tick_pulse && !(event_valid && !event_ready) && arp_state == ARP_IDLE) begin
+        // No hand, no note: the tick may only start a step while the gate is up.
+        if (tick_pulse && gate_now && !(event_valid && !event_ready) && arp_state == ARP_IDLE) begin
           arp_note  <= map_note(rule_y);
           arp_pair  <= active;
           arp_state <= active ? ARP_OFF : ARP_ON;
-        end else if (!gate_now && arp_state == ARP_IDLE && active) begin
+        end else if (!gate_now && arp_state == ARP_IDLE && active && !candidate_valid_q) begin
+          // The OFF queued by this branch must not re-trigger before it is packed:
+          // `active` only clears when the event leaves the pipe.
           arp_pair  <= 1'b0;          // release: no ON follows
           arp_state <= ARP_OFF;
         end

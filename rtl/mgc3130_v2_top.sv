@@ -695,6 +695,7 @@ end
         .clk(clk_sys_100m), .rst_n(rst_sys_n), .sample_ce(sample_ce),
         .bpm(mode_live ? bpm_auto_q : bpm_reg),
         .bpm_we(bpm_sel_we),
+        .restart(!mode_live),   // LIVE auto tempo must not restart the bar
         .tick_pulse(tick_pulse), .tick(tick_now), .samples_per_tick(samples_per_tick)
     );
     v2_note_increment_rom u_wt_note_increment(.note(thresholds_reg[7:0]), .increment(wt_note_increment));

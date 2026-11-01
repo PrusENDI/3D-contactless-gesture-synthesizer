@@ -6,12 +6,14 @@ module tb_tick_gen;
   logic clk = 0, rst_n = 0, sample_ce = 0;
   logic [15:0] bpm = 16'd120;
   logic bpm_we = 0;
+  logic restart = 1;       // host tempo writes restart the bar
   logic tick_pulse;
   logic [6:0] tick;
   logic [23:0] samples_per_tick;
   int i, pulses;
 
-  v2_tick_gen dut(.clk, .rst_n, .sample_ce, .bpm, .bpm_we, .tick_pulse, .tick, .samples_per_tick);
+  v2_tick_gen dut(.clk, .rst_n, .sample_ce, .bpm, .bpm_we, .restart,
+                  .tick_pulse, .tick, .samples_per_tick);
 
   always #5 clk = ~clk;
 
@@ -23,6 +25,20 @@ module tb_tick_gen;
       $fatal(1, "FAIL spt(bpm=%0d): got %0d want %0d", value, samples_per_tick, expect_spt);
     $display("PASS spt(bpm=%0d) = %0d", value, samples_per_tick);
     if (tick !== 7'd0) $fatal(1, "FAIL tick not cleared on bpm write: %0d", tick);
+  endtask
+
+  // Auto tempo (LIVE X axis) updates the divider without restarting the bar:
+  // the phase must keep running, otherwise a moving hand suppresses every tick.
+  task automatic set_bpm_keep_phase(input logic [15:0] value, input logic [23:0] expect_spt,
+                                    input logic [6:0] expect_tick);
+    restart = 0; bpm = value; bpm_we = 1;
+    @(negedge clk); bpm_we = 0;
+    repeat (40) @(negedge clk);
+    if (samples_per_tick !== expect_spt)
+      $fatal(1, "FAIL spt-keep(bpm=%0d): got %0d want %0d", value, samples_per_tick, expect_spt);
+    if (tick !== expect_tick)
+      $fatal(1, "FAIL auto tempo cleared tick: got %0d want %0d", tick, expect_tick);
+    restart = 1;
   endtask
 
   task automatic run_ticks(input int n_samples, input int expect_pulses);
@@ -47,6 +63,7 @@ module tb_tick_gen;
     if (tick !== 7'd2) $fatal(1, "FAIL tick count: %0d want 2", tick);
     $display("PASS tick counter = %0d", tick);
 
+    set_bpm_keep_phase(16'd100, 24'd7200, 7'd2);   // LIVE auto tempo keeps the bar
     set_bpm(16'd100, 24'd7200);
     run_ticks(7200, 1);
 

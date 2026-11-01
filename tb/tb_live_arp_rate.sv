@@ -92,6 +92,17 @@ module tb_live_arp_rate;
     if (ons != 9 || offs != 8 || others != 0)
       $fatal(1, "FAIL arp rate: on=%0d off=%0d other=%0d (want 9/8/0)", ons, offs, others);
     $display("PASS arp 9 ticks -> on=%0d off=%0d (2 events per tick after the first)", ons, offs);
+
+    // Hand leaves: one release OFF, and further ticks must stay silent.
+    // The gate is pipelined, so a frame must carry the new level.
+    bow = 0;
+    pulse_frame();
+    pulse_frame();
+    repeat (10) @(negedge clk);
+    for (i = 0; i < 3; i = i + 1) do_tick();
+    if (ons != 9 || offs != 9 || others != 0)
+      $fatal(1, "FAIL gate drop: on=%0d off=%0d other=%0d (want 9/9/0)", ons, offs, others);
+    $display("PASS gate drop releases once and mutes further ticks");
     $finish;
   end
 

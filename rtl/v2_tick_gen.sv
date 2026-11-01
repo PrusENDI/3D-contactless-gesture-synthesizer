@@ -14,6 +14,7 @@ module v2_tick_gen (
   input  logic        sample_ce,
   input  logic [15:0] bpm,
   input  logic        bpm_we,
+  input  logic        restart,   // host tempo change restarts the bar; auto tempo does not
   output logic        tick_pulse,
   output logic [6:0]  tick,
   output logic [23:0] samples_per_tick
@@ -49,7 +50,13 @@ module v2_tick_gen (
         div_busy <= 1'b1; div_step <= 5'd0; div_quot <= 20'd0; div_rem <= 20'd0;
         div_dend <= DIVIDEND + {15'd0, bpm_use[15:1]};
         div_sor  <= bpm_use;
-        tick <= 7'd0; phase_cnt <= 24'd0;
+        // A host tempo change restarts the bar.  The X-driven LIVE tempo updates
+        // at frame rate; resetting the phase there would suppress every tick
+        // while the hand moves, so only `restart` clears the counter.
+        if (restart) begin
+          tick <= 7'd0;
+          phase_cnt <= 24'd0;
+        end
       end else if (div_busy) begin
         if (sub_ok) begin
           div_rem  <= rem_shift[19:0] - {4'd0, div_sor};

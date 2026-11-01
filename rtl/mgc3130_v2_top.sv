@@ -597,12 +597,7 @@ logic [9:0] wt_read_index_sel;
     logic [31:0] test_csr_wdata, test_csr_rdata;
     logic i2s_sample_valid;
     logic signed [15:0] i2s_sample;
-    v2_fx_lite #(.USE_GOWIN_RAM(1)) u_fx (
-        .clk(clk_sys_100m), .rst_n(rst_sys_n), .sample_ce(sample_ce), .audio_in(voice_sample),
-        .audio_out(fx_sample), .fx_enable(FX_ENABLE != 0), .fx_level(FX_LEVEL[1:0]), .fx_gain_q16(18'h10000),
-        .fx_cutoff_q16(16'hffff), .fx_delay_samples(10'd0), .fx_feedback_q15(16'd0),
-        .fx_reverb_mix_q15(16'd0), .fx_status_level(fx_status), .fx_clip(fx_clip)
-    );
+    logic signed [15:0] i2s_sample_raw;
 
     // ---- P2a parameter CSRs (0x40 / 0x44 / 0x84 / 0x88 / 0x8C / 0x90) -----
     // Six 32-bit registers, one per address of spec 11.1.  A write stores
@@ -621,8 +616,9 @@ logic [9:0] wt_read_index_sel;
     localparam logic [31:0] VOLUME_RESET_VALUE   = 32'h0001_0000;
 
     logic [31:0] filter_ctrl, lfo_ctrl, fx_a, fx_b, fx_c, volume_reg;
-    // Unpacked fields of spec 11.1 (plain assigns; no logic of their own).  They
-    // are unused in this task and Task 6 wires them into the audio chain.
+    // Unpacked fields of spec 11.1 (plain assigns; no logic of their own).  The
+    // chain below uses the four filter/LFO fields and the master volume; u_fx
+    // above uses the FX fields.
     logic [11:0] ci_reg;
     logic [7:0]  res_reg;
     logic        filter_en;
@@ -654,6 +650,19 @@ logic [9:0] wt_read_index_sel;
     assign fx_feedback_reg = fx_c[15:0];
     assign fx_reverb_reg   = fx_c[31:16];
 
+    // The seven FX parameters now come from 0x84/0x88/0x8C instead of the old
+    // compile-time constants.  Their reset values are exactly those constants
+    // (spec 11.2 item 2), so a board or a testbench that never writes them
+    // behaves as before; enable and level only gate the level mux, gain and
+    // cutoff are always applied.
+    v2_fx_lite #(.USE_GOWIN_RAM(1)) u_fx (
+        .clk(clk_sys_100m), .rst_n(rst_sys_n), .sample_ce(sample_ce), .audio_in(voice_sample),
+        .audio_out(fx_sample), .fx_enable(fx_enable_reg), .fx_level(fx_level_reg),
+        .fx_gain_q16(fx_gain_reg), .fx_cutoff_q16(fx_cutoff_reg),
+        .fx_delay_samples(fx_delay_reg), .fx_feedback_q15(fx_feedback_reg),
+        .fx_reverb_mix_q15(fx_reverb_reg), .fx_status_level(fx_status), .fx_clip(fx_clip)
+    );
+
     assign i2s_sample_valid = (mode_wt_play || mode_live) ? wt_play_valid : test_active ? test_sample_valid : voice_sample_valid;
 
     // Paginated loop-plane probe: write the page to 0x34, read 0xF8.
@@ -675,11 +684,11 @@ logic [9:0] wt_read_index_sel;
             default: loop_probe_word = 32'd0;
         endcase
     end
-    // The voice path has no volume control yet; -12 dB keeps a sustained note at a
-// listenable level while the gain register is still missing.
-wire signed [15:0] fx_quiet = fx_sample >>> 2;
-// Same -12 dB the voice path uses: a full-scale table is far too loud, and
-    // there is no gain register yet.
+    // Fixed -12 dB trim on the PLAY path, kept from before the master volume
+    // (0x90) existed so the default PLAY level does not change.
+    wire signed [15:0] fx_quiet = fx_sample >>> 2;
+    // Same story for the WT/LIVE path: a fixed -19.9 dB trim that predates the
+    // master volume, kept so the P1 listening baseline still holds.
     wire signed [15:0] wt_quiet = (wt_play_sample >>> 3) - (wt_play_sample >>> 6) - (wt_play_sample >>> 7);  // = 0.1016x = -19.9 dB
     // Per-note envelope for the single-voice LIVE path. An arpeggiator step is a
     // NOTE_ON event, so the envelope must restart on the EVENT, not on the gate:
@@ -706,7 +715,71 @@ wire signed [15:0] fx_quiet = fx_sample >>> 2;
     end
     assign wt_env_prod = wt_quiet * $signed({1'b0, wt_env});
     wire signed [15:0] wt_live_sample = wt_env_prod[31:16];
-    assign i2s_sample = mode_wt_play ? wt_quiet : mode_live ? wt_live_sample : test_active ? test_sample : fx_quiet;
+    // The four-way audio mux keeps its old behaviour; the P2a chain below sits
+    // between it and the I2S transmitter.
+    assign i2s_sample_raw = mode_wt_play ? wt_quiet : mode_live ? wt_live_sample : test_active ? test_sample : fx_quiet;
+
+    // ---- P2a audio chain: LFO -> cutoff add and clamp -> ladder -> volume ----
+    // Everything here runs on sample_ce (the continuous 48 kHz beat), never on
+    // i2s_sample_valid: while the LIVE gate is shut that valid line has no
+    // pulses at all, and the LFO phase and the filter state must keep their time
+    // base anyway (spec 5.6, review focus 3).  The filter keeps running while it
+    // is bypassed; the bypass is only the output mux below, so switching it
+    // cannot step the signal.  The ladder reports its result one sample_ce after
+    // the sample it consumed, which is the 20.8 us latency spec 5.6 accepts;
+    // I2S valid is not delayed.
+    logic signed [12:0] lfo_offset;
+    wire  signed [13:0] ci_sum;
+    logic [11:0]        ci_total;
+    logic signed [15:0] filter_out;
+    logic               filter_out_valid;
+    wire  lfo_trigger = mode_play && !mode_play_q;
+
+    v2_lfo_triangle u_lfo (
+        .clk(clk_sys_100m), .rst_n(rst_sys_n), .sample_ce(sample_ce),
+        .rate_mhz(lfo_rate_mhz), .depth(lfo_depth), .enable(lfo_en),
+        .retrig(lfo_retrig), .trigger(lfo_trigger), .unipolar(lfo_unipolar),
+        .waveform(lfo_wave), .offset_ci(lfo_offset)
+    );
+
+    // ci is modulated in the log domain and clamped where the coefficient table
+    // ends (one-pole fc 18 kHz).  The ladder clamps again, so a mis-written
+    // register cannot index past the table.
+    assign ci_sum = $signed({2'b00, ci_reg}) + $signed({lfo_offset[12], lfo_offset});
+    always_comb begin
+        if (ci_sum < 14'sd0)        ci_total = 12'd0;
+        else if (ci_sum > 14'sd423) ci_total = 12'd423;
+        else                        ci_total = ci_sum[11:0];
+    end
+
+    v2_ladder_lp u_filter (
+        .clk(clk_sys_100m), .rst_n(rst_sys_n), .sample_ce(sample_ce),
+        .audio_in(i2s_sample_raw), .ci(ci_total), .res(res_reg),
+        .audio_out(filter_out), .out_valid(filter_out_valid)
+    );
+
+    // Bypass = output selection only; the ladder above keeps tracking the signal.
+    wire signed [15:0] chain_sample = filter_en ? filter_out : i2s_sample_raw;
+
+    // Master volume (Q1.16).  0x10000 is unity and is bit-exact: the product is
+    // an exact multiple of 2^16 and the arithmetic shift returns the sample
+    // unchanged.  0x20000 can ask for more than int16 holds, and the saturator
+    // clamps instead of wrapping (spec 11.2 item 5).
+    logic signed [33:0] vol_product;
+    logic signed [33:0] vol_scaled;
+    assign vol_product = $signed(chain_sample) * $signed({1'b0, volume_reg});
+    assign vol_scaled  = vol_product >>> 16;
+
+    function automatic logic signed [15:0] volume_sat(input logic signed [33:0] value);
+        begin
+            if (value > 34'sd32767)       volume_sat = 16'sh7fff;
+            else if (value < -34'sd32768) volume_sat = 16'sh8000;
+            else                          volume_sat = value[15:0];
+        end
+    endfunction
+
+    assign i2s_sample = volume_sat(vol_scaled);
+
     i2s_pcm5102a_tx #(.CLK_HZ(80_000_000), .SAMPLE_HZ(48_000), .ACC_WIDTH(24)) u_i2s (
         .clk(clk_sys_100m), .rst(!rst_sys_n), .sample_valid(i2s_sample_valid),
         .sample_in(i2s_sample), .i2s_bck(pcm5102a_bck), .i2s_lrck(pcm5102a_lrck),

@@ -369,15 +369,26 @@ logic [9:0] wt_read_index_sel;
     logic [35:0] loop_record_count /* synthesis syn_keep=1 */;
     logic [5:0] loop_overflow /* synthesis syn_keep=1 */;
     logic loop_active_valid /* synthesis syn_keep=1 */;
+    // The store's single write port belongs to the recorder, except while a
+    // commit streams the Potts result into the shadow lead track.
+    logic potts_commit_kick, potts_commit_run, potts_commit_done, potts_commit_req;
+    logic [5:0] potts_commit_count;
+    logic potts_writer_start, potts_writer_ready, potts_writer_valid;
+    logic [4:0] potts_writer_slot;
+    logic loop_write_valid, loop_write_ready;
+    logic [4:0] loop_write_slot;
+    logic [2:0] loop_write_track;
+    logic [95:0] loop_write_data;
+
     (* keep_hierarchy = "yes" *)
     v2_loop_event_store_dpb #(.BOUNDARY_TIMEOUT_CYCLES(BOUNDARY_TIMEOUT_CYCLES)) u_store (
         .clk(clk_sys_100m), .rst_n(rst_sys_n), .abort(record_abort), .loop_boundary(loop_boundary),
         .ctrl_valid(loop_ctrl_valid), .ctrl_ready(loop_ctrl_ready), .ctrl_op(loop_ctrl_op),
         .ctrl_track(loop_ctrl_track), .ctrl_done(loop_ctrl_done),
-        .write_valid(record_write_valid), .write_ready(record_write_ready),
-        .write_track(record_event_data[90:88]),
-        .write_slot(recorder_write_slot),
-        .write_data(record_event_data), .read_enable(loop_read_enable), .read_track(loop_read_track),
+        .write_valid(loop_write_valid), .write_ready(loop_write_ready),
+        .write_track(loop_write_track),
+        .write_slot(loop_write_slot),
+        .write_data(loop_write_data), .read_enable(loop_read_enable), .read_track(loop_read_track),
         .read_index(loop_read_index), .read_valid(loop_read_valid), .read_slot_valid(loop_read_slot_valid),
         .read_data(loop_read_data), .active_bank(), .shadow_bank(), .commit_pending(loop_commit_pending),
         .commit_ack(loop_commit_ack), .busy(loop_busy), .record_count(loop_record_count),
@@ -420,7 +431,7 @@ logic [9:0] wt_read_index_sel;
 
     logic signed [15:0] potts_contour [0:127];
     logic [127:0] potts_rest_mask;
-    logic potts_start, potts_busy, potts_done, potts_overflow, potts_backtrace_valid;
+    logic potts_busy, potts_done, potts_overflow, potts_backtrace_valid;
     logic potts_event_valid, potts_event_ready; logic [95:0] potts_event_data; logic [5:0] potts_event_count;
     logic [15:0] potts_lambda;
     integer contour_i;
@@ -449,9 +460,6 @@ logic [9:0] wt_read_index_sel;
         else if (potts_purify_done) potts_purify_done_seen <= 1'b1;
     end
     assign potts_purify_start = potts_capture_full && !potts_purify_done_seen;
-    // Wired to the PREPARE_RECORD command and to CSR 0x34 in the commit task.
-    assign potts_capture_arm = 1'b0;
-    assign contour_rd_index = 5'd0;
 
     // Absorb rest runs shorter than the DP's minimum segment length, otherwise
     // a two-tick hand-off leaves the DP with no valid segmentation at all.
@@ -470,7 +478,7 @@ logic [9:0] wt_read_index_sel;
     assign potts_rest_mask = {{96{1'b1}}, ~potts_purified};
 
     generate if (USE_POTTS) begin : g_potts
-    wire potts_run_start = (PRESERVE_POTTS_PLANE != 0) ? (sample_index == 32'd64) : potts_start;
+    wire potts_run_start = (PRESERVE_POTTS_PLANE != 0) ? (sample_index == 32'd64) : potts_writer_start;
     v2_potts_commit_fsm #(.HORIZON(POTTS_HORIZON)) u_potts (
         .clk(clk_sys_100m), .rst_n(rst_sys_n), .start(potts_run_start), .lambda_q16(potts_lambda),
         .rest_mask(potts_rest_mask), .contour(potts_contour), .busy(potts_busy), .progress(), .done(potts_done),
@@ -483,15 +491,34 @@ logic [9:0] wt_read_index_sel;
         assign potts_event_data = 96'd0; assign potts_event_count = 6'd0;
     end endgenerate
 
+    // While the writer runs, the Potts event stream owns the store's single
+    // write port and targets the lead track; otherwise the recorder keeps it.
+    assign loop_write_valid = potts_commit_run ? potts_writer_valid : record_write_valid;
+    assign loop_write_track = potts_commit_run ? 3'd0 : record_event_data[90:88];
+    assign loop_write_slot  = potts_commit_run ? potts_writer_slot : recorder_write_slot;
+    assign loop_write_data  = potts_commit_run ? potts_event_data : record_event_data;
+    assign record_write_ready = potts_commit_run ? 1'b0 : loop_write_ready;
+
+    v2_loop_commit_writer u_commit_writer (
+        .clk(clk_sys_100m), .rst_n(rst_sys_n), .kick(potts_commit_kick),
+        .potts_start(potts_writer_start), .potts_busy(potts_busy), .potts_done(potts_done),
+        .potts_event_valid(potts_event_valid), .potts_event_ready(potts_writer_ready),
+        .potts_event_data(potts_event_data), .store_write_ready(loop_write_ready),
+        .store_write_valid(potts_writer_valid), .store_write_slot(potts_writer_slot),
+        .commit_request(potts_commit_req), .run(potts_commit_run),
+        .done(potts_commit_done), .count(potts_commit_count));
+
     logic voice_event_valid /* synthesis syn_keep=1 */, voice_overflow;
     logic [95:0] voice_event_data /* synthesis syn_keep=1 */;
     logic signed [15:0] voice_sample; logic voice_sample_valid;
     logic [31:0] voice_bitmap; logic [5:0] active_voice_count; logic [7:0] revoice_count;
     logic [15:0] voice_steal_count;
-    assign voice_event_valid = mode_live ? live_event_valid : mode_play ? loop_event_valid : potts_event_valid;
-    assign voice_event_data = mode_live ? live_event_data : mode_play ? loop_event_data : potts_event_data;
+    // The Potts result never goes to the voice engine directly: it is written
+    // into the shadow track first and only heard after the bank swap.
+    assign voice_event_valid = mode_live ? live_event_valid : mode_play ? loop_event_valid : 1'b0;
+    assign voice_event_data = mode_live ? live_event_data : loop_event_data;
     assign loop_event_ready = mode_play ? voice_event_ready : 1'b0;
-    assign potts_event_ready = (!mode_live && !mode_play) ? voice_event_ready : 1'b0;
+    assign potts_event_ready = potts_writer_ready;
     // Held in reset outside LIVE/PLAY so no note can survive a mode change.
     wire voice_rst_n = rst_sys_n && (mode_live || mode_play);
 
@@ -875,7 +902,7 @@ end
         if (!rst_sys_n) begin
             mode_reg <= IDLE; rsp_valid <= 0; rsp_sequence <= 0; rsp_status <= 0;
             rsp_error <= V2_ERR_NONE; rsp_data <= 0; rsp_terminal <= 1'b1;
-            record_start <= 0; record_stop <= 0; record_abort <= 0; potts_start <= 0;
+            record_start <= 0; record_stop <= 0; record_abort <= 0; potts_capture_arm <= 0; potts_commit_kick <= 0;
             selected_track <= 3'd0;
             patch_select_family <= 2'd0; patch_select_track <= 3'd0;
             patch_select_index <= 8'd0; patch_expected_crc <= 16'hffff;
@@ -896,8 +923,16 @@ end
             wt_apply_response_valid <= 1'b0;
         end else begin
             rsp_valid <= 1'b0; record_start <= 1'b0; record_stop <= 1'b0;
-            record_abort <= 1'b0; potts_start <= 1'b0;
+            record_abort <= 1'b0; potts_capture_arm <= 1'b0; potts_commit_kick <= 1'b0;
             loop_ctrl_valid <= loop_ctrl_pending;
+            // The commit writer asks for the bank swap only after the DP result
+            // has been written into the shadow track.
+            if (potts_commit_req && !loop_ctrl_pending) begin
+                loop_ctrl_op <= 3'd3;
+                loop_ctrl_track <= 3'd0;
+                loop_ctrl_pending_op <= 3'd3;
+                loop_ctrl_pending <= 1'b1;
+            end
             if (test_csr_rvalid && test_response_pending) begin
                 rsp_valid <= 1'b1;
                 rsp_sequence <= test_response_sequence;
@@ -916,6 +951,10 @@ end
                 rsp_status <= V2_ACK_ACCEPTED;
                 rsp_error <= V2_ERR_NONE;
                 rsp_terminal <= 1'b1;
+                // Reading the contour window advances its pointer, so the host
+                // dumps 32 samples with 32 reads and no index writes.
+                if (csr_read_address == V2_CSR_CONTOUR_DATA)
+                    contour_rd_index <= contour_rd_index + 1'b1;
                 case (csr_read_address)
                     V2_CSR_STATUS: rsp_data <= {22'd0, status_fault, loop_active_valid,
                                                  5'd0, mode_reg[2:0]};
@@ -930,6 +969,10 @@ end
                     V2_CSR_PATCH_APPLY: rsp_data <= 32'd0;
                     V2_CSR_BPM: rsp_data <= {16'd0, bpm_reg};
                     V2_CSR_THRESHOLDS: rsp_data <= thresholds_reg;
+                    V2_CSR_CONTOUR_DATA: rsp_data <= {16'd0, contour_rd_data};
+                    V2_CSR_POTTS_STATUS: rsp_data <= {27'd0, potts_capture_full, loop_commit_timeout,
+                                                      potts_overflow, potts_busy, potts_commit_done};
+                    V2_CSR_POTTS_LAMBDA: rsp_data <= {16'd0, potts_lambda};
                     V2_CSR_WT_SELECT: rsp_data <= {wt_lfo_step, wt_morph_en,
                                                     6'd0, wt_select_table};
                     V2_CSR_WT_INDEX: rsp_data <= {22'd0, wt_select_index};
@@ -1086,7 +1129,14 @@ end
                     loop_ctrl_pending_op <= 3'd5;
                     loop_ctrl_pending <= 1'b1;
                     record_stop <= 1'b1;
+                    // Arming rides on PREPARE_RECORD: the capture waits for the
+                    // next tick 0 and fills the 32 contour samples in order.
+                    potts_capture_arm <= 1'b1;
                 end
+                if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_CONTOUR_DATA)
+                    contour_rd_index <= cmd_data[4:0];
+                if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_POTTS_LAMBDA)
+                    potts_lambda <= cmd_data[15:0];
                 if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_OVERDUB) begin
                     loop_ctrl_op <= 3'd0;
                     loop_ctrl_track <= selected_track;
@@ -1106,12 +1156,6 @@ end
                     loop_ctrl_pending_op <= 3'd2;
                     loop_ctrl_pending <= 1'b1;
                 end
-                if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_COMMIT) begin
-                    loop_ctrl_op <= 3'd3;
-                    loop_ctrl_track <= 3'd0;
-                    loop_ctrl_pending_op <= 3'd3;
-                    loop_ctrl_pending <= 1'b1;
-                end
                 if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_STOP) begin
                     mode_reg <= IDLE; record_abort <= 1'b1;
                     loop_ctrl_op <= 3'd4;
@@ -1120,7 +1164,7 @@ end
                     loop_ctrl_pending <= 1'b1;
                     record_stop <= 1'b1;
                 end
-                if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_COMMIT) potts_start <= 1'b1;
+                if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_COMMIT) potts_commit_kick <= 1'b1;
             end
         end
     end

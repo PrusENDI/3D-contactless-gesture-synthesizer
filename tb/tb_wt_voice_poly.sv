@@ -1,19 +1,23 @@
 `timescale 1ns/1ps
-// Worst-case load test for the wavetable voice path.
+// Polyphony load test for the wavetable voice path.
 //
 // 32 voices, each running two oscillators that read a full-scale wavetable
 // sample, with the velocity and both per-voice mixes at maximum (255: no extra
-// attenuation, the loudest a voice can be).  At sustain the only scaling left is
-// WT_VOICE_SHIFT = 6, so the expected peak is 32 * 2 * (32767 >>> 6) = 32704 and
-// the negative peak is 32 * 2 * (-32768 >>> 6) = -32768: full scale and still
-// inside int16, which is what the default shift buys.
+// attenuation, the loudest a voice can be).
+//
+// The default gain (WT_VOICE_SHIFT = 2) is chosen for level, not only headroom:
+// one note has to be audible after the per-voice attenuation and the -12 dB
+// output trim.  Two full-scale voices then sum to 29490 and still fit; three or
+// more saturate in the mix.  This test therefore pins what the hardware really
+// guarantees: the mix saturates at full scale instead of wrapping, a single
+// loud voice stays inside int16, and voices are released one by one.  Making
+// loud single notes AND 32 clip-free voices at once needs a real gain stage.
 module tb_wt_voice_poly;
   localparam integer VOICES = 32;
-  // The table engine has already applied WT_VOICE_SHIFT = 6 to these, so they
-  // are the largest samples the voice engine can ever see (32767 >>> 6, and the
-  // most negative value, -32768 >>> 6).
-  localparam logic signed [15:0] PEAK_POS = 16'sd511;
-  localparam logic signed [15:0] PEAK_NEG = -16'sd512;
+  // The table engine has already applied WT_VOICE_SHIFT = 2 to these, so they
+  // are the largest samples the voice engine can ever see.
+  localparam logic signed [15:0] PEAK_POS = 16'sd8191;
+  localparam logic signed [15:0] PEAK_NEG = -16'sd8192;
 
   logic clk = 0, rst_n = 0, sample_ce = 0;
   logic event_valid = 0;
@@ -147,14 +151,15 @@ module tb_wt_voice_poly;
     max_seen = -40000; min_seen = 40000; samples_seen = 0;
     hold_samples(40);
     if (samples_seen < 20) $fatal(1, "only %0d audio frames in the window", samples_seen);
-    if (max_seen !== 32704)
-      $fatal(1, "positive peak %0d, expected 32704 (32 voices x 2 oscillators)", max_seen);
-    if (max_seen > 32767 || min_seen < -32768)
-      $fatal(1, "the mix clipped: max %0d min %0d", max_seen, min_seen);
+    // 32 voices x 2 oscillators is far past full scale, so the mix must sit on
+    // the rail instead of wrapping into the opposite sign.
+    if (max_seen !== 32767)
+      $fatal(1, "positive peak %0d, expected the saturator to hold 32767", max_seen);
+    if (min_seen < -32768) $fatal(1, "the mix wrapped: min %0d", min_seen);
     pos_peak = max_seen;
     if (voice_steal_count !== 16'd0) $fatal(1, "32 notes stole %0d voices", voice_steal_count);
 
-    // Negative full-scale samples must land on -32768, not wrap.
+    // Negative samples must land on -32768, not wrap.
     wt_sample_a = PEAK_NEG; wt_sample_b = PEAK_NEG;
     hold_samples(2);
     max_seen = -40000; min_seen = 40000; samples_seen = 0;
@@ -165,7 +170,8 @@ module tb_wt_voice_poly;
     neg_peak = min_seen;
     wt_sample_a = PEAK_POS; wt_sample_b = PEAK_POS;
 
-    // Release one voice at a time and check the count follows exactly.
+    // Release one voice at a time and check the count follows exactly.  After 31
+    // releases the last voice must fit: 2 * 8191 = 16382, no saturation.
     for (i = 0; i < VOICES; i = i + 1) begin
       send_event(make_note_off(8'd36 + i[7:0]), "note off");
       guard = 0;
@@ -176,13 +182,21 @@ module tb_wt_voice_poly;
       if (active_voice_count !== (VOICES - 1 - i))
         $fatal(1, "%0d voices active after %0d note-offs, expected %0d", active_voice_count,
                i + 1, VOICES - 1 - i);
+      if (i == VOICES - 2) begin
+        hold_samples(2);
+        max_seen = -40000; min_seen = 40000; samples_seen = 0;
+        hold_samples(20);
+        if (max_seen !== 16382)
+          $fatal(1, "one loud voice produced %0d, expected 16382 (2 x 8191)", max_seen);
+        if (min_seen < -32768) $fatal(1, "single voice wrapped: min %0d", min_seen);
+      end
     end
     hold_samples(2);
     if (mixed_sample !== 16'sd0)
       $fatal(1, "silent engine still produced %0d", mixed_sample);
 
-    $display("PASS 32 voices: peak %0d / %0d (no clip), all released one by one",
-             pos_peak, neg_peak);
+    $display("PASS 32 voices: saturates at %0d/%0d (no wrap), one loud voice %0d, all released one by one",
+             pos_peak, neg_peak, 2 * PEAK_POS);
     $finish;
   end
 

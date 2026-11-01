@@ -15,9 +15,10 @@
 - 系统时钟 80 MHz，音频 48 kHz（`sample_ce` 每 1667 拍一次）；每样本时隙预算 **1667**，本阶段新增 **≈100 拍（6.0%）**。
 - 波表几何固定：3 表 × 2 bank × 1024 × int16；`idx = phase[31:22]`；表幅度 0.9 FS。
 - 表引擎固定缩放常数 **`WT_VOICE_SHIFT`**，放在 `WT_SELECT(0x60)` 的空闲位 `[7:4]`；不新增 CSR 地址。
-  默认值实测为 **6**（不是最初写的 4）：每个声部两个振荡器一起求和，最坏情形是
-  32 × 2 × 满幅 = 64 × 32767，shift=4 会削顶（`tb_wt_voice_poly` 实测 32767），
-  shift=6 实测峰值 32704 / −32768，刚好不饱和。
+  默认值实测为 **2**：这是**增益**而不只是余量。shift=4 在 32×2×满幅时削顶（实测 32767），
+  但 shift=6 会把单音压到约 −66 dBFS（叠加 −18 dB 的力度/mix 衰减和 −12 dB 输出 trim），
+  板上直接听不见。shift=2 时单音约 −37 dBFS，两个满幅声部正好 29490 不削顶；三个以上在
+  混音里饱和（不翻符号）。要让“单音响 + 32 音不削顶”同时成立需要增益级/限幅器（非目标）。
 - 模式互斥：IDLE 旧读口给宿主；WT_PLAY / LIVE 走单声部路径；PLAY 走表引擎。PLAY 中宿主读 `WT_DATA(0x18)` 必须返回 0。
 - 不改原有扫描管线的握手、事件接收时机与 voice stealing 行为。
 - 每完成一个任务：`python scripts/gate.py --compile` 必须 0 error / 0 warning；`python scripts/sim.py` 不得新增失败；提交信息写清「改了什么 + 为什么」。
@@ -270,8 +271,8 @@ git commit -m "feat: PLAY reads the wavetable through the bypass engine; WT_DATA
 ```systemverilog
 // tb/tb_wt_voice_poly.sv
 // 32 个 NOTE_ON（不同音高）→ 断言 active_voice_count==32、无 voice_overflow；
-// 32 声部同时发声时 |mixed_sample| <= 32767（不削顶）；
-// 逐个关闭声部后重新计数正确。
+// 32 声部同时发声时饱和在 ±满量程且不翻符号（固定增益下“不饱和”与“单音可闻”不能兼得）；
+// 只剩一个满幅声部时是 2 x (32767 >>> shift)，不饱和；逐个关闭后计数逐个减 1。
 ```
 
 - [x] **Step 2: 跑测试**
@@ -335,7 +336,7 @@ git commit -m "feat: PLAY bypass wavetable engine accepted on board (spectrum wi
 | 表引擎每声部 2 拍、两帧读、交叉淡化复用单声部模块 | Task 2 |
 | 声部引擎只改 `calc_osc_sum` 来源 | Task 3 |
 | 读口所有权（PLAY 用表引擎，PLAY 中 `WT_DATA` 返回 0） | Task 4 |
-| `WT_VOICE_SHIFT` 放在 `WT_SELECT[7:4]`，默认 6（32×2 满幅不饱和） | Task 4、Task 5 |
+| `WT_VOICE_SHIFT` 放在 `WT_SELECT[7:4]`，默认 2（单音可闻；≥3 声部混音内饱和，增益级待做） | Task 4、Task 5 |
 | 仿真：单声部参考一致 / 1/8/32 音通过 | Task 2、4、5 |
 | 板上：LIVE 与 PLAY 频谱 ±3 dB、切换无跳变 | Task 6 |
 | 时序预算 ≤100 拍 | Task 2（状态机 2 拍 × 32 + 收尾），Task 4 后跑 `gate.py` 复核 |

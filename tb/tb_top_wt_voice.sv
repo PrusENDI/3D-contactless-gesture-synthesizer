@@ -21,6 +21,9 @@ module tb_top_wt_voice;
   localparam logic signed [15:0] TABLE_VALUE = 16'sh3000;
   localparam logic [3:0] SHIFT = 4'd4;
   localparam logic [7:0] VELOCITY = 8'd127;
+  // Ramp slope: the table spans 1024 * 63, so one index step is 63.
+  localparam logic signed [15:0] RAMP_STEP = 16'sd63;
+  localparam logic [1:0] RAMP_TABLE = 2'd1;
 
   logic clk_50m = 1'b0, uart_rx = 1'b1;
   tri mgc_sda, mgc_scl, mgc_ts, mgc_mclr;
@@ -28,7 +31,7 @@ module tb_top_wt_voice;
 
   logic [7:0] inject_value;
   logic [95:0] tb_event = 96'd0;
-  integer i, guard;
+  integer i, guard, first_val, last_val;
   logic [15:0] crc, crc_final;
   logic signed [15:0] want;
 
@@ -114,6 +117,16 @@ module tb_top_wt_voice;
       c = 16'hffff;
       for (k = 0; k < 9; k = k + 1) c = crc_byte(c, b[k]);
       b[9] = c[15:8]; b[10] = c[7:0];
+      // The link holds one outstanding transaction, and an APPLY replies only
+      // after its CRC scan, long after the command was accepted.  Starting the
+      // next frame while that reply is still going out drops it, which is how a
+      // WT_SELECT write was silently lost here.
+      guard = 0;
+      while ((dut.v2_tx_valid || dut.uart_tx_busy) && guard < 200000) begin
+        @(posedge clk_50m);
+        guard = guard + 1;
+      end
+      if (guard >= 200000) $fatal(1, "the previous reply never finished");
       for (k = 0; k < 11; k = k + 1) inject_byte(b[k]);
       repeat (4) @(posedge clk_50m);
       for (k = 0; k < 20000; k = k + 1) begin
@@ -122,6 +135,9 @@ module tb_top_wt_voice;
       end
       if (dut.v2_tx_valid || dut.uart_tx_busy)
         $fatal(1, "V2 UART response did not drain");
+      if (dut.rsp_error !== 8'd0)
+        $fatal(1, "op=0x%02h addr=0x%02h seq=0x%02h NACKed err=0x%02h",
+               op, address, seq, dut.rsp_error);
     end
   endtask
 
@@ -200,17 +216,64 @@ module tb_top_wt_voice;
     end
   endtask
 
+  // A ramp: its value depends on the table index, so a stuck phase and a running
+  // oscillator give different outputs.  A constant table cannot tell them apart.
+  function automatic logic signed [15:0] ramp_value(input integer idx);
+    ramp_value = (idx - 512) * RAMP_STEP;
+  endfunction
+
+  task automatic upload_ramp(input [1:0] tbl);
+    begin
+      inject_control(8'h02, 8'h60, 8'h65, {28'd0, 4'd0, tbl});    // select, shift 0
+      inject_control(8'h02, 8'h6C, 8'h66, 32'd1024);
+      inject_control(8'h02, 8'h64, 8'h67, 32'd0);
+      for (i = 0; i < 1024; i = i + 1)
+        inject_control(8'h02, 8'h68, i[7:0], {16'd0, ramp_value(i)});
+      crc = 16'hffff;
+      for (i = 0; i < 1024; i = i + 1) begin
+        crc = crc_byte(crc, ramp_value(i)[15:8]);
+        crc = crc_byte(crc, ramp_value(i)[7:0]);
+      end
+      crc_final = crc;
+      inject_control(8'h02, 8'h70, 8'h68, {16'd0, crc_final});
+      inject_control(8'h02, 8'h74, 8'h69, 32'd0);
+      inject_control(8'h02, 8'h78, 8'h6A, 32'h8000_0000);
+      guard = 0;
+      while (!dut.u_wavetable_loader.wt_active_valid && guard < 200000) begin
+        @(posedge clk_50m);
+        guard = guard + 1;
+      end
+      if (!dut.u_wavetable_loader.wt_active_valid)
+        $fatal(1, "the ramp table never became active (crc=0x%04h reason=%0d)",
+               crc_final, dut.u_wavetable_loader.dbg_apply_reject_reason);
+    end
+  endtask
+
+  // Wait for the next finished scan, sampling on the system clock because the
+  // pulse is one system-clock wide.
+  task automatic next_sample;
+    begin
+      guard = 0;
+      @(posedge dut.clk_sys_100m);
+      while (!dut.voice_sample_valid && guard < 200000) begin
+        @(posedge dut.clk_sys_100m);
+        guard = guard + 1;
+      end
+      if (guard >= 200000) $fatal(1, "no voice sample");
+    end
+  endtask
+
   initial begin : run_tb
     repeat (40) @(posedge clk_50m);
     if (!dut.rst_sys_n || !dut.pll_locked) $fatal(1, "reset/PLL did not release");
 
     inject_control(8'h01, 8'hB0, 8'h30, 32'd0);
     if (dut.rsp_data !== 32'h5A5A_0003) $fatal(1, "0xB0=0x%08h", dut.rsp_data);
-    // The default voice scaling lives in WT_SELECT[7:4] and must be 6: the shift
-    // that keeps 32 voices x 2 oscillators inside int16.
+    // The default voice scaling lives in WT_SELECT[7:4] and must be 2: the gain
+    // that keeps one note audible while two full-scale voices still fit.
     inject_control(8'h01, 8'h60, 8'h31, 32'd0);
-    if (dut.rsp_data[7:4] !== 4'd6)
-      $fatal(1, "WT_SELECT shift default is %0d, expected 6", dut.rsp_data[7:4]);
+    if (dut.rsp_data[7:4] !== 4'd2)
+      $fatal(1, "WT_SELECT shift default is %0d, expected 2", dut.rsp_data[7:4]);
 
     // ---- 1. No table: PLAY must be silent, not a saw ---------------------
     inject_control(8'h02, 8'h04, 8'h32, 32'd4);            // MODE=PLAY
@@ -275,8 +338,38 @@ module tb_top_wt_voice;
     if (dut.voice_steal_count !== 16'd0) $fatal(1, "single notes stole a voice");
     if (dut.voice_overflow !== 1'b0) $fatal(1, "voice_overflow set for a single note");
 
+    // ---- 4. The oscillator must actually move ----------------------------
+    // A constant table cannot tell a running oscillator from a frozen phase, so
+    // this phase uses a ramp: with note 55 the phase advances 4.18 table points
+    // per sample, i.e. 63 * 4.18 * 2 oscillators = 527 units, then >>> 4 (shift)
+    // and >>> 3 (velocity + mix) leaves about 33 units per 8 samples.
+    upload_ramp(RAMP_TABLE);
+    inject_control(8'h02, 8'h60, 8'h6D, {23'd0, 1'b0, SHIFT, 2'd0, RAMP_TABLE});  // select, shift
+    inject_control(8'h01, 8'h60, 8'h70, 32'd0);
+    if (dut.rsp_data[7:4] !== SHIFT || dut.rsp_data[1:0] !== RAMP_TABLE)
+      $fatal(1, "WT_SELECT readback 0x%08h, expected shift %0d table %0d",
+             dut.rsp_data, SHIFT, RAMP_TABLE);
+    inject_control(8'h02, 8'h04, 8'h6E, 32'd4);                        // MODE=PLAY
+    if (!dut.mode_play) $fatal(1, "MODE=PLAY was rejected for the ramp take");
+    play_note(8'd55, VELOCITY);
+    wait_sample("ramp sample");
+    // Let the envelope reach sustain (attack 16 + decay 64 samples) so the
+    // attenuation stops changing inside the measured window.
+    for (i = 0; i < 120; i = i + 1) next_sample;
+    next_sample;
+    first_val = dut.voice_sample;
+    for (i = 0; i < 8; i = i + 1) next_sample;
+    last_val = dut.voice_sample;
+    if (last_val - first_val < 20 || last_val - first_val > 50)
+      $fatal(1, "the ramp advanced %0d units over 8 samples, expected about 33; the phase is not running",
+             last_val - first_val);
+    inject_control(8'h02, 8'h14, 8'h6F, 32'd1);                        // STOP
+    wait_silence;
+
     $display("PASS top wavetable voice: no table -> 0, table 0x%04h >>> %0d -> %0d, WT_DATA 0 in PLAY",
              TABLE_VALUE, SHIFT, want);
+    $display("PASS top wavetable voice: ramp advanced %0d units over 8 samples (phase is running)",
+             last_val - first_val);
     $finish;
   end
 

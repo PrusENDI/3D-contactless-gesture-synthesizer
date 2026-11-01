@@ -5,7 +5,7 @@
 # Three phases, each run as a child process so only one of them owns the port:
 #   1. host/wavetable_sine.py writes a 0.9 FS sine to artifacts/wt/voice_sine.bin
 #   2. scripts/board_wt_upload.ps1 uploads it as table 0 and leaves WT_SELECT with
-#      the voice shift (default 6), which is the PLAY-side scaling
+#      the voice shift (default 2), which is the PLAY-side gain
 #   3. scripts/board_stage2_loop.ps1 records one take, commits it, publishes it at
 #      a loop boundary and plays it  (hand in the field for one take)
 #
@@ -22,7 +22,7 @@ param(
   [int]$Baud = 1000000,
   [string]$Bin = 'artifacts/wt/voice_sine.bin',
   [int]$Table = 0,
-  [int]$Shift = 6,
+  [int]$Shift = 2,
   [int]$WaitSeconds = 40,
   [int]$ListenSeconds = 8,
   [switch]$SkipRecord,

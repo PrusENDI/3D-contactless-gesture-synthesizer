@@ -240,10 +240,14 @@ localparam logic [7:0] V2_ADDR_DIAG_FIRST   = 8'hB0;
   localparam int V2_CSR_WT_SELECT_MORPH_EN_SHIFT=8;
   localparam int V2_CSR_WT_SELECT_LFO_STEP_SHIFT=9;
   // Default scaling between the wavetable samples and the 32-voice mix sum.
-  // Each voice sums two oscillators, so the worst case is 32 voices x 2 x full
-  // scale: 64 x 32767 needs a shift of 6 to stay inside int16 (measured peak
-  // 32704 and -32768 in tb_wt_voice_poly).  A shift of 4 clips there.
-  localparam logic [3:0] V2_WT_VOICE_SHIFT_DEFAULT=4'd6;
+  // This is a gain, not only a headroom control: a 0.9 FS table already loses
+  // 18 dB in the per-voice attenuation and another 12 dB in the output trim, so
+  // shift 6 left a single note at about -66 dBFS and the board was silent.
+  // Shift 2 puts one note near -37 dBFS and lets two full-scale voices sum to
+  // 29490 without clipping.  Three or more voices saturate in the mix (no wrap);
+  // making loud single notes AND 32 clip-free voices needs a real gain stage or
+  // limiter, which is still open.
+  localparam logic [3:0] V2_WT_VOICE_SHIFT_DEFAULT=4'd2;
   localparam int V2_CSR_WT_INDEX_SAMPLE_INDEX_SHIFT=0;
   localparam int V2_CSR_WT_DATA_SAMPLE_S16_SHIFT=0;
   localparam int V2_CSR_WT_LENGTH_SAMPLE_COUNT_SHIFT=0;

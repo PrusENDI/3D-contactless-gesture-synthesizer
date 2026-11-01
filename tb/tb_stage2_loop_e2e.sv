@@ -466,12 +466,49 @@ module tb_stage2_loop_e2e;
     if (dut.loop_commit_pending)
       $fatal(1, "the store still holds a commit after the two-track STOP");
 
+    // ---- STOP in the middle of a commit ---------------------------------
+    // The DP used to stay in EMIT after a STOP and only a reflash recovered.
+    // A STOP during the run must abort the DP, drop the commit, and leave no
+    // events behind: the next take on the same track must start empty, so its
+    // count can only be that take's events.
+    inject_control(8'h02, 8'h0C, 8'h6C, 32'd0);
+    inject_control(8'h02, 8'h18, 8'h6D, 32'd1);
+    for (t = 0; t < 32; t = t + 1) advance_tick(t, 16'd30000, 1'b1);
+    if (!dut.potts_capture_full) $fatal(1, "abort-case capture did not complete");
+    inject_control(8'h02, 8'h28, 8'h6E, 32'd1);
+    guard = 0;
+    while (!dut.potts_busy && guard < 200000) begin
+      @(posedge clk_50m);
+      guard = guard + 1;
+    end
+    if (!dut.potts_busy) $fatal(1, "the DP never started; there is nothing to abort");
+    repeat (2000) @(posedge clk_50m);            // let the DP write a few events
+    if (!dut.potts_busy) $fatal(1, "the DP finished before STOP; the abort is untested");
+    inject_control(8'h02, 8'h14, 8'h6F, 32'd1);  // STOP mid-commit
+    repeat (10) @(posedge clk_50m);
+    if (dut.potts_busy) $fatal(1, "STOP did not abort the DP");
+    if (dut.loop_commit_pending) $fatal(1, "the aborted commit is still pending");
+    if (dut.loop_record_count[5:0] != 0)
+      $fatal(1, "the aborted take left %0d events in track 0", dut.loop_record_count[5:0]);
+
+    inject_control(8'h02, 8'h0C, 8'h70, 32'd0);
+    inject_control(8'h02, 8'h18, 8'h71, 32'd1);
+    for (t = 0; t < 32; t = t + 1) advance_tick(t, 16'd60000, 1'b1);
+    if (!dut.potts_capture_full) $fatal(1, "recovery capture did not complete");
+    commit_take(8'h72);
+    if (dut.potts_commit_count != 1)
+      $fatal(1, "the recovery take produced %0d events, expected 1", dut.potts_commit_count);
+    if (dut.loop_record_count[5:0] != 1)
+      $fatal(1, "the recovery take stored %0d events in track 0, expected 1",
+             dut.loop_record_count[5:0]);
+
     $display("PASS tb_stage2_loop_e2e boundaries=%0d voices_seen=%0d commit_events=%0d stop_cycles=%0d",
              boundary_count, voices_seen, dut.potts_commit_count, stop_cycles);
     $display("PASS two tracks t0=%0d events/t1=%0d events notes=%0d/%0d max_voices=%0d steals=0",
              take1_count, take2_count, trk_note[0], trk_note[1], max_voices);
     $display("PASS two tracks first notes %0d ns apart, both at tick %0d",
              note_gap, trk_note_tick[0]);
+    $display("PASS STOP mid-commit aborted the DP and the recovery take stored 1 event");
     $finish;
   end
 

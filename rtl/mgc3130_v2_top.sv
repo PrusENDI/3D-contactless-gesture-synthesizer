@@ -575,7 +575,8 @@ logic [9:0] wt_read_index_sel;
                                      loop_commit_pending, loop_busy,
                                      potts_busy, potts_commit_done, potts_commit_run,
                                      potts_purify_done_seen, potts_capture_full};
-            5'd2: loop_probe_word = {18'd0, active_voice_count, 8'd0, voice_dbg_busy};
+            5'd2: loop_probe_word = {7'd0, voice_dbg_busy, active_voice_count,
+                                     voice_overflow, voice_steal_count};
             default: loop_probe_word = 32'd0;
         endcase
     end

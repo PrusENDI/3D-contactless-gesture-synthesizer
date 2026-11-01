@@ -17,6 +17,11 @@
 - 时基是 **`sample_ce`**（48 kHz），不是 mux 后的 `i2s_sample_valid`；滤波器输出相对输入晚 **1 个采样**（20.8 µs），I2S 的 valid 不加延迟。
 - 校验是 **clamp 不是 NACK**（`v2_csr_clamp()` 是唯一来源）；位掩码外的位仍由 `v2_csr_data_valid()` 拒绝。
 - 每个任务结束：`python scripts/sim_unit.py --tb <tb>` 绿，`python scripts/gate.py --compile` 0 error / 0 warning，`python scripts/sim.py` 不超出基线（13 pass / 4 known-fail），源文件 **LF、无 BOM**，`git add <具体文件>` 提交。
+  **两个例外（已核实机制）**：
+  1. `filelist.f` 是**显式清单**（不是通配），Task 3/4/5 新建的 `.sv` **必须同时加进去**，否则 `sim_unit` 编译不到它；
+  2. `gate.py` 有一条静态规则：除声明顶层外**不许有未例化的模块**。所以 Task 3/4/5 提交时 `gate.py` 会且只会报一条
+     `additional uninstantiated module(s)`，并且**因为存在静态失败会跳过编译步骤**——那三个任务的**编译证据来自 `sim_unit`**
+     （它编译整个 filelist + tb）。**Task 6 必须恢复干净的 `GATE: PASS`**，并把这条例外写进报告。
 - 构建门（Task 7）：CLS ≤ 11300、worst slack ≥ −3.5 ns、新实例不进最差 25 条、违约端点数 ≤ 基线+50。
 - 不动 `u_patch_bank`、不动 `v2_voice_engine_banked`、不动 `v2_fx_lite` 的内部 DSP。
 
@@ -232,7 +237,9 @@ git commit -m "feat: six P2a CSRs with one clamp function in the contract"
 3. clamp：写 `0x40` 的 ci=0xFFF → 读回 `0x0000_01A7`（423 = `0x1A7`，**不是 `0x1AF`**）；
    写 `0x8C=0xFFFF_FFFF` → 读回 `0x7FFF_7333`；
 4. **P2b 未实现**：写 `0x9C` 必须 `rsp_error == 8'h02`（BAD_ADDRESS）；
-5. 掩码外的位：写 `0x90 = 0xFFFF_FFFF` → 读回 `0x0002_0000`（夹到 2.0 并清掉掩码外位）。
+5. 掩码外的位：**写 `0x90 = 0xFFFF_FFFF` 会被 `v2_csr_data_valid()` 拒成 BAD_DATA（`0x07`）且寄存器不变**
+   （UART 链路比 clamp 更早拒绝掩码外位——Task 2 实现时核实）；再用**掩码内**的 `0x0003_FFFF` 写一次，
+   读回 `0x0002_0000`（夹到 2.0 并清掉掩码外的位）。
 
 - [ ] **Step 2: 跑测试确认失败**
 

@@ -24,6 +24,8 @@ import subprocess
 import sys
 import time
 
+import synth_report
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 PROJECT = os.path.dirname(HERE)
 FILELIST = os.path.join(PROJECT, "filelist.f")
@@ -79,6 +81,10 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--run-id", required=True)
     ap.add_argument("--syn-only", action="store_true")
+    ap.add_argument("--max-cls", type=int, default=11300,
+                    help="build gate: CLS must stay at or below this (design doc section 6)")
+    ap.add_argument("--min-slack", type=float, default=-3.5,
+                    help="build gate: worst setup slack floor in ns (design doc section 6)")
     ap.add_argument("--gao", default=None, help="GAO probe definition (.rao) to instrument the build")
     args = ap.parse_args()
 
@@ -165,7 +171,11 @@ def main() -> int:
                 print("    " + line.rstrip())
         return 1
 
-    # resource / timing evidence, straight from the generated reports
+    # Resource / timing evidence, straight from the generated reports.  The
+    # timing numbers do not live in rpt.txt (the old code looked there, printed
+    # None and still exited 0); synth_report reads .tr and .timing_paths and
+    # turns them into the build gate of the P2 design, so a build cannot claim
+    # PASS while being slower or fuller than the agreed thresholds.
     summary: dict[str, object] = {
         "run_id": run_id, "run_dir": os.path.relpath(run_dir, PROJECT),
         "top": TOP, "sources": len(entries), "syn_only": args.syn_only,
@@ -181,15 +191,34 @@ def main() -> int:
             "logic": r"Logic\s*\|\s*\d+/\d+",
             "register": r"Register\s*\|\s*\d+/\d+",
             "cls": r"CLS\s*\|\s*\d+/\d+",
-            "violations": r"Numbers of Setup Violated Endpoints>:(\d+)",
         })
-    tr = os.path.join(pnr_dir, PROJECT_NAME + ".tr")
-    if os.path.isfile(tr):
-        text = open(tr, encoding="utf-8", errors="replace").read()
-        summary["timing"] = extract(text, {
-            "constraint": r"\d+\.\d+\s*ns",
-            "fmax": r"Actual Fmax\s+([\d.]+)\(MHz\)",
-        })
+
+    gate_problems: list[str] = []
+    if not args.syn_only:
+        try:
+            report = synth_report.read_run(run_dir)
+        except ValueError as exc:
+            print("XX  the build reports cannot be read: %s" % exc)
+            return 1
+        summary["resources"] = {
+            "logic": "%d/%d" % (report["logic"], report["logic_max"]),
+            "register": "%d/%d" % (report["register"], report["register_max"]),
+            "cls": "%d/%d" % (report["cls"], report["cls_max"]),
+            "dsp": "%d/%d" % (report.get("dsp", 0), report.get("dsp_max", 0)),
+            "bsram": "%d/%d" % (report.get("bsram", 0), report.get("bsram_max", 0)),
+        }
+        summary["timing"] = {
+            "constraint_mhz": 80.0,
+            "fmax_mhz": report["fmax"],
+            "setup_violated_endpoints": report["violations"],
+            "tns_ns": report["tns"],
+            "worst_slack_ns": report["worst_slack"],
+            "worst_from": report["worst_from"],
+        }
+        gate_problems = synth_report.gate_fail(report, args.max_cls, args.min_slack)
+        summary["gate"] = {"max_cls": args.max_cls, "min_slack": args.min_slack,
+                           "problems": gate_problems}
+
     fs = os.path.join(pnr_dir, PROJECT_NAME + ".fs")
     if not os.path.isfile(fs):
         gao_fs = os.path.join(pnr_dir, "ao_0.fs")   # GAO-instrumented build
@@ -203,9 +232,15 @@ def main() -> int:
         json.dump(summary, fh, indent=2)
         fh.write("\n")
 
-    for key in ("resources", "timing", "bitstream_sha256"):
+    for key in ("resources", "timing", "bitstream_sha256", "gate"):
         if key in summary:
             print("%-9s: %s" % (key, summary[key]))
+    if gate_problems:
+        print("XX  GATE: FAIL (%d)" % len(gate_problems))
+        for problem in gate_problems:
+            print("    " + problem)
+        print("\nbuild produced a bitstream, but it must not go on the board")
+        return 2
     print("\nSYNTH: PASS")
     return 0
 

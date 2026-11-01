@@ -362,6 +362,8 @@ logic [9:0] wt_read_index_sel;
     logic [2:0] loop_read_track; logic [4:0] loop_read_index;
     logic [95:0] loop_read_data;
     logic loop_boundary /* synthesis syn_keep=1 */;
+    logic [7:0] loop_dbg_state;
+    logic [1:0] voice_dbg_busy;
     logic loop_commit_pending /* synthesis syn_keep=1 */;
     logic loop_commit_ack, loop_busy;
     logic loop_commit_timeout;
@@ -403,7 +405,7 @@ logic [9:0] wt_read_index_sel;
         .read_slot_valid(loop_read_slot_valid), .read_data(loop_read_data),
         .read_enable(loop_read_enable), .read_track(loop_read_track), .read_index(loop_read_index),
         .event_valid(loop_event_valid), .event_ready(loop_event_ready), .event_data(loop_event_data),
-        .fault_valid(), .loop_boundary(loop_boundary)
+        .fault_valid(), .loop_boundary(loop_boundary), .dbg_state(loop_dbg_state)
     );
 
     // Keep a narrow, low-fanout observability point for the independent V2
@@ -488,7 +490,7 @@ logic [9:0] wt_read_index_sel;
         ? (sample_index == 32'd64)
         : potts_writer_start;
     v2_potts_commit_fsm #(.HORIZON(POTTS_HORIZON)) u_potts (
-        .clk(clk_sys_100m), .rst_n(rst_sys_n), .start(potts_run_start), .lambda_q16(potts_lambda),
+        .clk(clk_sys_100m), .rst_n(rst_sys_n), .abort(record_abort), .start(potts_run_start), .lambda_q16(potts_lambda),
         .rest_mask(potts_rest_mask), .contour(potts_contour), .busy(potts_busy), .progress(), .done(potts_done),
         .overflow(potts_overflow), .backtrace_valid(potts_backtrace_valid), .event_valid(potts_event_valid),
         .event_ready(potts_event_ready), .event_data(potts_event_data), .event_count(potts_event_count)
@@ -509,7 +511,7 @@ logic [9:0] wt_read_index_sel;
 
     v2_loop_commit_writer u_commit_writer (
         .clk(clk_sys_100m), .rst_n(rst_sys_n), .kick(potts_commit_kick),
-        .dp_ready(potts_purify_done_seen),
+        .dp_ready(potts_purify_done_seen && loop_write_ready),
         .potts_start(potts_writer_start), .potts_busy(potts_busy), .potts_done(potts_done),
         .potts_event_valid(potts_event_valid), .potts_event_ready(potts_writer_ready),
         .potts_event_data(potts_event_data), .store_write_ready(loop_write_ready),
@@ -536,7 +538,7 @@ logic [9:0] wt_read_index_sel;
         .event_valid(voice_event_valid), .event_ready(voice_event_ready),
         .event_data(voice_event_data), .vibrato_hz_q8_8(16'd0), .vibrato_cents_q8_8(16'd0),
         .mixed_sample(voice_sample), .sample_valid(voice_sample_valid),
-        .active_bitmap(voice_bitmap), .voice_overflow(voice_overflow),
+        .active_bitmap(voice_bitmap), .voice_overflow(voice_overflow), .dbg_busy(voice_dbg_busy),
         .voice_steal_count(voice_steal_count), .revoice_count(revoice_count),
         .active_voice_count(active_voice_count), .vibrato_phase(), .vibrato_delta_cents()
     );
@@ -1019,7 +1021,9 @@ end
                     8'hEC: rsp_data <= (V2_DEBUG_CSR != 0) ? dbg_frame_count : 32'd0;
                     8'hF0: rsp_data <= (V2_DEBUG_CSR != 0) ? {16'd0, cursor_x[15:0]} : 32'd0;
                     8'hF4: rsp_data <= (V2_DEBUG_CSR != 0) ? {26'd0, reader_state} : 32'd0;
-                    8'hF8: rsp_data <= (V2_DEBUG_CSR != 0) ? dbg_point_count : 32'd0;
+                    // 0xF8 is the loop-plane probe: {scheduler[7:0], voice[1:0]}
+                    // while the stage-2 deadlock is being chased on the board.
+                    8'hF8: rsp_data <= (V2_DEBUG_CSR != 0) ? {22'd0, loop_dbg_state, voice_dbg_busy} : 32'd0;
                     8'hFC: rsp_data <= (V2_DEBUG_CSR != 0) ? raw_y : 32'd0;      // raw sensor Y (signed)
                     8'hA4: rsp_data <= (V2_DEBUG_CSR != 0) ? {30'd0, dbg_apply_reject_reason} : 32'd0;
                     8'hA8: rsp_data <= (V2_DEBUG_CSR != 0) ? {16'd0, dbg_expected_crc_captured} : 32'd0;

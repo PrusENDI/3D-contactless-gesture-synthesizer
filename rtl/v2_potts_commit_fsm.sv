@@ -21,7 +21,7 @@ module v2_potts_commit_fsm #(
  // default preserves the full 128-point behavior used by existing tests.
  parameter integer HORIZON=128
 )(
- input logic clk,rst_n,input logic start,input logic [15:0] lambda_q16,input logic [127:0] rest_mask,
+ input logic clk,rst_n,input logic abort,input logic start,input logic [15:0] lambda_q16,input logic [127:0] rest_mask,
  input logic signed [15:0] contour [0:127], output logic busy,output logic [7:0] progress,
  output logic done,output logic overflow,output logic backtrace_valid,output logic event_valid,
  input logic event_ready,output logic [95:0] event_data,output logic [5:0] event_count);
@@ -126,7 +126,9 @@ module v2_potts_commit_fsm #(
   end
  endgenerate
  always_ff @(posedge clk or negedge rst_n) begin
-  if(!rst_n)begin state<=IDLE;done<=0;overflow<=0;backtrace_valid<=0;progress<=0;e<=0;s<=0;d<=0;wr<=0;rd<=0;event_count<=0;init_idx<=0;ev_valid_q<=1'b0;end else begin done<=0;
+  if(!rst_n)begin state<=IDLE;done<=0;overflow<=0;backtrace_valid<=0;progress<=0;e<=0;s<=0;d<=0;wr<=0;rd<=0;event_count<=0;init_idx<=0;ev_valid_q<=1'b0;end
+  else if(abort)begin state<=IDLE;done<=0;overflow<=0;backtrace_valid<=0;ev_valid_q<=1'b0;wr<=0;rd<=0;end
+  else begin done<=0;
    case(state)
     IDLE: if(start)begin state<=INIT;init_idx<=0;wr<=0;rd<=0;overflow<=0;backtrace_valid<=0;progress<=0;end
     INIT: begin

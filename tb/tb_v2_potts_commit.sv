@@ -20,7 +20,7 @@ module tb_v2_potts_commit;
   always @(posedge clk) if (rst_n && busy) cycles = cycles + 1;
 
   v2_potts_commit_fsm dut (
-    .clk(clk), .rst_n(rst_n), .start(start), .lambda_q16(lam), .rest_mask(rest),
+    .clk(clk), .rst_n(rst_n), .abort(1'b0), .start(start), .lambda_q16(lam), .rest_mask(rest),
     .contour(c), .busy(busy), .progress(prog), .done(done), .overflow(overflow),
     .backtrace_valid(bt), .event_valid(ev), .event_ready(ready),
     .event_data(data), .event_count(count));

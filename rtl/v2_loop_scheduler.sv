@@ -14,7 +14,8 @@ module v2_loop_scheduler #(
  input logic read_valid,read_slot_valid,input logic [95:0] read_data,
  output logic read_enable,output logic [2:0] read_track,output logic [SLOT_BITS-1:0] read_index,
  output logic event_valid,input logic event_ready,output logic [95:0] event_data,output logic fault_valid,
- output logic loop_boundary);
+ output logic loop_boundary,
+ output logic [7:0] dbg_state);
   localparam logic [3:0] EV_NOTE_ON=4'd1,EV_NOTE_OFF=4'd2,EV_CONTROL=4'd4,EV_ALL_NOTES_OFF=4'd5,EV_BOUNDARY=4'd6;
   localparam logic [6:0] TICK_MASK = LOOP_TICKS - 1;
   wire [6:0] loop_tick_m = loop_tick & TICK_MASK;
@@ -29,6 +30,8 @@ module v2_loop_scheduler #(
   assign read_index=slot;
   assign read_enable=run&&scan_active&&!stop&&!flush&&!event_valid&&!waiting;
   assign event_data=held;
+  // Probe word: what the sweep is doing, so a stuck boundary can be attributed.
+  assign dbg_state = {scan_active, waiting, event_valid, boundary_stage, pass, slot[0]};
 
   always_ff @(posedge clk or negedge rst_n) begin
     logic [8:0] end_tick;

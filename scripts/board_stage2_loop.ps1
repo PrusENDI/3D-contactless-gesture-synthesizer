@@ -88,6 +88,22 @@ try {
   }
   Log 'bitstream id ok (0x5A5A0003)'
 
+  # A previous failed take can leave the store waiting for a boundary (and the
+  # DP stuck in EMIT).  STOP aborts the record plane and the store command, and
+  # RESET clears the diagnostics, so every run starts from a known state.
+  $pre = X 0x01 0x38 0
+  $preStatus = X 0x01 0x00 0
+  Log ("before: 0x38=0x{0:X8} STATUS=0x{1:X8}" -f $pre.Val, $preStatus.Val)
+  if (-not $pre.Ok -or -not $preStatus.Ok) { Log 'FATAL: the board did not answer the status reads'; exit 13 }
+  Log 'resetting the loop plane (STOP then RESET)'
+  [void](X 0x02 0x14 0)
+  Start-Sleep -Milliseconds 150
+  [void](X 0x02 0x2C 0)
+  Start-Sleep -Milliseconds 150
+  $after = X 0x01 0x38 0
+  Log ("after reset 0x38=0x{0:X8}" -f $after.Val)
+  if (($after.Val -band 0x02) -ne 0) { Log 'FATAL: the DP is still busy after STOP/RESET'; exit 14 }
+
   Log 'selecting the lead track and arming the contour'
   [void](X 0x02 0x0C 0)
   $prep = X 0x02 0x18 1

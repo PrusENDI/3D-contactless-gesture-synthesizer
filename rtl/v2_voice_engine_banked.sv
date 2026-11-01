@@ -23,6 +23,7 @@ module v2_voice_engine_banked #(
     output logic [15:0]            voice_steal_count,
     output logic [7:0]             revoice_count,
     output logic [5:0]             active_voice_count,
+  output logic [1:0]             dbg_busy,   // {scan_busy, victim_scan_active}
     output logic [15:0]            vibrato_phase,
     output logic signed [15:0]     vibrato_delta_cents
 );
@@ -181,7 +182,8 @@ module v2_voice_engine_banked #(
 
         // A command is held by its producer during the complete scan. This
         // gives the bank a single deterministic write port.
-        event_ready = rst_n && !scan_busy && !revoice_pending &&
+        dbg_busy = {scan_busy, victim_scan_active};
+    event_ready = rst_n && !scan_busy && !revoice_pending &&
                       !steal_pending && !victim_scan_active;
         event_accept = event_valid && event_ready;
         direct_note_on = event_accept && !event_data[95] &&

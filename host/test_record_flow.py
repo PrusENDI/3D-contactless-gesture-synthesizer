@@ -117,6 +117,16 @@ class CommitTest(unittest.TestCase):
         writes = [frame[3] for frame in session.link._port.written if frame[2] == link.OP_WRITE]
         self.assertIn(0x04, writes)
 
+    def test_a_still_frame_counter_and_zero_z_is_not_engaged(self):
+        # 0xE0 is cursor_last_z; with no valid cursor it stays 0, which the naive
+        # "z < 30000 means engaged" rule reads as a hand on the pad.
+        session, flow = arm_session()
+        feed(session, [5, 5, 0x100, 0])
+        diagnostic = flow.diagnose()
+        self.assertFalse(diagnostic["sensor_alive"])
+        self.assertFalse(diagnostic["engaged"])
+
+
 class ContourTest(unittest.TestCase):
     def test_contour_read_zeroes_the_pointer_first(self):
         session, flow = arm_session()

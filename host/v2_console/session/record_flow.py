@@ -135,18 +135,24 @@ class RecordFlow:
         return "diagnose"
 
     def diagnose(self) -> dict:
-        """Tell "hand not there" apart from "state machine stuck", in that order."""
+        """Tell "hand not there" apart from "state machine stuck", in that order.
+
+        0xE0 is ``cursor_last_z``: it only means "engaged" when the cursor has
+        been valid at least once, so a still frame counter plus z==0 is "no cursor
+        at all", not "hand touching" (measured on the board 2026-11-02).
+        """
         frames_before = self.session.read(0xEC)
         time.sleep(0.01)
         frames_after = self.session.read(0xEC)
         raw_x = self.session.read(0xDC)
         raw_z = self.session.read(0xE0)
+        alive = frames_after != frames_before
         self.diagnostic = {
             "frames": frames_after,
-            "sensor_alive": frames_after != frames_before,
+            "sensor_alive": alive,
             "raw_x": raw_x,
             "raw_z": raw_z,
-            "engaged": raw_z < 30000,
+            "engaged": alive and raw_z < 30000,
         }
         return self.diagnostic
 

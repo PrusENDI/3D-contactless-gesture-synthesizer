@@ -9,6 +9,7 @@ action that talks to the board runs on a worker thread, because one command cost
 
 from __future__ import annotations
 
+import datetime as _dt
 import queue
 import threading
 import time
@@ -213,6 +214,28 @@ class ConsoleModel:
         """The finished takes as one part; empty before the first one lands."""
         return reference.mix_contours(self.contours)
 
+    def _audio_log(self, event: str, detail: str = "") -> None:
+        """Audio state is invisible in the command log; write it there anyway.
+
+        'I had to press 试听参考 every time' cannot be answered from a UART log:
+        whether the monitor started, and whether it was stopped a moment later,
+        only exists on this side.
+        """
+        log = getattr(self.session, "log", None)
+        if log is None:
+            return
+        try:
+            log.append(
+                {
+                    "t": _dt.datetime.now().isoformat(timespec="milliseconds"),
+                    "op": "AUDIO",
+                    "event": event,
+                    "detail": detail,
+                }
+            )
+        except Exception:
+            pass
+
     def start_overdub(self, env=None, path: str | None = None) -> str:
         """Render the finished takes into one looping bar, ready to play.
 
@@ -248,6 +271,7 @@ class ConsoleModel:
             return self.message
         self.player.play(self.overdub_path)
         self.overdubbing = True
+        self._audio_log("monitor_play", self.overdub_path)
         self.message = "monitor looping %d take(s) ON THE PC (not the board)" % len(self.contours)
         return self.message
 
@@ -256,6 +280,7 @@ class ConsoleModel:
             return self.message
         self.player.stop()
         self.overdubbing = False
+        self._audio_log("monitor_stop")
         self.message = "monitor stopped"
         return self.message
 
@@ -877,9 +902,10 @@ class ConsoleWindow:
         self.track_box.set(0)
         self.track_box.pack(side="left", padx=self.px(6))
         self._button(strip, zh.t("loop.arm"), self._on_arm, side="left", bootstyle="warning")
-        self._button(strip, zh.t("loop.commit"), self._on_commit, side="left", bootstyle="primary")
-        self._button(strip, zh.t("loop.publish"), self._on_publish, side="left", bootstyle="primary")
-        self._button(strip, zh.t("loop.stop"), self._on_stop, side="left", bootstyle="danger-outline")
+        self._button(strip, zh.t("loop.commit"), self._on_commit, side="left", bootstyle="warning")
+        # 发布 used to be a second commit-shaped button. Committing now publishes, so
+        # all that is left for this one is "go back to PLAY" -- say so.
+        self._button(strip, zh.t("loop.publish"), self._on_publish, side="left", bootstyle="primary-outline")
         self.overdub_var = self.tk.BooleanVar(value=True)
         self.overdub_box = self.ttk.Checkbutton(
             strip, text=zh.t("loop.overdub"), variable=self.overdub_var, bootstyle="warning"
@@ -1218,6 +1244,8 @@ class ConsoleWindow:
             # The poll is paused during a take, and the board is in RECORD now, so
             # the cached mode is stale by design. Say what is actually happening.
             parts = [zh.t("status.mode_recording")]
+            parts.append(zh.t("status.monitor_playing") if self.model.overdubbing
+                         else zh.t("status.monitor_off"))
             if status is not None and status.fault:
                 parts.append(zh.t("status.fault"))
             if self.model.buffer.waiting():

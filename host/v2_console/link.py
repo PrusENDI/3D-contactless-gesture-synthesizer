@@ -35,6 +35,9 @@ OP_READ = 0x01
 OP_WRITE = 0x02
 
 MAX_ATTEMPTS = 2
+# err=5: the board saw this seq as a duplicate of its cached frame, so it executed
+# nothing and the answer does not belong to this command.
+V2_ERR_SEQUENCE = 0x05
 
 
 class LinkLost(Exception):
@@ -133,17 +136,29 @@ class Link:
     # -- public -------------------------------------------------------------
 
     def command(self, op: int, addr: int, data: int = 0) -> Reply:
-        """Send one command and wait for its reply. NACKs are returned, not raised."""
+        """Send one command and wait for its reply. NACKs are returned, not raised.
+
+        A fresh session can collide with the board's cached last frame: if its seq
+        matches but the bytes differ, the board answers err=5 and executes nothing.
+        That is not an answer to this command, so the retry uses a new seq.
+        """
         seq = self._next_seq()
         frame = build_frame(op, addr, data, seq)
-        for _ in range(MAX_ATTEMPTS):
+        for _ in range(MAX_ATTEMPTS + 1):
             started = self._clock()
             self._write(frame)
             reply = self._await(seq, started + self._timeout_s)
-            if reply is not None:
-                self._last_round_trip_ms = (self._clock() - started) * 1000.0
-                return reply
-        raise LinkLost("no reply for seq %d after %d attempts" % (seq, MAX_ATTEMPTS))
+            if reply is None:
+                continue                      # resend the identical frame: exactly-once
+            if reply.nack and reply.err == V2_ERR_SEQUENCE:
+                # The board matched this seq against its previous frame but the bytes
+                # differ, so it ran nothing; a new seq is the only way forward.
+                seq = self._next_seq()
+                frame = build_frame(op, addr, data, seq)
+                continue
+            self._last_round_trip_ms = (self._clock() - started) * 1000.0
+            return reply
+        raise LinkLost("no usable reply for 0x%02X after %d attempts" % (addr, MAX_ATTEMPTS + 1))
 
     def burst(self, cmds: list[tuple[int, int, int]]) -> list[Reply]:
         """Send ``cmds`` at the paced cadence, then collect every reply in order.

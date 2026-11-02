@@ -75,6 +75,17 @@ class LinkTest(unittest.TestCase):
         self.assertEqual(port.written[3], port.written[1])
 
 
+    def test_duplicate_sequence_rejection_is_retried_with_a_fresh_sequence(self):
+        # The board caches its last frame; a new session that starts at the same
+        # seq is rejected with err=5 and must not be mistaken for an answer.
+        port = ScriptedPort(
+            chunks=[reply_frame(1, 0, err=5, nack=True), reply_frame(2, 0x1234)]
+        )
+        link_ = link.Link(port, pacing_s=0.0, timeout_s=0.2)
+        reply = link_.command(link.OP_READ, 0xB0)
+        self.assertEqual((reply.seq, reply.data), (2, 0x1234))
+        self.assertNotEqual(port.written[0][4], port.written[1][4])
+
     def test_burst_refuses_to_resend_behind_an_accepted_reply(self):
         # The board treats a duplicate as "same seq as the last frame, identical
         # bytes". Once a later command was accepted, resending an earlier one would

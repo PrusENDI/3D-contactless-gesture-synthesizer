@@ -69,8 +69,9 @@ python host\cursor_view.py --console-only --seconds 3
 - 应答帧 22 字节：`5A 02 type 00 seq … [11]=status [12]=terminal [14..17]=rsp_data [19]=error [20..21]=CRC`
 - `op`: `0x01`=读，`0x02`=写
 - 地址必须落在合法区段，否则回 `err=2 (BAD_ADDRESS)`：
-  `0x00–0x44` legacy/loop、`0x48–0x5C` patch、`0x60–0x7C` wavetable、
+  `0x00–0x44` legacy/loop、`0x60–0x7C` wavetable、
   `0x80–0x9C` telemetry、`0xA0–0xAF` test、`0xB0–0xFC` diag
+  （`0x48–0x5C` 的 patch 窗口已随 `v2_patch_bank` 删除；写/读实测回 `0x02`）
 
 ### 3.1 现用调试寄存器表（`V2_DEBUG_CSR=1` 时有效）
 

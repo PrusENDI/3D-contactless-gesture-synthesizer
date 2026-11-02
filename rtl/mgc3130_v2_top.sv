@@ -730,17 +730,30 @@ logic [9:0] wt_read_index_sel;
     // Same story for the WT/LIVE path: a fixed -19.9 dB trim that predates the
     // master volume, kept so the P1 listening baseline still holds.
     wire signed [15:0] wt_quiet = (wt_play_sample >>> 3) - (wt_play_sample >>> 6) - (wt_play_sample >>> 7);  // = 0.1016x = -19.9 dB
-    // Per-note envelope for the single-voice LIVE path. An arpeggiator step is a
-    // NOTE_ON event, so the envelope must restart on the EVENT, not on the gate:
-    // a gate-driven envelope leaves repeated same-pitch notes as one long tone.
+    // Per-note envelope for the single-voice LIVE path. In frame-level tracking
+    // (THRESHOLDS[23] = 0) an explicit NOTE_ON is a new note, so the envelope
+    // restarts on the EVENT, not on the gate: a gate-driven envelope leaves
+    // repeated same-pitch notes as one long tone.
+    //
+    // The step arpeggiator (THRESHOLDS[23] = 1) is a different note source: a
+    // tick queues NOTE_OFF + NOTE_ON while u_wt_playback's phase keeps running
+    // (it is only ever reset by rst_n), so the pair carries a new pitch and
+    // nothing else. Restarting the envelope there drops it from sustain to 0 in
+    // one sample, which the audio path then turns into a full-amplitude step and
+    // a 10 ms re-attack - the knock heard on every step. In arp mode the
+    // envelope therefore keeps its level across a step; only the hand gate moves
+    // it, and a pitch change is legato. This is the only audio difference
+    // between the two LIVE rules and it is gated on thresholds_reg[23], so the
+    // frame-level tracking path keeps its per-NOTE_ON reset bit for bit.
     wire live_note_hit = live_event_valid && (live_event_type == V2_EV_NOTE_ON);
+    wire live_env_hit  = live_note_hit && !thresholds_reg[23];
     logic hit_sticky, wt_env_gate;
     logic [15:0] wt_env;
     localparam logic [15:0] ENV_ATT = 16'd96, ENV_DEC = 16'd8, ENV_SUS = 16'd45875;
     assign wt_env_gate = mode_live && live_gate;
     always_ff @(posedge clk_sys_100m or negedge rst_sys_n) begin
         if (!rst_sys_n) hit_sticky <= 1'b0;
-        else if (live_note_hit) hit_sticky <= 1'b1;
+        else if (live_env_hit) hit_sticky <= 1'b1;
         else if (sample_ce) hit_sticky <= 1'b0;
     end
     always_ff @(posedge clk_sys_100m or negedge rst_sys_n) begin

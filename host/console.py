@@ -6,6 +6,9 @@
 One serial owner, four tabs, presets on disk, and a reference bar for blind
 recording. The window never changes the board's mode by itself; closing it closes
 the telemetry stream and, if the loop is still playing, stops it (design 8.7).
+
+Needs pyserial, tkinter and ttkbootstrap (the only part that needs the last one
+is the window; the model, the link and the tests run without it).
 """
 
 from __future__ import annotations
@@ -48,6 +51,15 @@ def main() -> int:
     parser.add_argument("--log", default=None, help="session JSONL path (default artifacts/console/)")
     args = parser.parse_args()
 
+    # The window is the only part that needs ttkbootstrap; failing here is cheap
+    # and says what to install, instead of an ImportError from inside Tk.
+    try:
+        import ttkbootstrap  # noqa: F401
+    except ImportError:
+        print("the console window needs ttkbootstrap: python -m pip install ttkbootstrap",
+              file=sys.stderr)
+        return 5
+
     try:
         port = SerialPort(args.port, args.baud)
     except Exception as exc:
@@ -87,11 +99,15 @@ def main() -> int:
         _shutdown(session, port)
         return 4
 
+    # One line of proof for the display: a 144 dpi screen must report 1.5x here,
+    # or the window is 96 dpi content that Windows stretches and blurs.
+    print("window %s, %.2f px per point, dpi awareness %d"
+          % (window.root.winfo_geometry(), window.root.tk.call("tk", "scaling"), window.dpi_awareness))
+
     try:
         return window.run()
     finally:
         _shutdown(session, port)
-
 
 def _shutdown(session, port) -> None:
     """Each step independent: a lost link must not leave the telemetry stream on."""

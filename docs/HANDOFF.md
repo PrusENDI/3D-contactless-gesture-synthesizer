@@ -25,7 +25,7 @@
 
 入口 `python host/console.py --port COM4`；设计 `docs/superpowers/specs/2026-11-02-console-design.md`
 与 `2026-11-02-loop-canvas-assisted-recording-design.md`，计划 `docs/superpowers/plans/2026-11-02-console-v2.md`，
-过程 `docs/progress-2026-11-02.md`。**183 条 unittest 全绿**（`python -m unittest discover -s host -p "test_*.py"`）。
+过程 `docs/progress-2026-11-02.md`。**194 条 unittest 全绿**（`python -m unittest discover -s host -p "test_*.py"`）。
 
 板上验过的：身份/模式、`warm` 九条读回全等、正弦表上传+读回 1024/1024、手绘一帧（797 点轨迹 → 1024 点表、
 只传该帧 17.8 s）、morph 20 s 扫描、LOOP 的 Arm/Commit/Publish（32/32 覆盖、2 事件、`voices=1`）、
@@ -46,6 +46,23 @@ LIVE 光标 214 帧/2.5 s。滑杆的写-读回路只在模拟端口上测过，
 所以听感是**节拍敲击**而不是重复触发当前音。用户要求改成"重复触发当前音"——这是 RTL 改动
 （只在音高变化时清零包络，tick 之间保持电平）。**不改 RTL 时的替代做法**：用 LOOP 录 4 个不同 Y 的音再 PLAY，
 PLAY 的包络可用 `0x94/0x98` 调节，能做出连奏琶音。
+
+**界面（第二轮，2026-11-02 晚）**：ttkbootstrap 2.2.6 深色主题 `darkly` + 全中文。新增
+`host/v2_console/ui/`（`zh.py` 文案与单位汉化，`theme.py` 字体/间距/DPI）。**多了一个依赖：
+`python -m pip install ttkbootstrap`**（`console.py` 启动自检，缺了打印安装命令而不是抛 ImportError；
+模型、链路和全部测试都不需要它）。
+
+1. **"丑"的主因是 DPI，不是配色**：这台机 `AppliedDPI=144`（150%），裸 Tk 进程不声明 DPI 感知，
+   Windows 把 96 dpi 的位图拉 1.5 倍 → 字全是糊的。`ttkbootstrap.Window` 会调 `SetProcessDpiAwareness(1)`
+   但**静默吞掉失败**，所以 `theme.enable_dpi_awareness()` 自己调并回读等级；`console.py` 启动打印
+   `window …, 2.00 px per point, dpi awareness 1`。**所有尺寸走 `theme.px()`**（96 dpi 基准 × 屏幕比例），别写死像素。
+2. **`ttk.Scale.set()` 会触发 `command`**：建面板时 `set(lo)`、读回时 `_sync_sliders` 的 `set(value)` 都会走
+   `_on_param_drag`，"读参数"会变成"把读到的值再写一遍"，建面板时更会把每个字段写成下限（音量 → 0 直接静音）。
+   现在有 `self._syncing` 闸门；启动 7 s 的命令日志只剩 `0x80`（开遥测）和 `0x34`（读读数），没有参数写。
+3. **一个进程只能有一个 `ttk.Window`**（2.x 会 `_require_single_root` 报错），别为了先选字体建临时 root。
+4. 1 bit 字段（`enable/retrig/unipolar`）是 Checkbutton 不是滑杆；数值列显示的是**板子读回值**，clamp 一眼可见。
+5. 空画布会画中间提示（"等待手进入感应区"/"还没有波表"/"还没有轨道"），否则看着像坏了。
+   截图脚本 `artifacts/tabs_shot.py` → `artifacts/ui/tab-*.png`（`artifacts/` 被忽略）。
 
 ## 1. 开工前必须读（按顺序，约 15 分钟）
 

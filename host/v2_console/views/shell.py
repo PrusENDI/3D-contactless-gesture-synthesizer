@@ -346,10 +346,18 @@ class ConsoleModel:
         except Exception:
             self._readouts = None
 
-    def identity_text(self) -> str:
+    def last_readouts(self) -> dict | None:
+        """The cached readout block, for a view that redraws faster than it may poll."""
+        return self._readouts
+
+    def identity_numbers(self) -> tuple:
+        """(board id, table version) -- the view formats it, the model stays English."""
         board = getattr(self.session, "identity", None)
         board_id = board.board_id if board is not None else self.session.read(0xB0)
-        version = self.session.read(0x7C) & 0xFFFF
+        return board_id, self.session.read(0x7C) & 0xFFFF
+
+    def identity_text(self) -> str:
+        board_id, version = self.identity_numbers()
         return "board 0x%08X  table v%d" % (board_id, version)
 
     # -- what to draw -------------------------------------------------------
@@ -375,73 +383,142 @@ class ConsoleModel:
 
 
 
-def ttk_like_progress(tk, parent):
-    from tkinter import ttk
-
-    bar = ttk.Progressbar(parent, length=160, maximum=1024)
-    bar.pack(side="left", padx=8)
-    return bar
-
-
-
 class ConsoleWindow:
     """Tk shell. Wiring only: every decision lives in ConsoleModel or the painters.
 
-    Layout rule learned the hard way: the window has a fixed geometry and every
-    panel that can grow (the tone sliders, the tab canvases) sits in a scrollable
-    or expanding container. Rows stacked with ``pack`` below an expanding notebook
-    are simply invisible on a small screen, which is how the LOOP buttons and the
-    wavetable controls went missing in the first hands-on run.
+    Layout rules learned the hard way:
+    * the window has a fixed geometry and every panel that can grow (the tone
+      sliders, the tab canvases) sits in a scrollable or expanding container --
+      rows stacked with ``pack`` below an expanding notebook are simply invisible
+      on a small screen, which is how the LOOP buttons and the wavetable controls
+      went missing in the first hands-on run;
+    * nothing is written in raw pixels. The display runs at 150 % and Tk is only
+      DPI aware because ``ttkbootstrap.Window`` says so, so every size goes
+      through :meth:`px`.
     """
 
     def __init__(self, model: ConsoleModel, port_name: str = "COM4", pump=None, presets=None):
         import tkinter as tk
-        from tkinter import ttk
+
+        import ttkbootstrap as ttk
 
         from ..canvas import render_tk
+        from ..ui import theme as theme_mod
+        from ..ui import zh
 
         self.model = model
         self.pump = pump
         self.presets = presets or []
         self.tk = tk
+        self.ttk = ttk
+        self.zh = zh
         self.render = render_tk
-        self.root = tk.Tk()
-        self.root.title("MGC3130 console - %s" % port_name)
-        self.root.configure(bg="#101014")
-        self.root.geometry("1180x880")
-        self.root.minsize(900, 640)
         self._results: queue.Queue = queue.Queue()
         self._param_after = None
         self._pending_param = None
+        self._syncing = False           # a ttk.Scale fires its command on set(), too
+        self._current = TABS[0]
 
-        self.status = tk.Label(self.root, anchor="w", fg="#cccccc", bg="#101014", text="not connected")
-        self.status.pack(fill="x")
+        self.dpi_awareness = theme_mod.enable_dpi_awareness()
+        self.root = ttk.Window(title=zh.t("app.title", port_name), themename=theme_mod.THEME)
+        self.px = lambda value: theme_mod.px(self.root, value)
+        self.font_family = theme_mod.pick_family(self.root)
+        self.palette = theme_mod.apply(self.root)
+        theme_mod.apply_canvas(self.palette)
 
-        body = tk.Frame(self.root, bg="#101014")
+        width = self.px(1180)
+        height = self.px(860)
+        width = min(width, self.root.winfo_screenwidth() - self.px(60))
+        height = min(height, self.root.winfo_screenheight() - self.px(110))
+        self.root.geometry("%dx%d" % (width, height))
+        self.root.minsize(self.px(900), self.px(600))
+
+        self.status = self.ttk.Label(
+            self.root, text=zh.t("status.none"), anchor="w", bootstyle="inverse-dark",
+            padding=(self.px(12), self.px(4)),
+        )
+        self.status.pack(fill="x", side="bottom")
+
+        self._build_mode_row()
+        body = self.ttk.Frame(self.root, padding=(self.px(6), self.px(4)))
         body.pack(fill="both", expand=True)
+        self._build_sidebar(body)
+        self._build_notebook(body)
 
-        sidebar = tk.Frame(body, bg="#101014", width=190)
+    # -- building blocks ----------------------------------------------------
+
+    def _button(self, parent, text, command, side="top", bootstyle="secondary"):
+        button = self.ttk.Button(parent, text=text, command=command, bootstyle=bootstyle)
+        button.pack(
+            side=side,
+            fill="x" if side == "top" else "none",
+            padx=self.px(3),
+            pady=self.px(2),
+        )
+        return button
+
+    def _hint(self, parent, key: str) -> None:
+        self.ttk.Label(
+            parent, text=self.zh.t(key), bootstyle="secondary",
+            wraplength=self.px(820), justify="left",
+        ).pack(anchor="w", pady=(self.px(2), self.px(4)))
+
+    def _canvas(self, parent):
+        canvas = self.tk.Canvas(
+            parent,
+            bg=self.palette.canvas,
+            highlightthickness=self.px(1),
+            highlightbackground=self.palette.panel,
+            bd=0,
+        )
+        canvas.pack(fill="both", expand=True, pady=(self.px(4), 0))
+        return canvas
+
+    def _build_sidebar(self, body) -> None:
+        zh = self.zh
+        sidebar = self.ttk.Frame(body, padding=(self.px(4), self.px(4)))
         sidebar.pack(side="left", fill="y")
-        tk.Label(sidebar, text="presets", fg="#888888", bg="#101014").pack(anchor="w")
-        self.preset_list = tk.Listbox(sidebar, height=10, exportselection=False)
+        self.ttk.Label(sidebar, text=zh.t("side.presets"), bootstyle="warning").pack(
+            anchor="w", pady=(0, self.px(4))
+        )
+        self.preset_list = self.tk.Listbox(
+            sidebar,
+            height=10,
+            width=20,
+            exportselection=False,
+            activestyle="none",
+            bg=self.palette.panel,
+            fg=self.palette.fg,
+            selectbackground=self.palette.accent,
+            selectforeground="#1a1c1f",
+            highlightthickness=0,
+            borderwidth=0,
+            font=(self.font_family, 10),
+        )
         for preset in self.presets:
             self.preset_list.insert("end", preset.name)
         if self.presets:
             self.preset_list.selection_set(0)
-        self.preset_list.pack(fill="x")
-        self._button(sidebar, "Apply preset", self._on_apply)
-        self._button(sidebar, "Capture preset", self._on_capture)
-        self._button(sidebar, "Read back table", self._on_readback)
-        self.preset_label = tk.Label(sidebar, text="", fg="#888888", bg="#101014", wraplength=180, justify="left")
-        self.preset_label.pack(fill="x", pady=4)
+        else:
+            self.preset_list.insert("end", zh.t("side.empty"))
+            self.preset_list.itemconfigure(0, foreground=self.palette.dim)
+        self.preset_list.pack(fill="x", pady=(0, self.px(8)))
+        self._button(sidebar, zh.t("side.apply"), self._on_apply, bootstyle="warning")
+        self._button(sidebar, zh.t("side.capture"), self._on_capture)
+        self._button(sidebar, zh.t("side.readback"), self._on_readback, bootstyle="secondary-outline")
+        self.preset_label = self.ttk.Label(
+            sidebar, text="", bootstyle="secondary", wraplength=self.px(180), justify="left"
+        )
+        self.preset_label.pack(fill="x", pady=self.px(8))
 
-        main = tk.Frame(body, bg="#101014")
-        main.pack(side="left", fill="both", expand=True)
-        self.notebook = ttk.Notebook(main)
+    def _build_notebook(self, body) -> None:
+        main = self.ttk.Frame(body)
+        main.pack(side="left", fill="both", expand=True, padx=(self.px(8), 0))
+        self.notebook = self.ttk.Notebook(main)
         self.notebook.pack(fill="both", expand=True)
         self.canvases = {}
         for name in TABS:
-            frame = tk.Frame(self.notebook, bg="#101014")
+            frame = self.ttk.Frame(self.notebook, padding=self.px(6))
             if name == "tone":
                 self._build_tone_panel(frame)
                 self.canvases[name] = None
@@ -452,116 +529,156 @@ class ConsoleWindow:
                 self._build_wave_controls(frame)
                 self.canvases[name] = self._canvas(frame)
             else:
+                self._hint(frame, "hint.live")
                 self.canvases[name] = self._canvas(frame)
-            self.notebook.add(frame, text=name)
-        self._current = TABS[0]
+            self.notebook.add(frame, text=self.zh.t("tab." + name))
         self.notebook.bind("<<NotebookTabChanged>>", self._on_tab)
 
-        mode_row = tk.Frame(self.root, bg="#101014")
-        mode_row.pack(fill="x", side="bottom")
-        self._button(mode_row, "STOP", self._on_stop, side="left")
-        self._button(mode_row, "LIVE", lambda: self._on_mode(1), side="left")
-        self._button(mode_row, "PLAY", lambda: self._on_mode(4), side="left")
-        self._button(mode_row, "WT_PLAY", lambda: self._on_mode(6), side="left")
-        self.arp = tk.Checkbutton(
-            mode_row, text="step pulse (Y per tick)", command=self._on_arp,
-            bg="#101014", fg="#cccccc", selectcolor="#202024", activebackground="#101014",
+    def _build_mode_row(self) -> None:
+        zh = self.zh
+        row = self.ttk.Frame(self.root, padding=(self.px(4), self.px(3)))
+        row.pack(fill="x", side="bottom")
+        self._button(row, zh.t("mode.stop"), self._on_stop, side="left", bootstyle="danger-outline")
+        self._button(row, zh.t("mode.live"), lambda: self._on_mode(1), side="left", bootstyle="warning")
+        self._button(row, zh.t("mode.play"), lambda: self._on_mode(4), side="left", bootstyle="primary")
+        self._button(row, zh.t("mode.wt"), lambda: self._on_mode(6), side="left", bootstyle="primary-outline")
+        self.arp_var = self.tk.BooleanVar(value=False)
+        self.arp = self.ttk.Checkbutton(
+            row, text=zh.t("mode.arp"), variable=self.arp_var, command=self._on_arp, bootstyle="warning"
         )
-        self.arp.pack(side="left", padx=8)
-        self.bpm_label = tk.Label(mode_row, text="BPM -", fg="#888888", bg="#101014")
-        self.bpm_label.pack(side="left", padx=8)
-        self._button(mode_row, "Read params", self._on_read_params, side="left")
-        self.identity_label = tk.Label(mode_row, text="", fg="#888888", bg="#101014")
-        self.identity_label.pack(side="left", padx=8)
-        self._button(mode_row, "Reference play", self._on_reference, side="left")
-        self._button(mode_row, "Reference stop", self._on_reference_stop, side="left")
-
-    # -- building blocks ----------------------------------------------------
-
-    def _button(self, parent, label, command, side="top"):
-        button = self.tk.Button(parent, text=label, command=command)
-        button.pack(side=side, fill="x" if side == "top" else "none", padx=2, pady=1)
-        return button
-
-    def _canvas(self, parent):
-        canvas = self.tk.Canvas(parent, bg="#101014", highlightthickness=0)
-        canvas.pack(fill="both", expand=True)
-        return canvas
+        self.arp.pack(side="left", padx=self.px(10))
+        self.bpm_label = self.ttk.Label(row, text="", bootstyle="secondary")
+        self.bpm_label.pack(side="left", padx=self.px(6))
+        self._button(
+            row, zh.t("mode.read_params"), self._on_read_params, side="left", bootstyle="secondary-outline"
+        )
+        self.identity_label = self.ttk.Label(row, text="", bootstyle="secondary")
+        self.identity_label.pack(side="left", padx=self.px(8))
+        self._button(row, zh.t("mode.ref_play"), self._on_reference, side="left")
+        self._button(
+            row, zh.t("mode.ref_stop"), self._on_reference_stop, side="left", bootstyle="secondary-outline"
+        )
 
     def _build_tone_panel(self, parent) -> None:
-        """One slider per field, inside a scrollable canvas so nothing hides below the fold."""
-        tk = self.tk
-        outer = tk.Frame(parent, bg="#101014")
+        """One control per field, grouped per register, inside a scrollable canvas.
+
+        Flags are checkbuttons: a slider from 0 to 1 is a knob with two positions.
+        Everything else is a ttk.Scale; the number beside it is refreshed from the
+        board's own read-back, so a clamp is visible instead of guessed.
+        """
+        from ..params import PARAMS
+
+        zh = self.zh
+        outer = self.ttk.Frame(parent)
         outer.pack(fill="both", expand=True)
-        scroll = tk.Scrollbar(outer, orient="vertical")
-        scroll.pack(side="right", fill="y")
-        canvas = tk.Canvas(outer, bg="#101014", highlightthickness=0, yscrollcommand=scroll.set)
+        canvas = self.tk.Canvas(outer, bg=self.palette.bg, highlightthickness=0, bd=0)
+        bar = self.ttk.Scrollbar(outer, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=bar.set)
+        bar.pack(side="right", fill="y")
         canvas.pack(side="left", fill="both", expand=True)
-        scroll.config(command=canvas.yview)
-        inner = tk.Frame(canvas, bg="#101014")
-        canvas.create_window((0, 0), window=inner, anchor="nw")
+        inner = self.ttk.Frame(canvas, padding=self.px(10))
+        window = canvas.create_window((0, 0), window=inner, anchor="nw")
         inner.bind("<Configure>", lambda _e: canvas.configure(scrollregion=canvas.bbox("all")))
-        canvas.bind_all("<MouseWheel>", lambda e: canvas.yview_scroll(int(-e.delta / 120), "units"))
+        canvas.bind("<Configure>", lambda event: canvas.itemconfigure(window, width=event.width))
 
-        from ..params import PARAMS, display, get_field
+        def wheel(event):
+            canvas.yview_scroll(int(-event.delta / 120), "units")
 
-        self.param_scales = {}
-        row = 0
+        canvas.bind("<Enter>", lambda _e: canvas.bind_all("<MouseWheel>", wheel))
+        canvas.bind("<Leave>", lambda _e: canvas.unbind_all("<MouseWheel>"))
+
+        self.param_controls = {}
+        self._syncing = True
         for addr in sorted(PARAMS):
             param = PARAMS[addr]
-            tk.Label(
-                inner, text="0x%02X %s   (affects: %s)" % (addr, param.key, param.scope),
-                fg="#aaaaaa", bg="#101014", anchor="w",
-            ).grid(row=row, column=0, columnspan=3, sticky="w", pady=(8, 0))
-            row += 1
+            group = self.ttk.Labelframe(
+                inner,
+                text="0x%02X   %s   %s" % (addr, zh.param_name(addr), zh.scope_name(param.scope)),
+                bootstyle="secondary",
+                padding=self.px(8),
+            )
+            group.pack(fill="x", pady=self.px(6))
             for field in param.fields:
-                tk.Label(inner, text=field.name, fg="#cccccc", bg="#101014", width=15, anchor="w").grid(
-                    row=row, column=0, sticky="w"
-                )
-                scale = tk.Scale(
-                    inner, from_=field.lo, to=field.hi, orient="horizontal", length=260,
-                    bg="#101014", fg="#cccccc", highlightthickness=0, showvalue=0,
-                    command=lambda value, a=addr, f=field.name: self._on_param_drag(a, f, value),
-                )
-                scale.set(field.lo)
-                scale.grid(row=row, column=1, sticky="w")
-                value_label = tk.Label(inner, text="", fg="#888888", bg="#101014", width=24, anchor="w")
-                value_label.grid(row=row, column=2, sticky="w")
-                self.param_scales[(addr, field.name)] = (scale, value_label)
-                row += 1
+                row = self.ttk.Frame(group)
+                row.pack(fill="x", pady=self.px(3))
+                self.ttk.Label(
+                    row, text=zh.field_name(addr, field.name), width=8, anchor="w", bootstyle="secondary"
+                ).pack(side="left")
+                if field.width == 1:
+                    var = self.tk.BooleanVar(value=False)
+                    toggle = self.ttk.Checkbutton(
+                        row,
+                        variable=var,
+                        bootstyle="warning",
+                        command=lambda a=addr, n=field.name, v=var: self._on_toggle(a, n, v),
+                    )
+                    toggle.pack(side="left", padx=self.px(8))
+                    self.param_controls[(addr, field.name)] = ("flag", var, toggle, None)
+                else:
+                    scale = self.ttk.Scale(
+                        row, from_=field.lo, to=field.hi, orient="horizontal",
+                        length=self.px(300), bootstyle="warning",
+                    )
+                    scale.set(field.lo)
+                    scale.configure(
+                        command=lambda value, a=addr, n=field.name: self._on_param_drag(a, n, value)
+                    )
+                    scale.pack(side="left", padx=self.px(8))
+                    value_label = self.ttk.Label(row, text="—", width=26, anchor="w", bootstyle="secondary")
+                    value_label.pack(side="left")
+                    self.param_controls[(addr, field.name)] = ("scale", scale, None, value_label)
+            if param.danger:
+                self.ttk.Label(group, text="⚠ " + zh.danger_name(addr), bootstyle="danger").pack(anchor="w")
+        self._syncing = False
 
     def _build_loop_controls(self, parent) -> None:
-        tk = self.tk
-        strip = tk.Frame(parent, bg="#101014")
-        strip.pack(fill="x")
-        tk.Label(strip, text="track", fg="#cccccc", bg="#101014").pack(side="left")
-        self.track_box = tk.Spinbox(strip, from_=0, to=5, width=3)
-        self.track_box.pack(side="left", padx=4)
-        self._button(strip, "Arm (bar)", self._on_arm, side="left")
-        self._button(strip, "Commit", self._on_commit, side="left")
-        self._button(strip, "Publish", self._on_publish, side="left")
-        self._button(strip, "STOP", self._on_stop, side="left")
-        self.loop_label = tk.Label(strip, text="blind recording: you cannot hear the other tracks", fg="#888888", bg="#101014")
-        self.loop_label.pack(side="left", padx=8)
+        zh = self.zh
+        self._hint(parent, "hint.loop")
+        strip = self.ttk.Frame(parent)
+        strip.pack(fill="x", pady=(0, self.px(4)))
+        self.ttk.Label(strip, text=zh.t("loop.track"), bootstyle="secondary").pack(side="left")
+        self.track_box = self.ttk.Spinbox(strip, from_=0, to=5, width=3, bootstyle="secondary")
+        self.track_box.set(0)
+        self.track_box.pack(side="left", padx=self.px(6))
+        self._button(strip, zh.t("loop.arm"), self._on_arm, side="left", bootstyle="warning")
+        self._button(strip, zh.t("loop.commit"), self._on_commit, side="left", bootstyle="primary")
+        self._button(strip, zh.t("loop.publish"), self._on_publish, side="left", bootstyle="primary")
+        self._button(strip, zh.t("loop.stop"), self._on_stop, side="left", bootstyle="danger-outline")
+        self.loop_label = self.ttk.Label(strip, text=zh.t("loop.hint"), bootstyle="secondary")
+        self.loop_label.pack(side="left", padx=self.px(10))
 
     def _build_wave_controls(self, parent) -> None:
-        tk = self.tk
-        strip = tk.Frame(parent, bg="#101014")
-        strip.pack(fill="x")
-        self._button(strip, "Capture frame (4 s)", self._on_capture_frame, side="left")
-        tk.Label(strip, text="gain shift", fg="#cccccc", bg="#101014").pack(side="left", padx=(8, 2))
-        self.gain = tk.Scale(strip, from_=0, to=15, orient="horizontal", length=140,
-                             bg="#101014", fg="#cccccc", highlightthickness=0)
+        zh = self.zh
+        self._hint(parent, "hint.wave")
+        strip = self.ttk.Frame(parent)
+        strip.pack(fill="x", pady=(0, self.px(4)))
+        self._button(strip, zh.t("wave.capture"), self._on_capture_frame, side="left", bootstyle="warning")
+        self.ttk.Label(strip, text=zh.t("wave.gain"), bootstyle="secondary").pack(
+            side="left", padx=(self.px(12), self.px(4))
+        )
+        self.gain = self.ttk.Scale(
+            strip, from_=0, to=15, orient="horizontal", length=self.px(150), bootstyle="warning"
+        )
         self.gain.set(2)
         self.gain.pack(side="left")
-        tk.Label(strip, text="LFO period s", fg="#cccccc", bg="#101014").pack(side="left", padx=(8, 2))
-        self.period = tk.Entry(strip, width=6)
+        self.gain_label = self.ttk.Label(strip, text="2", width=3, bootstyle="secondary")
+        self.gain_label.pack(side="left", padx=(self.px(4), 0))
+        self.gain.configure(
+            command=lambda value: self.gain_label.config(text="%d" % int(float(value)))
+        )
+        self.ttk.Label(strip, text=zh.t("wave.period"), bootstyle="secondary").pack(
+            side="left", padx=(self.px(12), self.px(4))
+        )
+        self.period = self.ttk.Entry(strip, width=6, bootstyle="secondary")
         self.period.insert(0, "20")
         self.period.pack(side="left")
-        self._button(strip, "Upload frames", self._on_upload_frames, side="left")
-        self._button(strip, "Upload .bin...", self._on_upload, side="left")
-        self.progress = ttk_like_progress(tk, strip)
-        self.progress_label = tk.Label(strip, text="", fg="#888888", bg="#101014")
+        self._button(strip, zh.t("wave.upload"), self._on_upload_frames, side="left", bootstyle="primary")
+        self._button(strip, zh.t("wave.bin"), self._on_upload, side="left", bootstyle="secondary-outline")
+        self.progress = self.ttk.Progressbar(
+            strip, maximum=1024, length=self.px(170), bootstyle="warning"
+        )
+        self.progress.pack(side="left", padx=self.px(8))
+        self.progress_label = self.ttk.Label(strip, text="", bootstyle="secondary")
         self.progress_label.pack(side="left")
 
     # -- actions ------------------------------------------------------------
@@ -586,7 +703,7 @@ class ConsoleWindow:
     def _on_apply(self):
         preset = self._selected_preset()
         if preset is not None:
-            self.preset_label.config(text="applying %s" % preset.name)
+            self.preset_label.config(text="%s: %s" % (self.zh.t("side.apply"), preset.name))
             self._run("apply", lambda: self.model.apply_preset(preset))
 
     def _on_capture(self):
@@ -629,7 +746,7 @@ class ConsoleWindow:
         self._run("capture-frame", lambda: self.model.capture_frame(points))
 
     def _on_upload_frames(self):
-        shift = int(self.gain.get())
+        shift = int(float(self.gain.get()))
         try:
             period = float(self.period.get() or 20.0)
         except ValueError:
@@ -646,7 +763,12 @@ class ConsoleWindow:
 
         self._run("upload-frames", action)
 
+    def _on_toggle(self, addr: int, name: str, var) -> None:
+        self._run("param", lambda: self.model.write_field(addr, name, 1 if var.get() else 0))
+
     def _on_param_drag(self, addr: int, name: str, value: str) -> None:
+        if self._syncing:
+            return                      # ttk.Scale.set() also calls the command
         self._pending_param = (addr, name, int(float(value)))
         if self._param_after is not None:
             self.root.after_cancel(self._param_after)
@@ -663,37 +785,63 @@ class ConsoleWindow:
     def _on_read_params(self):
         def action():
             words = self.model.read_params()
-            self._results.put(("params", words, None))
+            self._results.put(("params", (words, self.model.arp_on()), None))
             return "read %d registers" % len(words)
 
         self._run("read-params", action)
 
     def _sync_sliders(self, words: dict) -> None:
+        from ..params import get_field
+
+        self._syncing = True
+        try:
+            for (addr, name), (kind, widget, _toggle, _label) in getattr(self, "param_controls", {}).items():
+                word = words.get(addr)
+                if word is None:
+                    continue
+                value = get_field(addr, name, word)
+                if kind == "flag":
+                    if bool(widget.get()) != bool(value):
+                        widget.set(bool(value))
+                elif int(float(widget.get())) != value:
+                    widget.set(value)
+        finally:
+            self._syncing = False
+
+    def _refresh_value_labels(self) -> None:
+        """The numbers beside the sliders, from the board's own last read-back."""
         from ..params import display, get_field
 
-        for (addr, name), (scale, label) in getattr(self, "param_scales", {}).items():
+        words = self.model.params
+        if not words:
+            return
+        for (addr, name), (kind, _widget, _toggle, label) in getattr(self, "param_controls", {}).items():
+            if label is None:
+                continue
             word = words.get(addr)
             if word is None:
                 continue
             value = get_field(addr, name, word)
-            if int(float(scale.get())) != value:
-                scale.set(value)
-            label.config(text=display(addr, name, word))
+            shown = self.zh.localize(display(addr, name, word))
+            # The raw number only helps when the display converted it (kHz, ms, dB).
+            text = shown if str(value) in shown else "%d   %s" % (value, shown)
+            if label.cget("text") != text:
+                label.config(text=text)
 
     def _on_mode(self, mode: int):
         self._run("mode", lambda: self.model.set_mode(mode))
 
     def _on_arp(self):
-        wanted = bool(self.arp.get())
+        wanted = bool(self.arp_var.get())
         self._run("rule", lambda: self.model.set_arp(wanted))
 
     def _on_arm(self):
-        track = int(self.track_box.get())
+        track = int(float(self.track_box.get()))
         self._countdown(3, track)
 
     def _countdown(self, remaining: int, track: int) -> None:
         if remaining > 0:
-            self.loop_label.config(text="track %d starts in %d" % (track, remaining))
+            self.loop_label.config(text=self.zh.t("loop.countdown", track, remaining))
             self.root.after(1000, lambda: self._countdown(remaining - 1, track))
             return
 
@@ -702,15 +850,15 @@ class ConsoleWindow:
             self.model.wait_for_take()
             return self.model.capture_contour()
 
-        self.loop_label.config(text="armed on track %d" % track)
+        self.loop_label.config(text=self.zh.t("loop.armed", track))
         self._run("arm", action)
 
     def _on_commit(self):
-        self.loop_label.config(text="committing")
+        self.loop_label.config(text=self.zh.t("loop.committing"))
         self._run("commit", self.model.commit_take)
 
     def _on_publish(self):
-        self.loop_label.config(text="publishing")
+        self.loop_label.config(text=self.zh.t("loop.publishing"))
         self._run("publish", self.model.publish_take)
 
     def _on_reference(self):
@@ -748,16 +896,53 @@ class ConsoleWindow:
             if label == "progress":
                 table, done, total = value
                 self.progress.configure(maximum=total, value=done)
-                self.progress_label.config(text="frame %s  %d/%d" % ("ABC"[table], done, total))
+                self.progress_label.config(text=self.zh.t("wave.progress", "ABC"[table], done, total))
                 continue
             if label == "params":
-                self._sync_sliders(value)
+                words, arp = value
+                self._sync_sliders(words)
+                if bool(self.arp_var.get()) != bool(arp):
+                    self.arp_var.set(bool(arp))
                 continue
             if error is not None:
                 self.model.message = "%s: %s" % (label, error)
             elif value:
                 self.model.message = str(value)
             self.preset_label.config(text=self.model.message)
+
+    def _status_text(self) -> str:
+        zh = self.zh
+        status = self.model.cached_status()
+        if status is None:
+            return zh.t("status.none")
+        parts = [zh.t("status.mode", zh.mode_name(status.mode))]
+        if status.loop_active:
+            parts.append(zh.t("status.loop"))
+        if status.fault:
+            parts.append(zh.t("status.fault"))
+        if self.model.buffer.waiting():
+            parts.append(zh.t("status.waiting"))
+        else:
+            parts.append(zh.t("status.frames", len(self.model.buffer.trail(10 ** 6))))
+        readouts = self.model.last_readouts()
+        if readouts:
+            parts.append(zh.t("status.voices", readouts.get("voices", 0)))
+            parts.append(zh.t("status.steals", readouts.get("steals", 0)))
+            parts.append(zh.t("status.note", readouts.get("note", 0)))
+            parts.append(zh.t("status.z", readouts.get("z", 0)))
+        if self.model.message:
+            parts.append(self.model.message)
+        return "    ".join(parts)
+
+    def _empty_hint(self, tab: str):
+        """A blank canvas looks broken; say what would fill it instead."""
+        if tab == "live":
+            return self.zh.t("empty.live") if self.model.buffer.waiting() else None
+        if tab == "loop":
+            return None if self.model.contours else self.zh.t("empty.loop")
+        if tab == "wave":
+            return None if self.model.table else self.zh.t("empty.wave")
+        return None
 
     def refresh(self) -> None:
         if self.pump is not None:
@@ -772,20 +957,34 @@ class ConsoleWindow:
             try:
                 self.model.refresh_readouts()
                 status = self.model.cached_status()
-                if status is not None and status.mode == 1:
-                    # LIVE derives tempo from cursor X (bpm_auto_q) and no register
-                    # exposes it, so showing bpm_reg here would be a lie.
-                    self.bpm_label.config(text="BPM: from X axis (not readable)")
-                else:
-                    self.bpm_label.config(text="BPM %d" % self.model.bpm())
-                self.identity_label.config(text=self.model.identity_text())
+                if status is not None:
+                    if status.mode == 1:
+                        # LIVE derives tempo from cursor X (bpm_auto_q) and no register
+                        # exposes it, so showing bpm_reg here would be a lie.
+                        self.bpm_label.config(text=self.zh.t("mode.bpm_live"))
+                    else:
+                        self.bpm_label.config(text=self.zh.t("mode.bpm", self.model.bpm()))
+                self.identity_label.config(
+                    text=self.zh.t("mode.identity", *self.model.identity_numbers())
+                )
             except Exception as exc:
                 self.identity_label.config(text="link: %s" % exc)
+        self._refresh_value_labels()
         canvas = self.canvases.get(self._current)
         try:
             if canvas is not None:
                 self.render.draw(canvas, self.model.drawing(self._current))
-            self.status.config(text=self.model.status_line())
+                hint = self._empty_hint(self._current)
+                if hint:
+                    canvas.create_text(
+                        canvas.winfo_width() / 2,
+                        canvas.winfo_height() / 2,
+                        text=hint,
+                        fill=self.palette.dim,
+                        font=(self.font_family, 12),
+                        justify="center",
+                    )
+            self.status.config(text=self._status_text())
         except Exception as exc:  # a render error must not kill the loop
             self.status.config(text="draw error: %s" % exc)
         self.root.after(33, self.refresh)

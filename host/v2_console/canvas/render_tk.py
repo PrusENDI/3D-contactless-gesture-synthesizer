@@ -8,7 +8,7 @@ from __future__ import annotations
 from . import primitives
 
 COLORS = {
-    "grid": "#222222",
+    "grid": "#2a2d31",
     "bands": "#16161a",
     "trail": "#2a6f97",
     "live": "#ffcc33",
@@ -22,6 +22,20 @@ COLORS = {
     "dot": "#555555",
     "text": "#888888",
 }
+
+
+# Set once by ui/theme.py at window start-up. Canvas text carries no font of its
+# own, so without this the corner labels ignore the Chinese font and the DPI.
+FONT = ("Microsoft YaHei UI", 9)
+
+
+def configure(font=None, colors: dict | None = None) -> None:
+    """Let the window choose the font and override any semantic colour."""
+    global FONT
+    if font is not None:
+        FONT = tuple(font)
+    if colors:
+        COLORS.update(colors)
 
 
 def _color(key: str) -> str:
@@ -53,7 +67,7 @@ def _draw_one(canvas, item) -> None:
         )
         if item.label:
             canvas.create_text(
-                x0 + 4, (y0 + y1) / 2, text=item.label, fill=_color("text"), anchor="w"
+                x0 + 4, (y0 + y1) / 2, text=item.label, fill=_color("text"), anchor="w", font=FONT
             )
     elif isinstance(item, primitives.Path):
         points = [_point(canvas, u, v) for u, v in item.points]
@@ -67,7 +81,7 @@ def _draw_one(canvas, item) -> None:
                            fill=_color("live" if item.shape == "circle" else "dot"), outline="")
     elif isinstance(item, primitives.Text):
         x, y = _point(canvas, item.u, item.v)
-        canvas.create_text(x, y, text=item.text, fill=_color("text"), anchor=item.anchor)
+        canvas.create_text(x, y, text=item.text, fill=_color("text"), anchor=item.anchor, font=FONT)
     elif isinstance(item, primitives.Grid):
         width = canvas.winfo_width()
         height = canvas.winfo_height()

@@ -455,6 +455,33 @@ class ConsoleModel:
             self.message += ", %s on the score" % self.hit.fraction()
         return self.message
 
+    def adopt_board_take(self) -> str:
+        """Build a flow around the contour the board already holds.
+
+        A console restart loses the flow object but not the board's capture, so 提交
+        used to raise "nothing is armed" and send nothing while ``0x38`` said the
+        capture was full. The adopted contour faces the same 30/32 gate as a fresh
+        one, and lands on whichever track the spinbox selects.
+        """
+        self.flow = self.flow_factory(self.session, self.track)
+        self.flow.adopt()
+        contour = self.flow.contour()
+        verdict = self.flow.accept_take(contour)
+        self.take_coverage = sum(1 for value in contour if value)
+        if verdict != "ok":
+            self.flow = None
+            raise RuntimeError(
+                "the board's contour has only %d/32 ticks with a hand, under the 30 gate: "
+                "record a take" % self.take_coverage
+            )
+        self.contours[self.track] = list(contour)
+        self.hit = self.judge_take(contour)
+        self.message = "adopted the board's contour (%d/32) for track %d" % (
+            self.take_coverage,
+            self.track,
+        )
+        return self.message
+
     def commit_take(self) -> str:
         """Commit, then publish at once: the bank swap needs a bar boundary.
 
@@ -463,7 +490,7 @@ class ConsoleModel:
         the RTL's 34 s boundary timeout. Publishing here closes that window.
         """
         if getattr(self, "flow", None) is None:
-            raise RuntimeError("nothing is armed")
+            self.adopt_board_take()
         count = self.flow.commit()
         self.commit_count = count
         self.flow.publish()
@@ -475,6 +502,12 @@ class ConsoleModel:
         from ..session import record_flow
 
         if getattr(self, "flow", None) is None:
+            # Nothing to wait on, so just ask for PLAY: if the store holds a take it
+            # plays, and if it does not, silence is the honest answer.
+            if hasattr(self.session, "set_mode"):
+                self.session.set_mode(4)
+            self.phase.reanchor()
+            self.message = "mode PLAY"
             return self.message
         if self.flow.state == record_flow.PUBLISHING:
             self.flow.publish()

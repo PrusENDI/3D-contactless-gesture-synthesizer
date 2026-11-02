@@ -83,6 +83,25 @@ class ArmTest(unittest.TestCase):
         self.assertEqual(session.link._port.written_count(), before + 2)   # the probe only
 
 
+class AdoptTest(unittest.TestCase):
+    """The board keeps its capture across a host restart; the flow object does not."""
+
+    def test_a_full_capture_can_be_adopted(self):
+        session = build([BOARD_ID, 0, record_flow.FULL_BIT])
+        session.connect()
+        flow = record_flow.RecordFlow(session, track=0)
+        self.assertEqual(flow.adopt(), "captured")
+        self.assertEqual(flow.state, record_flow.CAPTURED)
+
+    def test_an_empty_capture_says_to_record_first(self):
+        session = build([BOARD_ID, 0, 0])
+        session.connect()
+        flow = record_flow.RecordFlow(session, track=0)
+        with self.assertRaises(record_flow.FlowError) as caught:
+            flow.adopt()
+        self.assertIn("record", str(caught.exception))
+
+
 class CoverageTest(unittest.TestCase):
     def test_coverage_counts_non_zero_ticks(self):
         self.assertEqual(record_flow.coverage([0] * 30 + [1, 2]), 2)

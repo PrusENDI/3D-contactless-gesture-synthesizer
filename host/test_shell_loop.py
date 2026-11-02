@@ -44,10 +44,13 @@ class FakeFlow:
         self.state = record_flow.PUBLISHING
         return self.committed
 
+    def adopt(self):
+        self.calls.append("adopt")
+        self.state = record_flow.CAPTURED
+
     def publish(self, timeout_s=15.0):
         self.calls.append("publish")
         self.state = record_flow.ROLLED
-
 
 class FakeSession:
     identity = SimpleNamespace(mode=0)
@@ -160,6 +163,32 @@ class RecordFeedbackTest(unittest.TestCase):
         self.assertGreater(default, 8.5)
 
 
+class RestartTest(unittest.TestCase):
+    """A fresh console must be able to commit the contour the board still holds."""
+
+    def test_commit_after_a_restart_adopts_the_boards_capture(self):
+        model, _ = model_with_flow()
+        model.flow = None                     # nothing armed in this window
+        message = model.commit_take()
+        self.assertIn("adopt", model.flow.calls)
+        self.assertIn("commit", model.flow.calls)
+        self.assertIn("4", message)
+
+    def test_a_thin_adopted_contour_is_refused_before_anything_is_committed(self):
+        class Thin(FakeFlow):
+            def __init__(self, session, track=0):
+                super().__init__(session, track)
+                self.contour_result = [100] * 28 + [0] * 4
+                self.verdict = "retry"
+
+        model, _ = model_with_flow(Thin)
+        model.flow = None
+        with self.assertRaises(RuntimeError) as caught:
+            model.commit_take()
+        self.assertIn("30", str(caught.exception))
+        self.assertIsNone(model.flow)
+
+
 class CommitTest(unittest.TestCase):
     def test_commit_then_publish_reports_the_event_count_and_reanchors(self):
         model, _ = model_with_flow()
@@ -171,9 +200,13 @@ class CommitTest(unittest.TestCase):
         model.publish_take()
         self.assertIsNotNone(model.phase._t0)
 
-    def test_commit_without_a_take_is_refused(self):
-        model, _ = model_with_flow()
-        with self.assertRaises(RuntimeError):
+    def test_commit_with_no_take_and_no_board_capture_is_refused(self):
+        class Empty(FakeFlow):
+            def adopt(self):
+                raise record_flow.FlowError("the board holds no full capture: record a take")
+
+        model, _ = model_with_flow(Empty)
+        with self.assertRaises(record_flow.FlowError):
             model.commit_take()
 
 

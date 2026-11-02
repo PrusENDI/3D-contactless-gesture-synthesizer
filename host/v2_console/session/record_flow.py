@@ -121,6 +121,22 @@ class RecordFlow:
         self.session.write(RECORD, 1)
         self.state = ARMED
 
+    def adopt(self) -> str:
+        """Take over a contour the board still holds from an earlier session.
+
+        The flow object is per-session; the board's capture is not -- it survives a
+        console restart, a new UART session and a lost window, until a reflash or a
+        new arm. So 提交 after a restart used to raise "nothing is armed" and send
+        nothing at all, while ``0x38`` bit 4 said the capture was full.
+        """
+        status = self.session.read(POTTS_STATUS)
+        if not status & FULL_BIT:
+            raise FlowError(
+                "the board holds no full capture: press 录制 first, or record a take"
+            )
+        self.state = CAPTURED
+        return "captured"
+
     def poll(self) -> str:
         """Advance one step from what the board reports. No writes."""
         if self.state == ARMED:

@@ -28,8 +28,9 @@
 1. **默认逐位不变**：所有既有声部 tb 在 `V2_VOICE_CFG_DEFAULT` 下必须给出与 HEAD 完全相同的数值（Task 1）。
 2. **`release_step` 下界**：写 0 必须被 clamp 到 1，否则整条事件流死锁（Task 0 的契约测试）。
 3. **失谐仍随力度变化**：`detune_shift` 是**加**在力度选定宽度上的，默认 0 时行为与 P1 一字不差（Task 1）。
-4. **包络时间真的可调**：写到顶（65535）与写到 1 时，起音到顶的采样数必须差两个数量级（Task 1）。
-5. **引擎端口只加一条总线**：7 个既有 tb 各只加一行 `.voice_cfg(...)`，不许改其它连接（Task 1）。
+4. **包络时间真的可调**：四个 step 是**每采样步进**，所以数值越**大**越快（65535 → 1 个采样到顶，1 → 需 32000 个采样以上）。计划初稿把方向写反了，Task 1 按真语义断言；Task 4 的听感描述已同步修正（**把值改小 = 起音变长**）。
+5. **`0x9C` 的位段以本计划为准**（`velocity_shift[1:0]`、`detune_shift[3:2]`、`glide_rate[31:16]`，掩码 `0xFFFF000F`），spec §11.1 里旧的 `velocity_depth[7:0]` 写法作废——用户已定"力度深度做成移位"。
+6. **引擎端口只加一条总线**：7 个既有 tb 各只加一行 `.voice_cfg(...)`，不许改其它连接（Task 1）。
 
 ---
 
@@ -143,9 +144,10 @@ git commit -m "feat: envelope times, velocity depth, detune width and glide rate
 
 - [ ] **Step 1: 扩展失败测试 `tb/tb_top_p2_csr.sv`**
 
-追加：三个地址的复位值（`0x94=0x0100_1000`（decay=256/attack=4096）、`0x98=0xC000_4000`（release=1024/sustain=49152）、
+追加：三个地址的复位值（`0x94=0x0100_1000`（decay=256/attack=4096）、`0x98=0x0400_C000`（release=1024 在高半字、sustain=49152 在低半字）、
 `0x9C=0x0200_0000`（glide=512））、往返、以及 **clamp**：写 `0x94` 的低半字 0 → 读回 `0x0100_0001`；
-写 `0x9C = 0x0000_003F` → 只保留 `[3:0]` 的两位字段 → 读回 `0x0000_000F`。
+写 `0x9C = 0x0000_003F` 会被掩码外的位判 `BAD_DATA(0x07)` 而**不被接受**（与 P2a 的 `0x90` 同一条规则），
+  所以断言"NACK + 寄存器不变"，再用**掩码内**的 `0x0000_000F` 验证字段；它读回 `0x0001_000F`——因为 glide 的下界 1 把 0 夹成了 1。
 **并且 `0x9C` 现在必须 ACK（不再是 BAD_ADDRESS）**。
 
 - [ ] **Step 2: 跑测试确认失败**
@@ -207,7 +209,7 @@ Expected: `SYNTH: PASS`、`gate: OK`（CLS ≤11300、worst ≥−3.5）。若 C
 - [ ] **Step 3: 板上验收（要手/耳朵）**
 
 1. 三个地址写读回自证（像 `board_filter_demo.ps1` 那样每步读回）；
-2. `0x94` 把 attack 改大（如 `0x0100_FFFF` 只改 attack 低半字）→ 用 LOOP 播放，听**音头变软**；
+2. `0x94` 把 attack 改小（低半字写 `0x0800`，即 2048）→ 用 LOOP 播放，听**音头变软变长**（值越小越慢）；
 3. `0x9C[1:0]=3` → 手从远到近摆，听**力度差别变小**；
 4. `0x9C[3:2]=3` → 听**失谐变窄**（厚度减少）。
 判据只写"听到什么"，没量到就写"未验证"。
@@ -234,7 +236,7 @@ git commit -m "docs: P2b landed - resources, timing, what was heard"
 **3. Type consistency**：`voice_cfg[95:0]` 的布局在 Task 0 定义、Task 1 解包、Task 2 拼接，三处一致；
 `V2_VOICE_CFG_DEFAULT` 由 Task 0 提供，Task 1 的七个 tb 与 `tb_voice_cfg` 共用。
 
-**4. Review Focus 对应**：1→Task 1 第 1 条；2→Task 0 Step 1；3→Task 1 第 5 条；4→Task 1 第 2 条；5→Task 1 第 6 条。
+**4. Review Focus 对应**：1→Task 1 第 1 条；2→Task 0 Step 1；3→Task 1 第 5 条；4→Task 1 第 2 条；5→Task 2 的 `0x9C` 掩码断言；6→Task 1 第 6 条。
 
 **5. Proportion**：约 190 行计划，实现约 150 行 RTL + 1 个新 tb + 8 处一行改动 + 3 个 csr 扩展。
 

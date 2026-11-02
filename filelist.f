@@ -35,7 +35,6 @@ rtl/v2_note_increment_rom.sv
 rtl/v2_voice_state_bank.sv
 rtl/v2_voice_engine_banked.sv
 rtl/v2_fx_lite.sv
-rtl/v2_patch_bank.sv
 rtl/v2_wavetable_loader.sv
 rtl/v2_clock_gen.sv
 rtl/v2_reset_sync.sv

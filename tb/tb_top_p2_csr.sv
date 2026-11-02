@@ -9,7 +9,9 @@
 //   2. a write/read round trip of 0x40 (ci 0xC5, res 0x10, enable 1);
 //   3. the contract clamp: ci 4095 -> 423, FX_C 0xFFFF_FFFF -> 0x7FFF_7333;
 //   4. 0x9C (P2b) still answers BAD_ADDRESS instead of being half implemented;
-//   5. the write mask and the 2.0 volume ceiling.
+//   5. the write mask and the 2.0 volume ceiling;
+//   6. the retired patch CSRs (0x48..0x5C) NACK with BAD_ADDRESS in both
+//      directions now that v2_patch_bank is gone.
 //
 // The build-time FX defaults are FX_ENABLE(0) FX_LEVEL(0), so 0x84 resets to
 // gain 1.0 / level 0 / enable 0 = 0x0001_0000 (spec 11.2 item 2).  The board
@@ -284,6 +286,23 @@ module tb_top_p2_csr;
         dut.voice_cfg[95:16] !== V2_VOICE_CFG_DEFAULT[95:16])
       $fatal(1, "voice_cfg field layout changed unexpectedly: 0x%024h", dut.voice_cfg);
     $display("PASS voice_cfg after 0x94 = 0x0100FFFF is 0x%024h", dut.voice_cfg);
+
+    // ---- 7. The retired patch CSRs (0x48..0x5C) NACK with BAD_ADDRESS ------
+    // v2_patch_bank and its six CSRs were removed: nothing in the audio path
+    // ever read the stored parameters, and presets are now a host-side upload of
+    // the nine parameter words.  The addresses must therefore be rejected by the
+    // link's address gate in both directions, never silently ACKed and dropped.
+    for (i = 0; i < 6; i = i + 1) begin
+      send_frame(V2_OP_WRITE, 8'h48 + (i * 4), 32'h0000_0000);
+      if (reply[2] !== V2_TLM_NACK || reply[19] !== V2_ERR_BAD_ADDRESS)
+        $fatal(1, "retired 0x%02h write: type=0x%02h err=0x%02h, expected NACK 0x02",
+               8'h48 + (i * 4), reply[2], reply[19]);
+      send_frame(V2_OP_READ, 8'h48 + (i * 4), 32'd0);
+      if (reply[2] !== V2_TLM_NACK || reply[19] !== V2_ERR_BAD_ADDRESS)
+        $fatal(1, "retired 0x%02h read: type=0x%02h err=0x%02h, expected NACK 0x02",
+               8'h48 + (i * 4), reply[2], reply[19]);
+    end
+    $display("PASS retired 0x48..0x5C: write and read NACK with BAD_ADDRESS (0x02)");
 
     $display("PASS tb_top_p2_csr: six P2a CSRs plus the three P2b parameters latch, clamp and read back");
     $finish;

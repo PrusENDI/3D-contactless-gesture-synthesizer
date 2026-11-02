@@ -100,15 +100,9 @@ module v2_uart_link (
                 op_data_ok = (address == 8'h00) && (data == 32'd0);
             else if (op == V2_OP_READ)
                 op_data_ok = (data == 32'd0);
-            else if (op == V2_OP_WRITE) begin
-                // The selected PATCH bank is owned by the CSR block. The
-                // link still enforces the address/access boundary; the CSR
-                // validates PATCH_SHADOW_DATA against its live selector.
-                if (address == V2_CSR_PATCH_SHADOW_DATA)
-                    op_data_ok = 1'b1;
-                else
-                    op_data_ok = v2_csr_data_valid(address, data);
-            end else
+            else if (op == V2_OP_WRITE)
+                op_data_ok = v2_csr_data_valid(address, data);
+            else
                 op_data_ok = 1'b0;
         end
     endfunction

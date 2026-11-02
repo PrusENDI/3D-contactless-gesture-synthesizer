@@ -893,43 +893,14 @@ logic [31:0] tlm_div;
         .rx_busy(), .tx_busy(), .protocol_error(protocol_error)
     );
 
-    // Indexed PATCH CSR state.  Selector and expected CRC/version registers
-    // live at the top-level command boundary; the bank owns shadow/active
-    // storage and its asynchronous APPLY/CRC state machine.
-    logic [1:0] patch_select_family;
-    logic [2:0] patch_select_track;
-    logic [7:0] patch_select_index;
-    logic [15:0] patch_expected_crc, patch_apply_version;
-    logic patch_write_valid, patch_write_ready;
-    logic signed [31:0] patch_write_value, patch_active_value, patch_shadow_value;
-    logic patch_crc_valid, patch_apply_valid, patch_apply_ready;
-    logic [15:0] patch_active_version;
-    logic patch_shadow_dirty, patch_crc_ok, patch_apply_busy;
-    logic [7:0] patch_last_error;
     // P1: one-shot CSR side effects are registered one cycle so the destination
-    // register (wt_expected_crc / wt_select_index / patch_expected_crc / apply payload)
-    // already holds the new value when the loader or patch bank samples the strobe.
+    // register (wt_expected_crc / wt_select_index / apply payload) already holds
+    // the new value when the loader samples the strobe.
     // WT_DATA is deliberately NOT delayed: it relies on same-cycle ready/valid.
     // NOTE: these must be declared before the instances that consume them.
-    logic wt_crc_valid_src, wt_index_load_src, patch_crc_valid_src, wt_apply_valid_src;
-    logic wt_crc_valid_q, wt_index_load_q, patch_crc_valid_q, wt_apply_valid_q;
+    logic wt_crc_valid_src, wt_index_load_src, wt_apply_valid_src;
+    logic wt_crc_valid_q, wt_index_load_q, wt_apply_valid_q;
     logic [15:0] wt_apply_payload_q;
-    logic [15:0] patch_crc_payload_q;
-
-    v2_patch_bank #(.USE_GOWIN_RAM(USE_GOWIN_RAM)) u_patch_bank (
-        .clk(clk_sys_100m), .rst_n(rst_sys_n),
-        .select_family(patch_select_family), .select_track(patch_select_track),
-        .select_index(patch_select_index), .write_valid(patch_write_valid),
-        .write_ready(patch_write_ready), .write_value(patch_write_value),
-        .active_value(patch_active_value), .shadow_value(patch_shadow_value),
-        .crc_valid(patch_crc_valid_q),
-        .expected_crc(patch_crc_payload_q),
-        .apply_valid(patch_apply_valid), .apply_ready(patch_apply_ready),
-        .expected_version(patch_apply_valid ? cmd_data[15:0] : patch_apply_version),
-        .idle((mode_reg == IDLE) && !recording), .loop_boundary(loop_boundary),
-        .active_version(patch_active_version), .shadow_dirty(patch_shadow_dirty),
-        .crc_ok(patch_crc_ok), .apply_busy(patch_apply_busy), .last_error(patch_last_error)
-    );
 
     // Wavetable CSR state is wired in the same boundary.  The audio path does
     // not consume these tables yet; the loader remains independently
@@ -983,19 +954,14 @@ always_ff @(posedge clk_sys_100m or negedge rst_sys_n) begin
     if (!rst_sys_n) begin
         wt_crc_valid_q   <= 1'b0;
         wt_index_load_q  <= 1'b0;
-        patch_crc_valid_q<= 1'b0;
         wt_apply_valid_q <= 1'b0;
         wt_apply_payload_q <= 16'd0;
-        patch_crc_payload_q <= 16'd0;
     end else begin
         wt_crc_valid_q    <= wt_crc_valid_src;
         wt_index_load_q   <= wt_index_load_src;
-        patch_crc_valid_q <= patch_crc_valid_src;
         wt_apply_valid_q <= wt_apply_valid_src;   // one-cycle pulse: the commit bit is in the APPLY word, not here
         if (wt_apply_valid_src)
             wt_apply_payload_q <= cmd_data[15:0];
-        if (patch_crc_valid_src)
-            patch_crc_payload_q <= cmd_data[15:0];
     end
 end
 
@@ -1204,14 +1170,7 @@ end
         .wt_apply_done(wt_apply_done), .wt_apply_ok(wt_apply_ok), .wt_apply_reason(wt_apply_reason)
     );
 
-    assign patch_write_value = $signed(cmd_data);
     assign wt_write_sample = $signed(cmd_data[15:0]);
-    assign patch_write_valid = cmd_valid && cmd_ready && (cmd_op == V2_OP_WRITE) &&
-                               (cmd_address == V2_CSR_PATCH_SHADOW_DATA);
-    assign patch_crc_valid_src = cmd_valid && cmd_ready && (cmd_op == V2_OP_WRITE) &&
-                                 (cmd_address == V2_CSR_PATCH_CRC);
-    assign patch_apply_valid = cmd_valid && cmd_ready && (cmd_op == V2_OP_WRITE) &&
-                               (cmd_address == V2_CSR_PATCH_APPLY);
     assign wt_write_valid = cmd_valid && cmd_ready && (cmd_op == V2_OP_WRITE) &&
                             (cmd_address == V2_CSR_WT_DATA);
     assign wt_crc_valid_src = cmd_valid && cmd_ready && (cmd_op == V2_OP_WRITE) &&
@@ -1262,11 +1221,10 @@ end
     wire cmd_is_abort = (cmd_op == V2_OP_WRITE) &&
                         ((cmd_address == V2_CSR_STOP) || (cmd_address == V2_CSR_RESET));
     assign cmd_ready = (!loop_ctrl_pending || cmd_is_abort) &&
-                       !((cmd_op == V2_OP_WRITE) &&
-                         (patch_apply_busy || wt_apply_busy)) &&
+                       !((cmd_op == V2_OP_WRITE) && wt_apply_busy) &&
                        // Hold off one cycle after a staged one-shot so two staged
                        // commands can never overlap (P1 non-overlap argument).
-                       !(wt_crc_valid_q || wt_index_load_q || patch_crc_valid_q || wt_apply_valid_q);
+                       !(wt_crc_valid_q || wt_index_load_q || wt_apply_valid_q);
     assign bpm_write = cmd_valid && cmd_ready && (cmd_op == V2_OP_WRITE) && (cmd_address == V2_CSR_BPM);
     wire status_fault = (protocol_error != V2_ERR_NONE) || (record_fault != 8'd0) ||
                         loop_commit_timeout || test_fault;
@@ -1274,9 +1232,6 @@ end
     logic [7:0] test_response_sequence;
     logic csr_read_pending;
     logic [7:0] csr_read_sequence, csr_read_address;
-    logic patch_apply_response_pending;
-    logic [7:0] patch_apply_response_sequence;
-    logic patch_apply_response_valid;
     logic wt_apply_response_pending;
     logic [7:0] wt_apply_response_sequence;
     logic wt_apply_response_valid;
@@ -1286,9 +1241,6 @@ end
             rsp_error <= V2_ERR_NONE; rsp_data <= 0; rsp_terminal <= 1'b1;
             record_start <= 0; record_stop <= 0; record_abort <= 0; potts_capture_arm <= 0; potts_commit_kick <= 0;
             selected_track <= 3'd0;
-            patch_select_family <= 2'd0; patch_select_track <= 3'd0;
-            patch_select_index <= 8'd0; patch_expected_crc <= 16'hffff;
-            patch_apply_version <= 16'd0;
             wt_select_table <= 2'd0; wt_morph_en <= 1'b0; wt_lfo_step <= 23'd0;
             wt_voice_shift <= V2_WT_VOICE_SHIFT_DEFAULT;
             wt_select_index <= 10'd0; wt_length <= 16'd1024;
@@ -1306,8 +1258,6 @@ end
             commit_prep_wait <= 1'b0; commit_prep_sent <= 1'b0; writer_kick <= 1'b0; commit_track <= 3'd0;
             test_response_pending <= 1'b0; test_response_sequence <= 8'd0;
             csr_read_pending <= 1'b0; csr_read_sequence <= 8'd0; csr_read_address <= 8'd0;
-            patch_apply_response_pending <= 1'b0; patch_apply_response_sequence <= 8'd0;
-            patch_apply_response_valid <= 1'b0;
             wt_apply_response_pending <= 1'b0; wt_apply_response_sequence <= 8'd0;
             wt_apply_response_valid <= 1'b0;
         end else begin
@@ -1368,15 +1318,6 @@ end
                 case (csr_read_address)
                     V2_CSR_STATUS: rsp_data <= {22'd0, status_fault, loop_active_valid,
                                                  5'd0, mode_reg[2:0]};
-                    V2_CSR_PATCH_SELECT: rsp_data <= {16'd0, patch_select_index, 3'd0,
-                                                       patch_select_track, patch_select_family};
-                    V2_CSR_PATCH_SHADOW_DATA: rsp_data <= patch_shadow_value;
-                    V2_CSR_PATCH_ACTIVE_DATA: rsp_data <= patch_active_value;
-                    V2_CSR_PATCH_STATUS: rsp_data <= {patch_last_error, 5'd0,
-                                                       patch_apply_busy, patch_crc_ok,
-                                                       patch_shadow_dirty, patch_active_version};
-                    V2_CSR_PATCH_CRC: rsp_data <= {16'd0, patch_expected_crc};
-                    V2_CSR_PATCH_APPLY: rsp_data <= 32'd0;
                     V2_CSR_BPM: rsp_data <= {16'd0, bpm_reg};
                     V2_CSR_THRESHOLDS: rsp_data <= thresholds_reg;
                     V2_CSR_CONTOUR_DATA: rsp_data <= {16'd0, contour_rd_data};
@@ -1450,17 +1391,6 @@ end
                 endcase
                 csr_read_pending <= 1'b0;
             end
-            if (patch_apply_response_pending) begin
-                rsp_valid <= 1'b1;
-                rsp_sequence <= patch_apply_response_sequence;
-                rsp_status <= V2_ACK_ACCEPTED;
-                rsp_error <= !patch_apply_response_valid ? V2_ERR_BAD_DATA :
-                             ((patch_last_error != V2_ERR_NONE) ? patch_last_error : V2_ERR_NONE);
-                rsp_data <= 32'd0;
-                rsp_terminal <= 1'b1;
-                patch_apply_response_pending <= 1'b0;
-                patch_apply_response_valid <= 1'b0;
-            end
             if (wt_apply_response_pending && wt_apply_done) begin
                 rsp_valid <= 1'b1;
                 rsp_sequence <= wt_apply_response_sequence;
@@ -1493,32 +1423,18 @@ end
                     csr_read_pending <= 1'b1;
                     csr_read_sequence <= cmd_sequence;
                     csr_read_address <= cmd_address;
-                end else if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_PATCH_APPLY) begin
-                    patch_apply_response_pending <= 1'b1;
-                    patch_apply_response_sequence <= cmd_sequence;
-                    patch_apply_response_valid <= patch_apply_ready;
                 end else if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_WT_APPLY) begin
                     wt_apply_response_pending <= 1'b1;
                     wt_apply_response_sequence <= cmd_sequence;
                     wt_apply_response_valid <= wt_apply_ready;
                 end else begin
                     rsp_valid <= 1'b1; rsp_sequence <= cmd_sequence; rsp_status <= V2_ACK_ACCEPTED;
-                    rsp_error <= ((cmd_address == V2_CSR_PATCH_SHADOW_DATA) && !patch_write_ready) ||
-                                 ((cmd_address == V2_CSR_WT_DATA) && !wt_write_ready)
+                    rsp_error <= ((cmd_address == V2_CSR_WT_DATA) && !wt_write_ready)
                                  ? V2_ERR_BAD_DATA : V2_ERR_NONE;
                     rsp_data <= (cmd_address == V2_CSR_STATUS) ?
                                 {22'd0, status_fault, loop_active_valid, 5'd0, mode_reg[2:0]} : 0;
                     rsp_terminal <= 1'b1;
                 end
-                if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_PATCH_SELECT) begin
-                    patch_select_family <= cmd_data[1:0];
-                    patch_select_track <= cmd_data[4:2];
-                    patch_select_index <= cmd_data[15:8];
-                end
-                if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_PATCH_CRC)
-                    patch_expected_crc <= cmd_data[15:0];
-                if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_PATCH_APPLY)
-                    patch_apply_version <= cmd_data[15:0];
                 if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_WT_SELECT) begin
                     wt_select_table <= cmd_data[1:0];
                     wt_morph_en <= cmd_data[8];

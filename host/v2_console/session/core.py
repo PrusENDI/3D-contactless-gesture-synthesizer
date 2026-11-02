@@ -247,11 +247,19 @@ class Session:
             readback=readback,
         )
 
-    def read_table(self) -> list[int]:
-        """Read the 1024 samples back, as signed int16. Only in IDLE: PLAY returns 0."""
+    def read_table(self, points: int = 1024) -> list[int]:
+        """Read ``points`` samples back, as signed int16. Only in IDLE: PLAY returns 0.
+
+        The loader advances its index on a *write*, never on a read, so every point
+        needs its own WT_INDEX write first -- board_readback.ps1 does exactly that,
+        and reading the same index 1024 times returns one sample 1024 times.
+        """
         self.require_mode(0)
-        self.write(WT_INDEX, 0)
-        return [self._signed(self.read(WT_DATA)) for _ in range(1024)]
+        samples = []
+        for index in range(points):
+            self.write(WT_INDEX, index)
+            samples.append(self._signed(self.read(WT_DATA)))
+        return samples
 
     @staticmethod
     def _signed(word: int) -> int:

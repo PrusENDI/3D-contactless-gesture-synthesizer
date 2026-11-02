@@ -40,6 +40,9 @@ def main() -> int:
             return 3
         reports = []
         for pacing_us in args.pacing_us:
+            # The loader advances its own pointer on every WT_DATA write, so put it
+            # back to 0 before each cadence; otherwise the burst walks off the end.
+            link.command(0x02, 0x64, 0)
             try:
                 report = bench.run_burst(link, args.count, pacing_us)
             except LinkLost as exc:

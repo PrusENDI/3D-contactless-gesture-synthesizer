@@ -93,8 +93,8 @@ class UploadTest(unittest.TestCase):
     def test_upload_can_verify_the_table_it_just_wrote(self):
         plan = upload_plan()
         plan += [0]                          # STATUS read for the read-back gate
-        plan += [0]                          # WT_INDEX write
-        plan += [sample & 0xFFFF for sample in SAMPLES]
+        for index in range(1024):
+            plan += [0, SAMPLES[index] & 0xFFFF]      # WT_INDEX write, WT_DATA read
         session = make_session(plan)
         session.connect()
         result = session.upload_table(SAMPLES, table=0, voice_shift=2, verify=True)
@@ -103,15 +103,19 @@ class UploadTest(unittest.TestCase):
 
 
 class ReadBackTest(unittest.TestCase):
-    def test_read_table_returns_1024_samples(self):
-        plan = [BOARD_ID, 0, 0] + [0] + [0x1111] * 1024
+    def test_read_table_selects_each_point_before_reading_it(self):
+        plan = [BOARD_ID, 0, 0]                      # connect + the IDLE gate
+        for index in range(1024):
+            plan += [0, 0x0100 | (index & 0x3F)]     # WT_INDEX write, WT_DATA read
         session = make_session(plan)
         session.connect()
         samples = session.read_table()
-        self.assertEqual(samples, [0x1111] * 1024)
+        self.assertEqual(len(samples), 1024)
+        writes = [frame for frame in session.link._port.written if frame[2] == 0x02]
+        self.assertEqual([int.from_bytes(frame[5:9], "big") for frame in writes[:3]], [0, 1, 2])
 
     def test_read_table_returns_signed_samples(self):
-        plan = [BOARD_ID, 0, 0] + [0] + [0xFFFF] * 1024
+        plan = [BOARD_ID, 0, 0] + ([0, 0xFFFF] * 1024)
         session = make_session(plan)
         session.connect()
         self.assertEqual(session.read_table()[0], -1)

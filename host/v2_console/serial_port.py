@@ -1,11 +1,15 @@
 """pyserial behind the interface ``Link`` expects.
 
 ``Link`` calls ``port.read(n, timeout_s)``; pyserial 3.5 exposes ``read(size)`` and
-carries the wait in ``timeout``. Bridging the two here, once, is what keeps the
-console from dying with a TypeError on the first read of a real board.
+carries the wait in ``timeout``. The adapter sets that timeout **once** and polls
+``in_waiting`` instead: pyserial's ``timeout`` setter reconfigures the port, and
+on Windows the reconfiguration flushes the driver buffers, which shows up as a
+reply that is missing its first bytes.
 """
 
 from __future__ import annotations
+
+import time
 
 
 class SerialPort:
@@ -22,9 +26,18 @@ class SerialPort:
         self._port.write(data)
 
     def read(self, n: int, timeout_s: float) -> bytes:
-        self._port.timeout = max(0.0, timeout_s)
-        chunk = self._port.read(n)
-        return chunk or b""
+        deadline = time.monotonic() + max(0.0, timeout_s)
+        buffer = bytearray()
+        while True:
+            waiting = self._port.in_waiting
+            if waiting:
+                buffer += self._port.read(min(waiting, n - len(buffer)))
+                if len(buffer) >= n:
+                    break
+            if time.monotonic() >= deadline:
+                break
+            time.sleep(0.001)
+        return bytes(buffer[:n])
 
     def reset_input(self) -> None:
         self._port.reset_input_buffer()

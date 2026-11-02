@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "name": "brass",
+  "notes": "harmonics 1-9 with a strong 2nd and 3rd; res 120, attack 34 ms",
+  "created": "2026-11-03",
+  "bitstream": {},
+  "wavetable": {
+    "table": 0,
+    "voice_shift": 2,
+    "morph": false
+  },
+  "words": {
+    "0x40": 17269096,
+    "0x44": 50860936,
+    "0x84": 1376256,
+    "0x88": 4294901760,
+    "0x8C": 0,
+    "0x90": 91750,
+    "0x94": 4194344,
+    "0x98": 2143027,
+    "0x9C": 33554432
+  }
+}

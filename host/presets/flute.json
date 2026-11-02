@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "name": "flute",
+  "notes": "harmonics 1,2,3 only; ci 330 res 30, 5.2 Hz depth 4 breath, attack 21 ms",
+  "created": "2026-11-03",
+  "bitstream": {},
+  "wavetable": {
+    "table": 0,
+    "voice_shift": 2,
+    "morph": false
+  },
+  "words": {
+    "0x40": 16900426,
+    "0x44": 50598992,
+    "0x84": 1376256,
+    "0x88": 4294901760,
+    "0x8C": 0,
+    "0x90": 98304,
+    "0x94": 8388672,
+    "0x98": 835584,
+    "0x9C": 33554432
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "name": "strings",
+  "notes": "1/n^0.7 to the 16th; attack 114 ms swell, release 340 ms, detune widest",
+  "created": "2026-11-03",
+  "bitstream": {},
+  "wavetable": {
+    "table": 0,
+    "voice_shift": 2,
+    "morph": false
+  },
+  "words": {
+    "0x40": 17002796,
+    "0x44": 50729664,
+    "0x84": 1376256,
+    "0x88": 4294901760,
+    "0x8C": 0,
+    "0x90": 98304,
+    "0x94": 1572876,
+    "0x98": 317849,
+    "0x9C": 33554432
+  }
+}

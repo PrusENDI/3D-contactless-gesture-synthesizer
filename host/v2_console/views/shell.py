@@ -299,7 +299,9 @@ class ConsoleModel:
         """Move one slider: keep every other field of that register as it is on the board."""
         from ..params import PARAMS, set_field
 
-        current = self.params.get(addr, PARAMS[addr].default)
+        # Read the register fresh: a stale copy rewrites the other fields, which is
+        # how a cutoff slider ends up writing enable=0 and changing nothing audible.
+        current = self.session.read(addr)
         word = set_field(addr, current, name, value)
         message = self.set_param(addr, word)
         self.params[addr] = self.session.read(addr)
@@ -372,8 +374,25 @@ class ConsoleModel:
         return drawing
 
 
+
+def ttk_like_progress(tk, parent):
+    from tkinter import ttk
+
+    bar = ttk.Progressbar(parent, length=160, maximum=1024)
+    bar.pack(side="left", padx=8)
+    return bar
+
+
+
 class ConsoleWindow:
-    """Tk shell. Wiring only: every decision lives in ConsoleModel or the painters."""
+    """Tk shell. Wiring only: every decision lives in ConsoleModel or the painters.
+
+    Layout rule learned the hard way: the window has a fixed geometry and every
+    panel that can grow (the tone sliders, the tab canvases) sits in a scrollable
+    or expanding container. Rows stacked with ``pack`` below an expanding notebook
+    are simply invisible on a small screen, which is how the LOOP buttons and the
+    wavetable controls went missing in the first hands-on run.
+    """
 
     def __init__(self, model: ConsoleModel, port_name: str = "COM4", pump=None, presets=None):
         import tkinter as tk
@@ -389,7 +408,11 @@ class ConsoleWindow:
         self.root = tk.Tk()
         self.root.title("MGC3130 console - %s" % port_name)
         self.root.configure(bg="#101014")
+        self.root.geometry("1180x880")
+        self.root.minsize(900, 640)
         self._results: queue.Queue = queue.Queue()
+        self._param_after = None
+        self._pending_param = None
 
         self.status = tk.Label(self.root, anchor="w", fg="#cccccc", bg="#101014", text="not connected")
         self.status.pack(fill="x")
@@ -397,19 +420,20 @@ class ConsoleWindow:
         body = tk.Frame(self.root, bg="#101014")
         body.pack(fill="both", expand=True)
 
-        sidebar = tk.Frame(body, bg="#101014", width=180)
+        sidebar = tk.Frame(body, bg="#101014", width=190)
         sidebar.pack(side="left", fill="y")
         tk.Label(sidebar, text="presets", fg="#888888", bg="#101014").pack(anchor="w")
-        self.preset_list = tk.Listbox(sidebar, height=12, exportselection=False)
+        self.preset_list = tk.Listbox(sidebar, height=10, exportselection=False)
         for preset in self.presets:
             self.preset_list.insert("end", preset.name)
         if self.presets:
             self.preset_list.selection_set(0)
         self.preset_list.pack(fill="x")
-        self._button(sidebar, "Apply", self._on_apply)
-        self._button(sidebar, "Capture", self._on_capture)
-        self._button(sidebar, "Upload table...", self._on_upload)
-        self._button(sidebar, "Read back", self._on_readback)
+        self._button(sidebar, "Apply preset", self._on_apply)
+        self._button(sidebar, "Capture preset", self._on_capture)
+        self._button(sidebar, "Read back table", self._on_readback)
+        self.preset_label = tk.Label(sidebar, text="", fg="#888888", bg="#101014", wraplength=180, justify="left")
+        self.preset_label.pack(fill="x", pady=4)
 
         main = tk.Frame(body, bg="#101014")
         main.pack(side="left", fill="both", expand=True)
@@ -421,16 +445,21 @@ class ConsoleWindow:
             if name == "tone":
                 self._build_tone_panel(frame)
                 self.canvases[name] = None
+            elif name == "loop":
+                self._build_loop_controls(frame)
+                self.canvases[name] = self._canvas(frame)
+            elif name == "wave":
+                self._build_wave_controls(frame)
+                self.canvases[name] = self._canvas(frame)
             else:
-                canvas = tk.Canvas(frame, bg="#101014", highlightthickness=0)
-                canvas.pack(fill="both", expand=True)
-                self.canvases[name] = canvas
+                self.canvases[name] = self._canvas(frame)
             self.notebook.add(frame, text=name)
         self._current = TABS[0]
         self.notebook.bind("<<NotebookTabChanged>>", self._on_tab)
 
         mode_row = tk.Frame(self.root, bg="#101014")
-        mode_row.pack(fill="x")
+        mode_row.pack(fill="x", side="bottom")
+        self._button(mode_row, "STOP", self._on_stop, side="left")
         self._button(mode_row, "LIVE", lambda: self._on_mode(1), side="left")
         self._button(mode_row, "PLAY", lambda: self._on_mode(4), side="left")
         self._button(mode_row, "WT_PLAY", lambda: self._on_mode(6), side="left")
@@ -444,50 +473,98 @@ class ConsoleWindow:
         self._button(mode_row, "Read params", self._on_read_params, side="left")
         self.identity_label = tk.Label(mode_row, text="", fg="#888888", bg="#101014")
         self.identity_label.pack(side="left", padx=8)
+        self._button(mode_row, "Reference play", self._on_reference, side="left")
+        self._button(mode_row, "Reference stop", self._on_reference_stop, side="left")
 
-        controls = tk.Frame(self.root, bg="#101014")
-        controls.pack(fill="x")
-        self._button(controls, "Stop", self._on_stop, side="left")
-        self._button(controls, "Reference play", self._on_reference, side="left")
-        self._button(controls, "Reference stop", self._on_reference_stop, side="left")
-
-        morph = tk.Frame(self.root, bg="#101014")
-        morph.pack(fill="x")
-        self._button(morph, "Capture frame (4 s)", self._on_capture_frame, side="left")
-        tk.Label(morph, text="gain shift", fg="#cccccc", bg="#101014").pack(side="left", padx=(8, 2))
-        self.gain = tk.Scale(
-            morph, from_=0, to=15, orient="horizontal", length=140,
-            bg="#101014", fg="#cccccc", highlightthickness=0,
-        )
-        self.gain.set(2)
-        self.gain.pack(side="left")
-        tk.Label(morph, text="LFO period s", fg="#cccccc", bg="#101014").pack(side="left", padx=(8, 2))
-        self.period = tk.Entry(morph, width=6)
-        self.period.insert(0, "20")
-        self.period.pack(side="left")
-        self._button(morph, "Upload frames", self._on_upload_frames, side="left")
-        self.progress = ttk.Progressbar(morph, length=160, maximum=1024)
-        self.progress.pack(side="left", padx=8)
-        self.progress_label = tk.Label(morph, text="", fg="#888888", bg="#101014")
-        self.progress_label.pack(side="left")
-
-        loop_row = tk.Frame(self.root, bg="#101014")
-        loop_row.pack(fill="x")
-        tk.Label(loop_row, text="LOOP track", fg="#cccccc", bg="#101014").pack(side="left")
-        self.track_box = tk.Spinbox(loop_row, from_=0, to=5, width=3)
-        self.track_box.pack(side="left", padx=4)
-        self._button(loop_row, "Arm (bar)", self._on_arm, side="left")
-        self._button(loop_row, "Commit", self._on_commit, side="left")
-        self._button(loop_row, "Publish", self._on_publish, side="left")
-        self.loop_label = tk.Label(loop_row, text="idle", fg="#888888", bg="#101014")
-        self.loop_label.pack(side="left", padx=8)
-
-    # -- helpers ------------------------------------------------------------
+    # -- building blocks ----------------------------------------------------
 
     def _button(self, parent, label, command, side="top"):
         button = self.tk.Button(parent, text=label, command=command)
         button.pack(side=side, fill="x" if side == "top" else "none", padx=2, pady=1)
         return button
+
+    def _canvas(self, parent):
+        canvas = self.tk.Canvas(parent, bg="#101014", highlightthickness=0)
+        canvas.pack(fill="both", expand=True)
+        return canvas
+
+    def _build_tone_panel(self, parent) -> None:
+        """One slider per field, inside a scrollable canvas so nothing hides below the fold."""
+        tk = self.tk
+        outer = tk.Frame(parent, bg="#101014")
+        outer.pack(fill="both", expand=True)
+        scroll = tk.Scrollbar(outer, orient="vertical")
+        scroll.pack(side="right", fill="y")
+        canvas = tk.Canvas(outer, bg="#101014", highlightthickness=0, yscrollcommand=scroll.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        scroll.config(command=canvas.yview)
+        inner = tk.Frame(canvas, bg="#101014")
+        canvas.create_window((0, 0), window=inner, anchor="nw")
+        inner.bind("<Configure>", lambda _e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.bind_all("<MouseWheel>", lambda e: canvas.yview_scroll(int(-e.delta / 120), "units"))
+
+        from ..params import PARAMS, display, get_field
+
+        self.param_scales = {}
+        row = 0
+        for addr in sorted(PARAMS):
+            param = PARAMS[addr]
+            tk.Label(
+                inner, text="0x%02X %s   (affects: %s)" % (addr, param.key, param.scope),
+                fg="#aaaaaa", bg="#101014", anchor="w",
+            ).grid(row=row, column=0, columnspan=3, sticky="w", pady=(8, 0))
+            row += 1
+            for field in param.fields:
+                tk.Label(inner, text=field.name, fg="#cccccc", bg="#101014", width=15, anchor="w").grid(
+                    row=row, column=0, sticky="w"
+                )
+                scale = tk.Scale(
+                    inner, from_=field.lo, to=field.hi, orient="horizontal", length=260,
+                    bg="#101014", fg="#cccccc", highlightthickness=0, showvalue=0,
+                    command=lambda value, a=addr, f=field.name: self._on_param_drag(a, f, value),
+                )
+                scale.set(field.lo)
+                scale.grid(row=row, column=1, sticky="w")
+                value_label = tk.Label(inner, text="", fg="#888888", bg="#101014", width=24, anchor="w")
+                value_label.grid(row=row, column=2, sticky="w")
+                self.param_scales[(addr, field.name)] = (scale, value_label)
+                row += 1
+
+    def _build_loop_controls(self, parent) -> None:
+        tk = self.tk
+        strip = tk.Frame(parent, bg="#101014")
+        strip.pack(fill="x")
+        tk.Label(strip, text="track", fg="#cccccc", bg="#101014").pack(side="left")
+        self.track_box = tk.Spinbox(strip, from_=0, to=5, width=3)
+        self.track_box.pack(side="left", padx=4)
+        self._button(strip, "Arm (bar)", self._on_arm, side="left")
+        self._button(strip, "Commit", self._on_commit, side="left")
+        self._button(strip, "Publish", self._on_publish, side="left")
+        self._button(strip, "STOP", self._on_stop, side="left")
+        self.loop_label = tk.Label(strip, text="blind recording: you cannot hear the other tracks", fg="#888888", bg="#101014")
+        self.loop_label.pack(side="left", padx=8)
+
+    def _build_wave_controls(self, parent) -> None:
+        tk = self.tk
+        strip = tk.Frame(parent, bg="#101014")
+        strip.pack(fill="x")
+        self._button(strip, "Capture frame (4 s)", self._on_capture_frame, side="left")
+        tk.Label(strip, text="gain shift", fg="#cccccc", bg="#101014").pack(side="left", padx=(8, 2))
+        self.gain = tk.Scale(strip, from_=0, to=15, orient="horizontal", length=140,
+                             bg="#101014", fg="#cccccc", highlightthickness=0)
+        self.gain.set(2)
+        self.gain.pack(side="left")
+        tk.Label(strip, text="LFO period s", fg="#cccccc", bg="#101014").pack(side="left", padx=(8, 2))
+        self.period = tk.Entry(strip, width=6)
+        self.period.insert(0, "20")
+        self.period.pack(side="left")
+        self._button(strip, "Upload frames", self._on_upload_frames, side="left")
+        self._button(strip, "Upload .bin...", self._on_upload, side="left")
+        self.progress = ttk_like_progress(tk, strip)
+        self.progress_label = tk.Label(strip, text="", fg="#888888", bg="#101014")
+        self.progress_label.pack(side="left")
+
+    # -- actions ------------------------------------------------------------
 
     def _run(self, label, fn) -> None:
         """Every board call runs off the Tk thread; one failed command can cost 800 ms."""
@@ -506,42 +583,70 @@ class ConsoleWindow:
         selection = self.preset_list.curselection()
         return self.presets[selection[0]] if selection else None
 
-    # -- tone panel ---------------------------------------------------------
+    def _on_apply(self):
+        preset = self._selected_preset()
+        if preset is not None:
+            self.preset_label.config(text="applying %s" % preset.name)
+            self._run("apply", lambda: self.model.apply_preset(preset))
 
-    def _build_tone_panel(self, parent) -> None:
-        """One slider per field of the nine parameter registers, with units on the right."""
-        from ..params import PARAMS
+    def _on_capture(self):
+        self._run("capture", lambda: self.model.capture_preset("captured-%d" % int(time.time())))
 
-        tk = self.tk
-        self.param_scales = {}
-        self._param_after = None
-        self._pending_param = None
-        row = 0
-        for addr in sorted(PARAMS):
-            param = PARAMS[addr]
-            tk.Label(
-                parent, text="0x%02X %s   (%s only)" % (addr, param.key, param.scope),
-                fg="#aaaaaa", bg="#101014", anchor="w",
-            ).grid(row=row, column=0, columnspan=3, sticky="w", pady=(6, 0))
-            row += 1
-            for field in param.fields:
-                tk.Label(parent, text=field.name, fg="#cccccc", bg="#101014", width=15, anchor="w").grid(
-                    row=row, column=0, sticky="w"
-                )
-                scale = tk.Scale(
-                    parent, from_=field.lo, to=field.hi, orient="horizontal", length=240,
-                    bg="#101014", fg="#cccccc", highlightthickness=0, showvalue=0,
-                    command=lambda value, a=addr, f=field.name: self._on_param_drag(a, f, value),
-                )
-                scale.set(field.lo)
-                scale.grid(row=row, column=1, sticky="w")
-                value_label = tk.Label(parent, text="", fg="#888888", bg="#101014", width=22, anchor="w")
-                value_label.grid(row=row, column=2, sticky="w")
-                self.param_scales[(addr, field.name)] = (scale, value_label)
-                row += 1
+    def _on_stop(self):
+        self._run("stop", self.model.stop)
+
+    def _on_readback(self):
+        self._run("readback", self.model.readback)
+
+    def _on_upload(self):
+        from tkinter import filedialog
+
+        path = filedialog.askopenfilename(filetypes=[("wavetable", "*.bin")])
+        if not path:
+            return
+
+        def action():
+            with open(path, "rb") as handle:
+                raw = handle.read()
+            samples = [
+                int.from_bytes(raw[index : index + 2], "little", signed=True)
+                for index in range(0, len(raw) - 1, 2)
+            ]
+            return self.model.upload(samples)
+
+        self._run("upload", action)
+
+    def _on_capture_frame(self):
+        started = len(self.model.buffer.trail(10 ** 6))
+        self.model.message = "capturing 4 s: move your hand over the sensor"
+        self.root.after(4000, lambda: self._finish_capture(started))
+
+    def _finish_capture(self, started: int):
+        points = self.model.buffer.trail(10 ** 6)[started:]
+        if len(points) < 32:
+            self.model.message = "capture got %d samples; is the telemetry stream on?" % len(points)
+            return
+        self._run("capture-frame", lambda: self.model.capture_frame(points))
+
+    def _on_upload_frames(self):
+        shift = int(self.gain.get())
+        try:
+            period = float(self.period.get() or 20.0)
+        except ValueError:
+            self.model.message = "LFO period must be a number of seconds"
+            return
+
+        def action():
+            return self.model.upload_frames(
+                shift, True, period,
+                on_progress=lambda table, done, total: self._results.put(
+                    ("progress", (table, done, total), None)
+                ),
+            )
+
+        self._run("upload-frames", action)
 
     def _on_param_drag(self, addr: int, name: str, value: str) -> None:
-        """Sliders fire on every pixel; wait for the hand to stop before talking to the board."""
         self._pending_param = (addr, name, int(float(value)))
         if self._param_after is not None:
             self.root.after_cancel(self._param_after)
@@ -582,39 +687,31 @@ class ConsoleWindow:
         wanted = bool(self.arp.get())
         self._run("rule", lambda: self.model.set_arp(wanted))
 
-    # -- button handlers ----------------------------------------------------
+    def _on_arm(self):
+        track = int(self.track_box.get())
+        self._countdown(3, track)
 
-    def _on_apply(self):
-        preset = self._selected_preset()
-        if preset is not None:
-            self._run("apply", lambda: self.model.apply_preset(preset))
-
-    def _on_capture(self):
-        self._run("capture", lambda: self.model.capture_preset("captured-%d" % int(time.time())))
-
-    def _on_stop(self):
-        self._run("stop", self.model.stop)
-
-    def _on_readback(self):
-        self._run("readback", self.model.readback)
-
-    def _on_upload(self):
-        from tkinter import filedialog
-
-        path = filedialog.askopenfilename(filetypes=[("wavetable", "*.bin")])
-        if not path:
+    def _countdown(self, remaining: int, track: int) -> None:
+        if remaining > 0:
+            self.loop_label.config(text="track %d starts in %d" % (track, remaining))
+            self.root.after(1000, lambda: self._countdown(remaining - 1, track))
             return
 
         def action():
-            with open(path, "rb") as handle:
-                raw = handle.read()
-            samples = [
-                int.from_bytes(raw[index : index + 2], "little", signed=True)
-                for index in range(0, len(raw) - 1, 2)
-            ]
-            return self.model.upload(samples)
+            self.model.arm_take(track)
+            self.model.wait_for_take()
+            return self.model.capture_contour()
 
-        self._run("upload", action)
+        self.loop_label.config(text="armed on track %d" % track)
+        self._run("arm", action)
+
+    def _on_commit(self):
+        self.loop_label.config(text="committing")
+        self._run("commit", self.model.commit_take)
+
+    def _on_publish(self):
+        self.loop_label.config(text="publishing")
+        self._run("publish", self.model.publish_take)
 
     def _on_reference(self):
         from ..params import PARAMS
@@ -635,65 +732,6 @@ class ConsoleWindow:
 
     def _on_reference_stop(self):
         self._run("reference-stop", self.model.stop_reference)
-
-    def _on_capture_frame(self):
-        """Collect four seconds of trajectory first; one frame is one pass of the hand."""
-        started = len(self.model.buffer.trail(10 ** 6))
-        self.model.message = "capturing 4 s: move your hand over the sensor"
-        self.root.after(4000, lambda: self._finish_capture(started))
-
-    def _finish_capture(self, started: int):
-        points = self.model.buffer.trail(10 ** 6)[started:]
-        if len(points) < 32:
-            self.model.message = "capture got %d samples; is the telemetry stream on?" % len(points)
-            return
-        self._run("capture", lambda: self.model.capture_frame(points))
-
-    def _on_arm(self):
-        track = int(self.track_box.get())
-        self._countdown(3, track)
-
-    def _countdown(self, remaining: int, track: int) -> None:
-        if remaining > 0:
-            self.loop_label.config(text="track %d in %d" % (track, remaining))
-            self.root.after(1000, lambda: self._countdown(remaining - 1, track))
-            return
-
-        def action():
-            self.model.arm_take(track)
-            self.model.wait_for_take()
-            return self.model.capture_contour()
-
-        self.loop_label.config(text="armed on track %d" % track)
-        self._run("arm", action)
-
-    def _on_commit(self):
-        self.loop_label.config(text="committing")
-        self._run("commit", self.model.commit_take)
-
-    def _on_publish(self):
-        self.loop_label.config(text="publishing")
-        self._run("publish", self.model.publish_take)
-
-    def _on_upload_frames(self):
-        shift = int(self.gain.get())
-        try:
-            period = float(self.period.get() or 20.0)
-        except ValueError:
-            self.model.message = "LFO period must be a number of seconds"
-            return
-
-        def action():
-            return self.model.upload_frames(
-                shift,
-                True,
-                period,
-                on_progress=lambda table, done, total: self._results.put(
-                    ("progress", (table, done, total), None)
-                ),
-            )
-
-        self._run("upload-frames", action)
 
     # -- loop ---------------------------------------------------------------
 
@@ -719,6 +757,7 @@ class ConsoleWindow:
                 self.model.message = "%s: %s" % (label, error)
             elif value:
                 self.model.message = str(value)
+            self.preset_label.config(text=self.model.message)
 
     def refresh(self) -> None:
         if self.pump is not None:
@@ -747,7 +786,6 @@ class ConsoleWindow:
 
     def run(self) -> int:
         self.refresh()
-        # Show the board's actual values, not the dataclass defaults.
         self.root.after(200, self._on_read_params)
         self.root.mainloop()
         return 0

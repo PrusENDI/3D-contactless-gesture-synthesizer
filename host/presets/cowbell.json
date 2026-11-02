@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "name": "cowbell",
+  "notes": "3rd and 5th carry the bell; res 150, attack 1 sample, decay 230 ms, sustain 0",
+  "created": "2026-11-03",
+  "bitstream": {},
+  "wavetable": {
+    "table": 0,
+    "voice_shift": 2,
+    "morph": false
+  },
+  "words": {
+    "0x40": 17391946,
+    "0x44": 0,
+    "0x84": 1114112,
+    "0x88": 4294901760,
+    "0x8C": 0,
+    "0x90": 104857,
+    "0x94": 393217,
+    "0x98": 131072,
+    "0x9C": 33554432
+  }
+}

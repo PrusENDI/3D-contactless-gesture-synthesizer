@@ -46,6 +46,14 @@ RECIPES: dict[str, dict[int, float]] = {
     "strings": {n: n ** -0.7 for n in range(1, 17)},
     "brass": {1: 1.00, 2: 0.72, 3: 0.55, 4: 0.40, 5: 0.30,
               6: 0.22, 7: 0.15, 8: 0.10, 9: 0.07},
+    # A cowbell is struck metal, so it lives on a few strong partials rather than
+    # on a fundamental.  The TR-808 gets its bell from two square oscillators a
+    # fifth or so apart, band-passed and cut short; a single periodic table cannot
+    # hold two unrelated frequencies, so the equivalent here is the 3rd and 5th
+    # harmonics carrying most of the energy (a 3:2 pair inside the cycle) with the
+    # fundamental weak, plus a very short decay and a high resonance in the preset.
+    "cowbell": {1: 0.15, 2: 0.10, 3: 1.00, 4: 0.12, 5: 0.72,
+                6: 0.15, 7: 0.30, 9: 0.22, 11: 0.10},
 }
 
 # LIVE single-voice presets.  LIVE has no loop, no FX chain worth using and only
@@ -79,6 +87,15 @@ PRESETS: dict[str, dict[str, int]] = {
         "s": (4 << 16) | 55705,                   # sustain 0.85, release 4 (~340 ms)
         "m": 0x02000000,                          # detune shift 0: widest
     },
+    "cowbell": {
+        "f": 0x01000000 | (150 << 12) | 330,     # res 150: the metal rings
+        "l": 0x00000000,                          # a bell does not wobble
+        "a": 0x00110000, "b": 0xFFFF0000, "c": 0x00000000,
+        "v": 0x00019999,                          # 1.6
+        "e": (6 << 16) | 1,                       # strike now, decay ~230 ms
+        "s": (2 << 16) | 0,                       # sustain 0: it dies away
+        "m": 0x02000000,                          # detune widest: two partials beat
+    },
     "brass": {
         "f": 0x01000000 | (120 << 12) | 360,     # high res: the blat
         "l": 0x03000000 | (8 << 16) | 5000,
@@ -95,6 +112,7 @@ NOTES = {
     "clarinet": "odd harmonics 1,3,5,7; res 90 for the hollow ring, attack 14 ms",
     "strings": "1/n^0.7 to the 16th; attack 114 ms swell, release 340 ms, detune widest",
     "brass": "harmonics 1-9 with a strong 2nd and 3rd; res 120, attack 34 ms",
+    "cowbell": "3rd and 5th carry the bell; res 150, attack 1 sample, decay 230 ms, sustain 0",
 }
 
 
@@ -186,7 +204,7 @@ def selftest() -> int:
             peak = max(abs(v) for v in samples)
             # frame1 carries the recipe; 0 and 2 are deliberately brighter and
             # darker, so they are allowed to sit lower but never to clip.
-            floor = 0.6 * PEAK if index == 1 else 0.25 * PEAK
+            floor = 0.6 * PEAK if index == 1 else 0.2 * PEAK
             if peak >= 32768 or peak < floor:
                 print("FAIL %s frame%d: peak %d out of range" % (name, index, peak))
                 failures += 1

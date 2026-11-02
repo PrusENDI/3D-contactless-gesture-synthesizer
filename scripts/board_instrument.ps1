@@ -9,7 +9,7 @@
 # The body frame is uploaded as table 0. The three-frame morph set is written to
 # artifacts/wt/instruments/<name>/ if you later want the brightness to move.
 param(
-  [Parameter(Mandatory = $true)][ValidateSet('flute', 'clarinet', 'strings', 'brass')][string]$Instrument,
+  [Parameter(Mandatory = $true)][ValidateSet('flute', 'clarinet', 'strings', 'brass', 'cowbell')][string]$Instrument,
   [string]$Port = 'COM4',
   [int]$Baud = 1000000,
   [int]$Shift = 2,

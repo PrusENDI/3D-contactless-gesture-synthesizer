@@ -271,7 +271,7 @@ class ConsoleModel:
         with open(path, "wb") as handle:
             handle.write(payload)
         self.overdub_path = path
-        self.message = "monitor ready: %d take(s)" % len(self.contours)
+        self.message = "monitor ready: %d takes" % len(self.contours)
         return self.message
 
     def play_overdub(self) -> str:
@@ -281,7 +281,7 @@ class ConsoleModel:
         self.player.play(self.overdub_path)
         self.overdubbing = True
         self._audio_log("monitor_play", self.overdub_path)
-        self.message = "monitor looping %d take(s) ON THE PC (not the board)" % len(self.contours)
+        self.message = "monitor looping %d takes on the PC" % len(self.contours)
         return self.message
 
     def stop_overdub(self) -> str:
@@ -385,7 +385,7 @@ class ConsoleModel:
             note = "morph off: it sweeps A/B/C, and there are only %d frame(s)" % len(self.frames)
         else:
             note = "morph on" if morph_on else "morph off"
-        self.message = "uploaded frames %s (shift %d, %.1f s), %s" % (
+        self.message = "frames %s  shift %d  %.1f s  %s" % (
             which,
             shift,
             result.elapsed_s,
@@ -468,7 +468,7 @@ class ConsoleModel:
         self.commit_count = count
         self.flow.publish()
         self.phase.reanchor()
-        self.message = "committed %d event(s) and published: it plays now" % count
+        self.message = "committed %d events, published" % count
         return self.message
 
     def publish_take(self) -> str:
@@ -492,7 +492,7 @@ class ConsoleModel:
 
         self.score = score_mod.load(path)
         self.hit = None
-        self.message = "score %s: %d track(s), %d ticks" % (
+        self.message = "score %s  %d tracks  %d ticks" % (
             self.score.name,
             len(self.score.tracks),
             self.score.ticks,
@@ -767,12 +767,6 @@ class ConsoleWindow:
         )
         return button
 
-    def _hint(self, parent, key: str) -> None:
-        self.ttk.Label(
-            parent, text=self.zh.t(key), bootstyle="secondary",
-            wraplength=self.px(820), justify="left",
-        ).pack(anchor="w", pady=(self.px(2), self.px(4)))
-
     def _canvas(self, parent):
         canvas = self.tk.Canvas(
             parent,
@@ -839,7 +833,6 @@ class ConsoleWindow:
                 self._build_wave_controls(frame)
                 self.canvases[name] = self._canvas(frame)
             else:
-                self._hint(frame, "hint.live")
                 self.canvases[name] = self._canvas(frame)
             self.notebook.add(frame, text=self.zh.t("tab." + name))
         self.notebook.bind("<<NotebookTabChanged>>", self._on_tab)
@@ -943,7 +936,6 @@ class ConsoleWindow:
 
     def _build_loop_controls(self, parent) -> None:
         zh = self.zh
-        self._hint(parent, "hint.loop")
         strip = self.ttk.Frame(parent)
         strip.pack(fill="x", pady=(0, self.px(4)))
         self.ttk.Label(strip, text=zh.t("loop.track"), bootstyle="secondary").pack(side="left")
@@ -961,7 +953,7 @@ class ConsoleWindow:
         )
         self.overdub_box.pack(side="left", padx=self.px(8))
         self.loop_label = self.tk.Label(
-            strip, text=zh.t("loop.hint"), bg=self.palette.bg, fg=self.palette.dim,
+            strip, text="", bg=self.palette.bg, fg=self.palette.dim,
             font=(self.font_family, 11),
         )
         self.loop_label.pack(side="left", padx=self.px(10))
@@ -985,7 +977,6 @@ class ConsoleWindow:
 
     def _build_wave_controls(self, parent) -> None:
         zh = self.zh
-        self._hint(parent, "hint.wave")
         strip = self.ttk.Frame(parent)
         strip.pack(fill="x", pady=(0, self.px(4)))
         # Which slot the next capture lands in. "自动" is the old behaviour (first
@@ -1447,7 +1438,7 @@ class ConsoleWindow:
         elif state == "failed":
             self.loop_label.config(text=self.zh.t("loop.label_failed"), fg=self.palette.danger)
         else:
-            text = self.model.message or self.zh.t("loop.hint")
+            text = self.model.message
             if self.loop_label.cget("text") != text:
                 self.loop_label.config(text=text, fg=self.palette.dim)
 

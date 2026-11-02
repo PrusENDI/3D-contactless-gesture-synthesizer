@@ -58,7 +58,7 @@ class ApplyTest(unittest.TestCase):
         self.assertNotIn(0x98, sent)
         self.assertNotIn(0x9C, sent)
 
-    def test_clamped_word_is_reported_as_a_difference(self):
+    def test_clamped_word_is_a_failure_not_a_success(self):
         readbacks = dict(WARM)
         readbacks[0x94] = 0x00400001          # attack written 0, board clamped it to 1
         session = build(preset_plan(WARM, readbacks=readbacks))
@@ -66,8 +66,11 @@ class ApplyTest(unittest.TestCase):
         words = dict(WARM)
         words[0x94] = 0x00400000
         result = session.apply_preset(presets.Preset(name="x", words=words))
-        self.assertTrue(result.ok)
+        self.assertFalse(result.ok)
+        self.assertEqual(result.failed_addr, 0x94)
         self.assertEqual(result.clamped[0x94], (0x00400000, 0x00400001))
+        sent = [frame[3] for frame in session.link._port.written if frame[2] == link.OP_WRITE]
+        self.assertNotIn(0x98, sent)
 
     def test_fx_gain_zero_is_refused_before_writing_anything(self):
         session = build([BOARD_ID, 0])

@@ -46,10 +46,20 @@ def frequency_of(note: int) -> float:
 
 
 def segments_from_contour(contour) -> list[Segment]:
-    """Ask the deterministic Potts reference which note each run fits to."""
+    """Ask the deterministic Potts reference which note each engaged run fits to.
+
+    A zero tick is a rest, not the lowest pitch: the capture only stores y while
+    the hand is in the field, so passing rest_mask=0 would turn every gap into a
+    G3 that the hardware never commits.
+    """
+    rest_mask = 0
+    for tick, value in enumerate(contour):
+        if not value:
+            rest_mask |= 1 << tick
+    events = solve(contour, rest_mask=rest_mask)
     return [
         Segment(event.note, event.tick, min(BAR_TICKS, event.tick + event.duration))
-        for event in solve(contour)
+        for event in events
         if event.note in ROM_INCREMENT
     ]
 

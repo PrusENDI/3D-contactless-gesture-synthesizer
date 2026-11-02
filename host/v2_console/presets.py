@@ -106,13 +106,21 @@ def to_json(preset: Preset) -> dict:
 
 
 def from_json(document: dict) -> Preset:
-    words_doc = document.get("words", {})
+    raw_words = document.get("words", {})
+    # Hand-edited files are the case this validation exists for, so the key's case
+    # must not decide whether a word is found.
+    by_address = {}
+    for key, value in raw_words.items():
+        try:
+            by_address[int(str(key), 16)] = int(value)
+        except (TypeError, ValueError):
+            raise PresetError("%r is not a hexadecimal register address" % (key,)) from None
     words: dict[int, int] = {}
     for addr in PARAM_ADDRS:
         key = "0x%02X" % addr
-        if key not in words_doc:
+        if addr not in by_address:
             raise PresetError("preset has no word for %s" % key)
-        value = int(words_doc[key])
+        value = by_address[addr]
         if value < 0 or value > 0xFFFFFFFF:
             raise PresetError("%s is not a 32-bit word: %d" % (key, value))
         outside = value & ~PARAMS[addr].mask
@@ -122,9 +130,9 @@ def from_json(document: dict) -> Preset:
                 % (key, PARAMS[addr].mask, outside)
             )
         words[addr] = value
-    for key in words_doc:
-        if int(key, 16) not in PARAM_ADDRS:
-            raise PresetError("%s is not one of the nine parameter registers" % key)
+    for addr in by_address:
+        if addr not in PARAM_ADDRS:
+            raise PresetError("0x%02X is not one of the nine parameter registers" % addr)
     return Preset(
         name=str(document.get("name", "")),
         notes=str(document.get("notes", "")),

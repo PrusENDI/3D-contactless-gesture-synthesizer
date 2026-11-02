@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from host.v2_console import bench  # noqa: E402
 from host.v2_console.link import Link, LinkLost  # noqa: E402
+from host.v2_console.serial_port import SerialPort  # noqa: E402
 
 CADENCES_US = (320, 400, 500)
 
@@ -29,9 +30,7 @@ def main() -> int:
     parser.add_argument("--pacing-us", type=int, nargs="*", default=list(CADENCES_US))
     args = parser.parse_args()
 
-    import serial
-
-    port = serial.Serial(args.port, args.baud, timeout=0.05, write_timeout=0.4)
+    port = SerialPort(args.port, args.baud)
     link = Link(port, timeout_s=0.5)
     try:
         board_id = link.command(0x01, 0xB0).data

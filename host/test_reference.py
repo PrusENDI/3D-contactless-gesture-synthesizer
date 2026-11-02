@@ -44,6 +44,14 @@ class SegmentTest(unittest.TestCase):
         self.assertGreaterEqual(segments[0].start_tick, 0)
         self.assertLessEqual(segments[-1].end_tick, 32)
 
+    def test_a_gap_is_a_rest_not_a_note(self):
+        # Half the bar has no hand in the field; the hardware commits a rest there,
+        # so the reference must not invent the lowest pitch.
+        segments = reference.segments_from_contour([300] * 16 + [0] * 16)
+        for segment in segments:
+            self.assertLess(segment.end_tick, 32)
+            self.assertLessEqual(segment.start_tick, 16)
+
 
 class PlayerTest(unittest.TestCase):
     def test_player_forwards_to_its_backend(self):

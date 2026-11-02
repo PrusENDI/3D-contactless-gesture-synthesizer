@@ -53,6 +53,17 @@ class UnsafeParameter(ValueError):
     """A parameter value the console refuses to send because it silences the board."""
 
 
+class UploadRefused(RuntimeError):
+    """The loader refused a sample or the CRC; the table is left incomplete."""
+
+    def __init__(self, addr: int, index: int | None, reply):
+        self.addr = addr
+        self.index = index
+        self.reply = reply
+        where = "" if index is None else " at sample %d" % index
+        super().__init__("0x%02X refused%s (err=0x%02X)" % (addr, where, reply.err))
+
+
 @dataclass
 class Identity:
     board_id: int
@@ -75,6 +86,7 @@ class UploadResult:
     crc: int
     attempts: int
     elapsed_s: float
+    readback: list | None = None
 
 
 @dataclass
@@ -95,11 +107,26 @@ class Session:
     def __init__(self, link: Link, log_path: Path | None = None):
         self.link = link
         self.log = JsonlLog(log_path)
+        self.identity: Identity | None = None
 
     # -- transport wrapper --------------------------------------------------
 
     def _cmd(self, op: int, addr: int, data: int = 0) -> Reply:
-        reply = self.link.command(op, addr, data)
+        try:
+            reply = self.link.command(op, addr, data)
+        except Exception as exc:
+            # A lost command is evidence too: a log with only successes cannot
+            # explain why a take or an upload ended early.
+            self.log.append(
+                {
+                    "t": _dt.datetime.now().isoformat(timespec="milliseconds"),
+                    "op": "READ" if op == linkmod.OP_READ else "WRITE",
+                    "addr": "0x%02X" % addr,
+                    "data": "0x%08X" % data,
+                    "error": str(exc),
+                }
+            )
+            raise
         self.log.append(
             {
                 "t": _dt.datetime.now().isoformat(timespec="milliseconds"),
@@ -129,7 +156,8 @@ class Session:
                 % (board_id, BOARD_ID)
             )
         status = self.status()
-        return Identity(board_id, status.mode, status.loop_active, status.fault)
+        self.identity = Identity(board_id, status.mode, status.loop_active, status.fault)
+        return self.identity
 
     def status(self) -> Status:
         word = self.read(0x00)
@@ -166,23 +194,32 @@ class Session:
         table: int = 0,
         voice_shift: int = 2,
         morph: bool = False,
+        verify: bool = False,
     ) -> UploadResult:
-        """Upload one 1024-point table. Forces IDLE first, exactly like the script.
+        """Upload one 1024-point table, following board_wt_upload.ps1 step for step.
 
-        Writing a table while one plays is NACKed, so the script drops to IDLE
-        before the first byte; the caller re-enters its mode afterwards. The
-        APPLY version must equal the active version read from WT_STATUS, or the
-        three-way version match fails and the table is refused.
+        Writing a table while one plays is NACKed, so the script drops to IDLE and
+        waits 150 ms before the first byte; every sample's reply is checked because
+        the loader NACKs (err=7) while it is not ready, and silently continuing
+        leaves a table with holes that still passes APPLY.
         """
         started = _time.monotonic()
         self.write(0x04, 0)
+        # board_wt_upload.ps1:96 sleeps 150 ms here for the loader to release the
+        # read port. Without it the first WT_DATA can come back refused.
+        _time.sleep(0.15)
         self.write(WT_SELECT, table & 0x3)
-        self.write(WT_LENGTH, len(samples))
         self.write(WT_INDEX, 0)
-        for sample in samples:
-            self.write(WT_DATA, sample & 0xFFFF)
+        for index, sample in enumerate(samples):
+            reply = self.write(WT_DATA, sample & 0xFFFF)
+            if reply.nack or reply.err:
+                raise UploadRefused(WT_DATA, index, reply)
+        # The script writes the length after the samples, not before.
+        self.write(WT_LENGTH, len(samples))
         value = table_crc(samples)
-        self.write(WT_CRC, value)
+        reply = self.write(WT_CRC, value)
+        if reply.nack or reply.err:
+            raise UploadRefused(WT_CRC, None, reply)
         active_version = self.read(WT_STATUS) & 0xFFFF
         self.write(WT_VERSION, active_version)
 
@@ -200,19 +237,26 @@ class Session:
         if ok:
             select = ((1 if morph else 0) << 8) | ((voice_shift & 0xF) << 4) | (table & 0x3)
             self.write(WT_SELECT, select)
+        readback = self.read_table() if (verify and ok) else None
         return UploadResult(
             ok=ok,
             active_version=active_version,
             crc=value,
             attempts=attempts,
             elapsed_s=_time.monotonic() - started,
+            readback=readback,
         )
 
     def read_table(self) -> list[int]:
-        """Read the 1024 samples back. Only in IDLE: in PLAY the port returns 0."""
+        """Read the 1024 samples back, as signed int16. Only in IDLE: PLAY returns 0."""
         self.require_mode(0)
         self.write(WT_INDEX, 0)
-        return [self.read(WT_DATA) & 0xFFFF for _ in range(1024)]
+        return [self._signed(self.read(WT_DATA)) for _ in range(1024)]
+
+    @staticmethod
+    def _signed(word: int) -> int:
+        value = word & 0xFFFF
+        return value - 0x10000 if value & 0x8000 else value
 
     # -- presets ------------------------------------------------------------
 
@@ -220,8 +264,9 @@ class Session:
         """Write the nine words in ascending order, reading each one back.
 
         Nothing is atomic on the board, so the order is the verified one from
-        board_tune.ps1 and a refusal stops the sequence where it happened: a
-        half-applied preset is easier to reason about than a silent full one.
+        board_tune.ps1, and either a refusal or a read-back that differs from the
+        file stops the sequence where it happened: a preset that was stored as
+        something other than what the file says has to look failed, not green.
         """
         words = dict(preset.words)
         if 0x84 in words and (words[0x84] & 0x3FFFF) == 0:
@@ -239,6 +284,7 @@ class Session:
             readbacks[addr] = back
             if back != word:
                 clamped[addr] = (word, back)
+                return ApplyResult(False, addr, readbacks, clamped)
         return ApplyResult(True, None, readbacks, clamped)
 
     def capture_preset(self, name: str, notes: str = "", bitstream: dict | None = None) -> "object":

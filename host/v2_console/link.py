@@ -170,6 +170,16 @@ class Link:
             pending = [(seq, frame) for seq, frame in pending if seq not in collected]
             if not pending:
                 break
+            # The board replays its cached reply only when the retried frame is the
+            # last one it saw and is byte-identical. Once a later command has been
+            # accepted, an earlier replay would run a second time (a WT_DATA write
+            # would land twice), so refuse instead of guessing.
+            highest = max(collected) if collected else -1
+            if any(seq < highest for seq, _ in pending):
+                raise LinkLost(
+                    "burst lost seq %s behind an accepted reply %d; refusing to replay"
+                    % ([seq for seq, _ in pending if seq < highest], highest)
+                )
         if pending:
             raise LinkLost(
                 "burst lost %d of %d replies (seq %s)"

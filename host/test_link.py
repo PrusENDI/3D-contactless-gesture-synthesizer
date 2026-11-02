@@ -75,5 +75,17 @@ class LinkTest(unittest.TestCase):
         self.assertEqual(port.written[3], port.written[1])
 
 
+    def test_burst_refuses_to_resend_behind_an_accepted_reply(self):
+        # The board treats a duplicate as "same seq as the last frame, identical
+        # bytes". Once a later command was accepted, resending an earlier one would
+        # execute it a second time -- a WT_DATA write would land twice.
+        port = ScriptedPort(chunks=[reply_frame(1, 0xAA), reply_frame(3, 0xCC)])
+        with self.assertRaises(link.LinkLost):
+            link.Link(port, pacing_s=0.0, timeout_s=0.03).burst(
+                [(link.OP_WRITE, 0x68, 1), (link.OP_WRITE, 0x68, 2), (link.OP_WRITE, 0x68, 3)]
+            )
+        self.assertEqual(port.written_count(), 3)
+
+
 if __name__ == "__main__":
     unittest.main()

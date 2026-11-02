@@ -78,7 +78,7 @@
 | 烧录 | `powershell -File ".../board_program.ps1" -FsFile <impl/.../v2_board_top.fs> -Operation 4` | `PROGRAM PASS`，随后 `0xB0=0x5A5A0003` |
 | LOOP 板测（要手） | `powershell -File scripts/board_stage2_loop.ps1 -Port COM4 -Tracks 1` | `STAGE2 LOOP RESULT: PASS` |
 | 阶段 1.5 板测（要手） | `powershell -File scripts/board_wt_voice_play.ps1 -Port COM4` | `WT VOICE PLAY RESULT: PASS` |
-| 上位机控制台 | `python host/console.py --port COM4` | 窗口打开；状态栏模式与板子一致；手在感应区时 LIVE 页有光标 |
+| 上位机控制台 | `python host/console.py --port COM4` | **未板上验收**：窗口打开、状态栏模式与板子一致、手在感应区时 LIVE 页有光标，是要在台架上逐条确认的 |
 
 > 控制台的事看 `docs/progress-2026-11-02.md`，计划在 `docs/superpowers/plans/2026-11-02-console-v2.md`。
 > 上传仍是逐条等 ACK（≈18.3 s）；突发要等 `scripts/gui_burst_bench.py` 在板上量过。

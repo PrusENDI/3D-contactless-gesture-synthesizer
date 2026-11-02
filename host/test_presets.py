@@ -33,6 +33,13 @@ class RoundTripTest(unittest.TestCase):
             presets.from_json(document)
         self.assertIn("0x94", str(caught.exception))
 
+    def test_lowercase_hex_keys_are_accepted(self):
+        # Hand-edited files are exactly the Review Focus case; the key case must not decide.
+        with open(presets.preset_path("warm"), encoding="utf-8") as handle:
+            document = json.load(handle)
+        document["words"] = {key.lower(): value for key, value in document["words"].items()}
+        self.assertEqual(presets.from_json(document).words, presets.BOARD_TUNE_SEED["warm"])
+
     def test_out_of_mask_word_is_reported_not_silently_kept(self):
         with open(presets.preset_path("warm"), encoding="utf-8") as handle:
             document = json.load(handle)

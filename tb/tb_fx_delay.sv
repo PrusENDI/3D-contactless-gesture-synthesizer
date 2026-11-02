@@ -2,8 +2,9 @@
 // Characterization test for v2_fx_lite's delay line (P2a plan task 6, step 1).
 //
 // v2_fx_lite had no testbench before this one.  Four claims are pinned here:
-//   1. at level 2 (low-pass then delay) the dry sample is published one
-//      sample_ce after it is presented, not on the same sample_ce;
+//   1. at level 2 (low-pass then delay) the dry sample is published two
+//      sample_ce after it is presented, not on the same sample_ce (two because
+//      of the pending_lp stage and the P2b gain-product register);
 //   2. the delay line then repeats it at a constant spacing;
 //   3. the spacing follows the delay word plus one sample for the memory read
 //      register (see the measurement note below);
@@ -18,10 +19,11 @@
 // pipeline stage behind the write side".  The write data is
 // lp + feedback*delay_rd_data, and delay_rd_data is a register that lags the
 // address by one sample, so the recurrence is mem[n] = lp[n] + fb*mem[n-11].
-// The dry sample therefore appears at index 1, the first repeat at index 11
-// (10 after the dry sample) and every later repeat 11 samples after the
-// previous one.  v2_fx_lite is not in this task's change set, so the bench
-// records what the hardware does and the plan's "every 10" is corrected here.
+// The dry sample therefore appears at index 2 (two sample_ce from input to
+// output: the P2b gain register plus the pending_lp publish stage), the first
+// repeat at index 12 (10 after the dry sample) and every later repeat 11
+// samples after the previous one.  v2_fx_lite is not in this task's change set
+// beyond the gain register, so the bench records what the hardware does.
 module tb_fx_delay;
 
   localparam int          CEP     = 20;      // clocks per sample_ce (1667 available)
@@ -30,6 +32,7 @@ module tb_fx_delay;
   localparam int          N       = 70;      // samples recorded
   localparam int          THRESH  = 500;     // |peak| above this is an echo
   localparam int          LOOP_PERIOD = DELAY + 1;  // + one memory read stage
+  localparam int          DRY_INDEX   = 2;          // gain reg + publish stage
 
   logic clk = 1'b0, rst_n = 1'b0, sample_ce = 1'b0;
   logic signed [15:0] audio_in = 16'sd0;
@@ -152,12 +155,12 @@ module tb_fx_delay;
     for (k = 0; k < np; k = k + 1)
       $display("  peak %0d at index %0d value %0d", k, peaks[k], samples[peaks[k]]);
 
-    // 1. the dry sample is one sample_ce late; the first repeat follows it
-    //    DELAY samples later because the memory read register adds the extra
-    //    sample inside the loop.
-    expect_i((np >= 5) ? peaks[0] : -1, 1,
-             "the dry sample is published one sample_ce late");
-    expect_i((np >= 5) ? peaks[1] : -1, 1 + DELAY,
+    // 1. the dry sample is two sample_ce late (gain register + publish stage);
+    //    the first repeat follows it DELAY samples later because the memory
+    //    read register adds the extra sample inside the loop.
+    expect_i((np >= 5) ? peaks[0] : -1, DRY_INDEX,
+             "the dry sample is published two sample_ce late");
+    expect_i((np >= 5) ? peaks[1] : -1, DRY_INDEX + DELAY,
              "the first repeat lands DELAY samples after the dry sample");
 
     // 2. every later repeat is one full loop period after the previous one.

@@ -84,6 +84,11 @@ module v2_fx_lite #(
     logic [15:0] pending_reverb_mix;
     logic pending_valid;
     logic signed [47:0] gain_value, lp_value;
+    // The gain product is registered on sample_ce before the one-pole.  This
+    // breaks the fx_gain_q16 -> low-pass -> delay_mem write-data path, which
+    // was the worst setup path in the P2a build (-4.007 ns).  Cost is one
+    // audio sample of delay in the effects chain, inaudible at level 0.
+    logic signed [47:0] gain_q;
     logic signed [47:0] effect_value, feedback_value, delay_write_value;
     logic [1:0] level_now;
 
@@ -91,7 +96,7 @@ module v2_fx_lite #(
         level_now = fx_enable ? fx_level : 2'd0;
         fx_status_level = level_now;
         gain_value = ($signed(audio_in) * $signed({1'b0, fx_gain_q16})) >>> 16;
-        lp_value = lp_state + (((gain_value - lp_state) *
+        lp_value = lp_state + (((gain_q - lp_state) *
                     $signed({1'b0, fx_cutoff_q16})) >>> 16);
         delay_rd_ptr = delay_ptr - fx_delay_samples;
         comb_rd_ptr = comb_ptr - 8'd37;
@@ -141,7 +146,9 @@ module v2_fx_lite #(
             pending_feedback <= 16'd0;
             pending_reverb_mix <= 16'd0;
             pending_valid <= 1'b0;
+            gain_q <= 48'sd0;
         end else if (sample_ce) begin
+            gain_q <= gain_value;
             // Level zero is a true bypass. It does not consume the memory
             // pipeline and therefore has no added audio sample latency.
             if (level_now == 2'd0) begin

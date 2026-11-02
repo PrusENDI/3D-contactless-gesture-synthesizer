@@ -27,6 +27,7 @@ param(
   [int]$Lambda = 21600,
   [int]$WaitSeconds = 30,
   [int]$Tracks = 1,
+  [int]$PrepareSeconds = 0,   # countdown before each track arms, so the hand is already in the field
   [string]$LogPath = 'artifacts/board/stage2_loop.log',
   [switch]$DryRun
 )
@@ -145,6 +146,10 @@ try {
 
   $trackNotes = @{}
   for ($track = 0; $track -lt $Tracks; $track++) {
+    for ($s = $PrepareSeconds; $s -gt 0; $s--) {
+      Log ("track {0}: recording in {1,2}s - hand over the sensor, keep sweeping" -f $track, $s)
+      Start-Sleep -Seconds 1
+    }
     Log ("track {0}/{1}: selecting and arming the contour" -f $track, ($Tracks - 1))
     $sel = X 0x02 0x0C ([uint32]$track)
     if (-not $sel.Ok) { Log ("FATAL: selecting track {0} refused err={1}" -f $track, $sel.Err); exit 4 }

@@ -42,6 +42,13 @@ class ConsoleModel:
         self._status = None
         self._status_at = 0.0
         self.player = reference.Player()
+        self.flow = None
+        self.flow_factory = None
+        self.track = 0
+        self.commit_count = 0
+        from ..session import record_flow as _record_flow
+
+        self.flow_factory = _record_flow.RecordFlow
 
     # -- state --------------------------------------------------------------
 
@@ -191,6 +198,65 @@ class ConsoleModel:
         )
         return self.message
 
+    # -- LOOP recording (the state machine proven on the board) -------------
+
+    def arm_take(self, track: int) -> str:
+        """Force the bar, select the track and arm; the capture window opens at tick 0."""
+        from ..session import record_flow
+
+        self.flow = self.flow_factory(self.session, track)
+        self.track = track
+        self.flow.arm()
+        self.phase.force_bar()
+        self.message = "armed track %d: the window opens at the next bar" % track
+        return self.message
+
+    def wait_for_take(self, timeout_s: float = 8.0) -> str:
+        """Block until the contour is full. Call from a worker thread, not the Tk loop."""
+        if getattr(self, "flow", None) is None:
+            raise RuntimeError("nothing is armed")
+        from ..session import record_flow
+
+        deadline = time.monotonic() + timeout_s
+        while self.flow.state == record_flow.ARMED:
+            self.flow.poll()
+            if self.flow.state == record_flow.ARMED:
+                if time.monotonic() >= deadline:
+                    raise RuntimeError("the capture never filled; is a hand over the sensor?")
+                time.sleep(0.02)
+        return "captured"
+
+    def capture_contour(self) -> str:
+        """Read the 32 contour points and gate them on coverage before anything is committed."""
+        contour = self.flow.contour()
+        verdict = self.flow.accept_take(contour)
+        if verdict != "ok":
+            self.message = "take refused (%s): nothing was stored or committed" % verdict
+            return self.message
+        self.contours[self.track] = list(contour)
+        self.live_contour = None
+        self.message = "track %d captured: %d/32 non-zero" % (
+            self.track,
+            sum(1 for value in contour if value),
+        )
+        return self.message
+
+    def commit_take(self) -> str:
+        if getattr(self, "flow", None) is None:
+            raise RuntimeError("nothing is armed")
+        count = self.flow.commit()
+        self.commit_count = count
+        self.message = "committed %d event(s); press Publish to hear it" % count
+        return self.message
+
+    def publish_take(self) -> str:
+        if getattr(self, "flow", None) is None:
+            raise RuntimeError("nothing is armed")
+        self.flow.publish()
+        self.phase.reanchor()
+        self.message = "published track %d: mode is PLAY now" % self.track
+        return self.message
+
     # -- what to draw -------------------------------------------------------
 
     def drawing(self, tab: str):
@@ -292,6 +358,17 @@ class ConsoleWindow:
         self.progress_label = tk.Label(morph, text="", fg="#888888", bg="#101014")
         self.progress_label.pack(side="left")
 
+        loop_row = tk.Frame(self.root, bg="#101014")
+        loop_row.pack(fill="x")
+        tk.Label(loop_row, text="LOOP track", fg="#cccccc", bg="#101014").pack(side="left")
+        self.track_box = tk.Spinbox(loop_row, from_=0, to=5, width=3)
+        self.track_box.pack(side="left", padx=4)
+        self._button(loop_row, "Arm (bar)", self._on_arm, side="left")
+        self._button(loop_row, "Commit", self._on_commit, side="left")
+        self._button(loop_row, "Publish", self._on_publish, side="left")
+        self.loop_label = tk.Label(loop_row, text="idle", fg="#888888", bg="#101014")
+        self.loop_label.pack(side="left", padx=8)
+
     # -- helpers ------------------------------------------------------------
 
     def _button(self, parent, label, command, side="top"):
@@ -382,6 +459,25 @@ class ConsoleWindow:
             self.model.message = "capture got %d samples; is the telemetry stream on?" % len(points)
             return
         self._run("capture", lambda: self.model.capture_frame(points))
+
+    def _on_arm(self):
+        track = int(self.track_box.get())
+
+        def action():
+            self.model.arm_take(track)
+            self.model.wait_for_take()
+            return self.model.capture_contour()
+
+        self.loop_label.config(text="armed on track %d" % track)
+        self._run("arm", action)
+
+    def _on_commit(self):
+        self.loop_label.config(text="committing")
+        self._run("commit", self.model.commit_take)
+
+    def _on_publish(self):
+        self.loop_label.config(text="publishing")
+        self._run("publish", self.model.publish_take)
 
     def _on_upload_frames(self):
         shift = int(self.gain.get())

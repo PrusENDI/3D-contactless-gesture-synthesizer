@@ -16,6 +16,7 @@ from typing import Sequence
 from .. import link as linkmod
 from ..crc import crc16
 from ..link import Link, Reply
+from ..params import PARAM_ADDRS
 from .log import JsonlLog
 
 BOARD_ID = 0x5A5A0003
@@ -74,6 +75,14 @@ class UploadResult:
     crc: int
     attempts: int
     elapsed_s: float
+
+
+@dataclass
+class ApplyResult:
+    ok: bool
+    failed_addr: int | None
+    readbacks: dict
+    clamped: dict
 
 
 def _addr(text: str) -> int:
@@ -204,3 +213,53 @@ class Session:
         self.require_mode(0)
         self.write(WT_INDEX, 0)
         return [self.read(WT_DATA) & 0xFFFF for _ in range(1024)]
+
+    # -- presets ------------------------------------------------------------
+
+    def apply_preset(self, preset) -> ApplyResult:
+        """Write the nine words in ascending order, reading each one back.
+
+        Nothing is atomic on the board, so the order is the verified one from
+        board_tune.ps1 and a refusal stops the sequence where it happened: a
+        half-applied preset is easier to reason about than a silent full one.
+        """
+        words = dict(preset.words)
+        if 0x84 in words and (words[0x84] & 0x3FFFF) == 0:
+            raise UnsafeParameter(
+                "FX_A gain is 0: that silences PLAY and the preset would look applied"
+            )
+        readbacks: dict[int, int] = {}
+        clamped: dict[int, tuple[int, int]] = {}
+        for addr in PARAM_ADDRS:
+            word = words[addr]
+            reply = self.write(addr, word)
+            if reply.nack or reply.err:
+                return ApplyResult(False, addr, readbacks, clamped)
+            back = self.read(addr)
+            readbacks[addr] = back
+            if back != word:
+                clamped[addr] = (word, back)
+        return ApplyResult(True, None, readbacks, clamped)
+
+    def capture_preset(self, name: str, notes: str = "", bitstream: dict | None = None) -> "object":
+        """Read the nine words from the board into a new preset."""
+        from ..presets import Preset
+
+        words = {addr: self.read(addr) for addr in PARAM_ADDRS}
+        select = self.read(WT_SELECT)
+        status = self.read(WT_STATUS)
+        wavetable = {
+            "table": select & 0x3,
+            "version": status & 0xFFFF,
+            "crc": self.read(WT_CRC) & 0xFFFF,
+            "voice_shift": (select >> 4) & 0xF,
+            "morph": bool((select >> 8) & 1),
+        }
+        return Preset(
+            name=name,
+            notes=notes,
+            created=_dt.date.today().isoformat(),
+            bitstream=dict(bitstream or {}),
+            wavetable=wavetable,
+            words=words,
+        )

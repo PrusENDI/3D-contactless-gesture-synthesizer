@@ -21,6 +21,32 @@
   **`glide_rate` 未在板上验证**（只影响 LIVE 的 REVOICE，LOOP 播放不经过它）。
 - **下一次的第一件事**：定 OLED（薄版 ~400 LUT，位置够）还是补 P2c（预设已改由上位机上传，无硬件改动）；见 §6。
 
+## 0.5 上位机控制台（2026-11-02 建成，`host/v2_console/`）
+
+入口 `python host/console.py --port COM4`；设计 `docs/superpowers/specs/2026-11-02-console-design.md`
+与 `2026-11-02-loop-canvas-assisted-recording-design.md`，计划 `docs/superpowers/plans/2026-11-02-console-v2.md`，
+过程 `docs/progress-2026-11-02.md`。**183 条 unittest 全绿**（`python -m unittest discover -s host -p "test_*.py"`）。
+
+板上验过的：身份/模式、`warm` 九条读回全等、正弦表上传+读回 1024/1024、手绘一帧（797 点轨迹 → 1024 点表、
+只传该帧 17.8 s）、morph 20 s 扫描、LOOP 的 Arm/Commit/Publish（32/32 覆盖、2 事件、`voices=1`）、
+LIVE 光标 214 帧/2.5 s。滑杆的写-读回路只在模拟端口上测过，**还没在板上逐个拧过**。
+
+必须知道的五个坑：
+
+1. **串口 16 ms 定时器**：COM4 是 FTDI FT2232（就是高云烧录线），`LatencyTimer` 注册表改 1 ms 无效，
+   实测仍是 16.00 ms。所以**每条命令 17.6 ms，1024 点上传 18.1 s，逐点读回 35.3 s**；突发不可用（丢一半）。
+2. **传感器没有目标就不拉 TS**：手离开后 `0xEC`/`0xD0` 冻结、`0xF4=3`（`ST_WAIT_TS`）、坐标全 0，遥测也停帧。
+   这不是故障；手一靠近立刻恢复（~165 fps）。
+3. **`WT_DATA` 读不自增索引**，逐点读回必须每点先写 `0x64`。
+4. **seq 撞车**：新进程第一条命令若与板子缓存帧同 seq（内容不同）会收 `err=5`；`Link` 现在换新 seq 重试。
+5. **一个 Link 只能有一个线程用**：已加可重入锁；窗口的读数轮询在 Tk 线程、按钮动作在工作线程。
+
+**已知缺陷（用户已提，待改）**：`THRESHOLDS[23]` 的 "step pulse" 每 tick 发 `NOTE_OFF+NOTE_ON`，
+而 LIVE 路径的包络在每个 `NOTE_ON` 被 `hit_sticky` 清零（`top:739/749`，`ENV_ATT=96`≈14 ms、`ENV_DEC=8`≈41 ms），
+所以听感是**节拍敲击**而不是重复触发当前音。用户要求改成"重复触发当前音"——这是 RTL 改动
+（只在音高变化时清零包络，tick 之间保持电平）。**不改 RTL 时的替代做法**：用 LOOP 录 4 个不同 Y 的音再 PLAY，
+PLAY 的包络可用 `0x94/0x98` 调节，能做出连奏琶音。
+
 ## 1. 开工前必须读（按顺序，约 15 分钟）
 
 1. 本文件；
@@ -124,6 +150,11 @@ P2a 位流 sha256：`915e87cd6367b23ba953e3ba6dd37640ab3b00eb8132a1e865a1dc3b59f
 5. **80 MHz 时序欠账**：worst −3.392 ns、1335 个 setup 违约端点、Fmax 62.9 MHz；
    板子仍按 80 MHz 跑。这是 P1 起就有的历史欠账，本轮比 P2a 好 0.6 ns，但**没有真正 closure**。
    要 closure 只能继续流水化/换结构，不要删功能。
+6. **LIVE 的 "step pulse" 要改成重复触发当前音（用户 2026-11-02 明确要求）**：见 §0.5 的已知缺陷。
+   最小改法：`hit_sticky` 只在 `live_note_hit` 且新音高 ≠ 旧音高时置位（多一个比较器），
+   或者 tick 之间不清零、只在 gate 下降时走释放。CLS 10750/11520（93%），塞得下。
+7. **上位机还差的**（按分镜优先级）：滑杆的板上逐项验证、每轨预设绑定、A/B 对比、
+   N-tone 测试按钮与频谱（频谱要 GAO 或新加音频通路，属 RTL）。
 6. **worst 25 里的 `u_voice` 是诊断偏差，不是 P2b 回归**：25 条里 20 条终点在 `u_v2/u_voice`
    （11 条 VCA/混音 `n9320_s0 → mixed_sample_*`、9 条 `mode_reg → revoice_target_a_pending_*`），
    起点都不是 `voice_cfg` 的七个字段，且这两条锥早于 P2a（`5337ac0` / `cafb93d`）。

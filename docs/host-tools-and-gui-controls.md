@@ -410,3 +410,77 @@ GUI 必须：**每条命令递增 seq 并校验回显**、校验帧 CRC、超时
 | W9 测试模式 | 无脚本（只有 RTL） |
 | 诊断页 | `board_coord_probe.ps1`、`board_input_diag.ps1`、`board_cursor_trace.ps1`、`board_loop_probe.ps1` |
 | 波形证据 | `scripts/gao_capture.py` + `gao/*.rao` |
+
+## 9. 上位机脚本的已知问题（2026-11-02 实测，含绕过办法）
+
+这一节只记**已经在板上复现过**的问题，每条都写出症状、根因和当前的绕法。GUI 把这些绕法写进代码，否则会重复踩。
+
+### 9.1 `board_stage2_loop.ps1` 的清场只有"本来就没发布过"才能过
+
+- **症状**：`FATAL: the empty bank was never published (no loop boundary?)`，退出码 14。
+- **原因**：清场序列 `STOP → CLEAR_ALL → MODE=PLAY` 之后等 `STATUS[8] loop_active_valid == 0` 出现，
+  但 `CLEAR_ALL` 只清 shadow，不会把 `loop_active_valid` 归零；只要板上已经发布过一轨，这个条件永不成立。
+  之前每次"清场成功"都是因为板上本来就是空的（`STATUS=0x200`，bit8 已为 0）。
+- **绕法**：重烧位流（SRAM 配置，烧完 loop 状态全清）→ 上传波表 → 再录。
+- **正解（未做）**：清场后补一次真正的发布请求（`0x28 COMMIT`，或让 RTL 的 `CLEAR_ALL` 显式置
+  `commit_pending`），这样局部失败的一轮可以恢复。
+
+### 9.2 多轨之间没有准备时间
+
+- **症状**：`-Tracks 4` 时 track 0 成功、track 1 立刻 `contour has 0/32 non-zero samples` 并退出 12。
+- **原因**：track N 的录制窗口在 track N-1 发布后约 4 秒就打开，操作者来不及摆手。
+- **绕法**：`-PrepareSeconds 8`（已实现，每轨武装前倒计时；默认 0 保持旧行为）。
+
+### 9.3 录制类失败要先分清"采集条件"还是"状态机前提"
+
+- `0/32 非零` 有两种完全不同的原因：**手不在场**（`mem[wr] <= y[15:6]` 且 `valid_mask[wr] <= engaged`），
+  或者 `capture_full` 卡住。后者其实会被 `arm` 清掉（`v2_loop_contour_capture.sv:47`），所以先怀疑前者。
+- 快速判据：读 `0xEC` 帧计数两次（1 秒间隔）——在涨说明传感器活着；再读 `0xDC raw_x`、`0xE0 raw_z`，
+  `raw_z < 30000` 说明手在 engage 阈值内。
+
+### 9.4 演示脚本必须先写寄存器再打印"应该听什么"
+
+- **症状**：用户回"没有任何变化"，以为是硬件问题。
+- **原因**：`board_p2b_demo.ps1` 的第一版第 2、3 步只打印标签、根本没写 `0x40`。
+- **规矩**：验收脚本每一步都要"写 → 读回 → 打印 → 再让人听"，读回不一致直接抛错。
+
+### 9.5 `board_p2b_demo.ps1` 不能在持端口时调上传脚本
+
+- **症状**：`the upload did not pass`，而单独跑上传却成功。
+- **原因**：COM4 独占，`board_wt_upload.ps1` 需要自己开端口。
+- **规矩**：先上传、后开端口；结束前 `finally` 关闭。
+
+### 9.6 `0x84` 的 FX 档位 ≥2 是"相加"不是"混合"
+
+- **症状**：`board_tune.ps1 -Preset space`（`level 3`）**完全没声音**。
+- **原因**：`v2_fx_lite` 里 `level>=2` 是 `lp + 延迟读数据`，`level>=3` 再加 `梳状×混音`（`v2_fx_lite.sv:107-110`），
+  四轨叠加后削顶成**直流**，直流在 DAC 上等于静音。
+- **规矩**：用 `level 2` 时把主音量降到 0.5～0.6 试，或先用 `level 0/1`。
+
+### 9.7 每轨事件数**读不回来**
+
+- `0xF8` page1 对所有轨读回同一个值（实测四轨都是 `0x0060008B`），所以脚本无法从板上校验"某轨有几个事件"，
+  只能靠录制时的返回值。要在 GUI 里显示每轨音符数，需要先补一个按轨的只读寄存器。
+
+### 9.8 PowerShell 5 的三个解析坑（踩过两次以上）
+
+1. **没有下划线分隔符**：`0x0180_0500` 是**字符串**，传给 `[uint32]` 参数报
+   `Additional non-parsable characters`；
+2. **十六进制按有符号解析**：`0xFFFF0000` 是 −65536，`(0xFFFF -shl 16)` 也是负；构造高位为 1 的 32 位字
+   用十进制 `[uint32](4294901760 + n)`；
+3. **函数名撞别名**：`Rd` 是 `Remove-Item`、`R` 是 `Invoke-History`，自定义函数用这两个名字会在运行时
+   变成删除/历史命令。用 `ReadCsr`/`WriteReg` 这类名字。
+
+### 9.9 加轨/改单轨的当前做法（`-SkipClear` 未实现）
+
+今天"在已发布的 take 上只重录一轨"只能用**直接 CSR 时序**：
+`STOP → 0x0C=轨号 → 0x18=1(PREPARE_RECORD) → 0x3C=lambda → 等 0x38 bit4 → 0x28=1(COMMIT) → 等 0x38 bit0 → 0x04=4(PLAY)`。
+`PREPARE_RECORD` 会 `copy_active`，其它轨因此保留（已在板上验证：4 轨 take 里重录 track 2 后仍 `loop_active=1`、
+`voices=3`）。把这条序列做成脚本的 `-SkipClear` 开关是可以的，但**不要在没测过的情况下改主流程**——
+本轮试过，插入的开关把控制流弄坏，直接 `git checkout` 回退了。
+
+### 9.10 结构缺口：录制时听不到已有轨（需要 RTL 改动）
+
+`assign loop_event_ready = mode_play ? voice_event_ready : 1'b0;`、
+`wire voice_rst_n = rst_sys_n && (mode_live || mode_play);` —— 声部引擎与 loop 调度器**只在 PLAY 使能**，
+进 RECORD 即复位。所以现在只能"盲录"。真正的 overdub 监听要改 RTL（P3 级），面积上还有约 770 CLS 余量。

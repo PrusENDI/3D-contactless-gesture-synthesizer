@@ -97,6 +97,11 @@ P2a 位流 sha256：`915e87cd6367b23ba953e3ba6dd37640ab3b00eb8132a1e865a1dc3b59f
 
 ## 6. 未决事项
 
+0. **上位机脚本问题清单在 `docs/host-tools-and-gui-controls.md` §9**（十条，含清场前提、`0x84 level≥2` 相加削顶成直流、
+   COM4 独占、PowerShell 三个解析坑、加轨的 CSR 序列）。**改 `board_stage2_loop.ps1` 主流程前必须先测**——
+   本轮加 `-SkipClear` 把控制流弄坏，已回退。
+0b. **叠加已验证可用**：`PREPARE_RECORD` 会 `copy_active`，在已发布 take 上只重录一轨不会清掉其它轨。
+   **overdub 监听（边放边录）没有实现**：`voice_rst_n`/`loop_event_ready` 只在 PLAY 使能（P3 级改动，余量约 770 CLS）。
 0. **已知限制**：`board_stage2_loop.ps1` 的清场只在「板上没有已发布轨道」时才通过（见 progress 的「坑一」）；
    局部失败的一轮要恢复，目前只能**重烧位流**清状态。多轨录制要用 `-PrepareSeconds 8`，否则轨间窗口来不及摆手。
 

@@ -32,6 +32,9 @@ class ConsoleModel:
         self.phase = phase_mod.PhaseAnchor()
         self.table = []
         self.table_diff = None
+        self.frames: dict = {}
+        self.uploaded_frames: dict = {}
+        self.trajectory: list = []
         self.contours: dict = {}
         self.live_contour = None
         self.preset_name = ""
@@ -142,6 +145,52 @@ class ConsoleModel:
         self.message = "reference stopped"
         return self.message
 
+    # -- three-frame morph ------------------------------------------------
+
+    def capture_frame(self, points, index: int | None = None) -> str:
+        """Turn the last seconds of the hand trajectory into one morph frame."""
+        from ..wavetable import table_from_trajectory
+
+        target = index if index is not None else self._next_frame_slot()
+        if target is None:
+            raise RuntimeError("all three frames are recorded; clear one or re-record it")
+        table = table_from_trajectory(points)
+        self.frames[target] = table
+        self.table = table
+        self.trajectory = list(points)
+        self.message = "frame %s recorded from %d trajectory points" % ("ABC"[target], len(points))
+        return self.message
+
+    def _next_frame_slot(self) -> int | None:
+        for index in range(3):
+            if index not in self.frames:
+                return index
+        return None
+
+    def upload_frames(self, shift: int, morph: bool, period_s: float, on_progress=None) -> str:
+        """Upload only the frames that changed, then switch the morph on."""
+        if not self.frames:
+            raise RuntimeError("record at least one frame before uploading")
+        if not self.can_write_table():
+            raise RuntimeError("uploading needs IDLE; stop the loop first")
+        result = self.session.upload_frames(
+            self.frames,
+            shift=shift,
+            morph=morph,
+            period_s=period_s,
+            uploaded=self.uploaded_frames,
+            on_progress=on_progress,
+        )
+        self.uploaded_frames = {table: list(frame) for table, frame in self.frames.items()}
+        which = ", ".join("ABC"[table] for table in result.uploaded) or "none"
+        self.message = "uploaded frames %s (shift %d, %.1f s), morph %s" % (
+            which,
+            shift,
+            result.elapsed_s,
+            "on" if morph else "off",
+        )
+        return self.message
+
     # -- what to draw -------------------------------------------------------
 
     def drawing(self, tab: str):
@@ -223,6 +272,26 @@ class ConsoleWindow:
         self._button(controls, "Reference play", self._on_reference, side="left")
         self._button(controls, "Reference stop", self._on_reference_stop, side="left")
 
+        morph = tk.Frame(self.root, bg="#101014")
+        morph.pack(fill="x")
+        self._button(morph, "Capture frame (4 s)", self._on_capture, side="left")
+        tk.Label(morph, text="gain shift", fg="#cccccc", bg="#101014").pack(side="left", padx=(8, 2))
+        self.gain = tk.Scale(
+            morph, from_=0, to=15, orient="horizontal", length=140,
+            bg="#101014", fg="#cccccc", highlightthickness=0,
+        )
+        self.gain.set(2)
+        self.gain.pack(side="left")
+        tk.Label(morph, text="LFO period s", fg="#cccccc", bg="#101014").pack(side="left", padx=(8, 2))
+        self.period = tk.Entry(morph, width=6)
+        self.period.insert(0, "20")
+        self.period.pack(side="left")
+        self._button(morph, "Upload frames", self._on_upload_frames, side="left")
+        self.progress = ttk.Progressbar(morph, length=160, maximum=1024)
+        self.progress.pack(side="left", padx=8)
+        self.progress_label = tk.Label(morph, text="", fg="#888888", bg="#101014")
+        self.progress_label.pack(side="left")
+
     # -- helpers ------------------------------------------------------------
 
     def _button(self, parent, label, command, side="top"):
@@ -301,6 +370,39 @@ class ConsoleWindow:
     def _on_reference_stop(self):
         self._run("reference-stop", self.model.stop_reference)
 
+    def _on_capture(self):
+        """Collect four seconds of trajectory first; one frame is one pass of the hand."""
+        started = len(self.model.buffer.trail(10 ** 6))
+        self.model.message = "capturing 4 s: move your hand over the sensor"
+        self.root.after(4000, lambda: self._finish_capture(started))
+
+    def _finish_capture(self, started: int):
+        points = self.model.buffer.trail(10 ** 6)[started:]
+        if len(points) < 32:
+            self.model.message = "capture got %d samples; is the telemetry stream on?" % len(points)
+            return
+        self._run("capture", lambda: self.model.capture_frame(points))
+
+    def _on_upload_frames(self):
+        shift = int(self.gain.get())
+        try:
+            period = float(self.period.get() or 20.0)
+        except ValueError:
+            self.model.message = "LFO period must be a number of seconds"
+            return
+
+        def action():
+            return self.model.upload_frames(
+                shift,
+                True,
+                period,
+                on_progress=lambda table, done, total: self._results.put(
+                    ("progress", (table, done, total), None)
+                ),
+            )
+
+        self._run("upload-frames", action)
+
     # -- loop ---------------------------------------------------------------
 
     def _on_tab(self, _event=None) -> None:
@@ -313,6 +415,11 @@ class ConsoleWindow:
                 label, value, error = self._results.get_nowait()
             except queue.Empty:
                 return
+            if label == "progress":
+                table, done, total = value
+                self.progress.configure(maximum=total, value=done)
+                self.progress_label.config(text="frame %s  %d/%d" % ("ABC"[table], done, total))
+                continue
             if error is not None:
                 self.model.message = "%s: %s" % (label, error)
             elif value:

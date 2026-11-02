@@ -97,6 +97,14 @@ class ApplyResult:
     clamped: dict
 
 
+@dataclass
+class FramesUploadResult:
+    ok: bool
+    uploaded: tuple
+    select: int
+    elapsed_s: float
+
+
 def _addr(text: str) -> int:
     return int(text, 16)
 
@@ -195,6 +203,7 @@ class Session:
         voice_shift: int = 2,
         morph: bool = False,
         verify: bool = False,
+        on_sample=None,
     ) -> UploadResult:
         """Upload one 1024-point table, following board_wt_upload.ps1 step for step.
 
@@ -214,6 +223,8 @@ class Session:
             reply = self.write(WT_DATA, sample & 0xFFFF)
             if reply.nack or reply.err:
                 raise UploadRefused(WT_DATA, index, reply)
+            if on_sample is not None:
+                on_sample(index, len(samples))
         # The script writes the length after the samples, not before.
         self.write(WT_LENGTH, len(samples))
         value = table_crc(samples)
@@ -265,6 +276,48 @@ class Session:
     def _signed(word: int) -> int:
         value = word & 0xFFFF
         return value - 0x10000 if value & 0x8000 else value
+
+    def upload_frames(
+        self,
+        frames: dict,
+        shift: int = 2,
+        morph: bool = True,
+        period_s: float = 20.0,
+        uploaded: dict | None = None,
+        on_progress=None,
+    ) -> FramesUploadResult:
+        """Upload the three morph frames, skipping any that are already on the board.
+
+        Nothing is atomic, so the SELECT word that turns the morph on is written
+        once, after the last table, and a refused sample stops everything: a
+        half-uploaded morph would sweep between an old frame and a new one.
+        """
+        from ..wavetable import bar_step, select_word
+
+        started = _time.monotonic()
+        baseline = uploaded or {}
+        changed = [
+            table
+            for table in sorted(frames)
+            if [int(v) for v in frames[table]] != [int(v) for v in baseline.get(table, [])]
+        ]
+        for table in changed:
+            self.upload_table(
+                frames[table],
+                table=table,
+                voice_shift=shift,
+                on_sample=lambda index, total, table=table: (
+                    on_progress(table, index, total) if on_progress is not None else None
+                ),
+            )
+        word = select_word(0, shift, morph, bar_step(period_s))
+        self.write(WT_SELECT, word)
+        return FramesUploadResult(
+            ok=True,
+            uploaded=tuple(changed),
+            select=word,
+            elapsed_s=_time.monotonic() - started,
+        )
 
     # -- presets ------------------------------------------------------------
 

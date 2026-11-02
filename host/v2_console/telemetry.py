@@ -12,7 +12,9 @@ from .frames import Telemetry
 class TelemetryBuffer:
     """Newest frames plus a bounded trail, and an honest "waiting" flag."""
 
-    def __init__(self, capacity: int = 600, timeout_s: float = 0.5, clock=time.monotonic):
+    def __init__(self, capacity: int = 1200, timeout_s: float = 0.5, clock=time.monotonic):
+        # 1200 frames is six seconds at the sensor's 200 Hz: enough for the four
+        # second wavetable capture plus the hand still being there before it.
         self._capacity = capacity
         self._timeout_s = timeout_s
         self._clock = clock

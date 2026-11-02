@@ -30,9 +30,14 @@ class FakeSession:
     def read_table(self):
         return [0] * 1024
 
-    def upload_table(self, samples, table=0, voice_shift=2, morph=False, verify=False):
+    def upload_table(self, samples, table=0, voice_shift=2, morph=False, verify=False, on_sample=None):
         self.uploads += 1
         return SimpleNamespace(ok=True, active_version=1, crc=0, attempts=1, elapsed_s=0.0, readback=None)
+
+    def upload_frames(self, frames, shift=2, morph=True, period_s=20.0, uploaded=None, on_progress=None):
+        self.uploaded_this_call = (dict(frames),)
+        changed = tuple(t for t in sorted(frames) if frames[t] != (uploaded or {}).get(t))
+        return SimpleNamespace(ok=True, uploaded=changed, select=0, elapsed_s=0.0)
 
 
 def frame(seq, x=32768, y=32768):
@@ -112,6 +117,38 @@ class ActionTest(unittest.TestCase):
     def test_readback_returns_a_message_with_the_sample_count(self):
         message = ConsoleModel(FakeSession()).readback()
         self.assertIn("1024", message)
+
+
+class FrameTest(unittest.TestCase):
+    def test_capture_fills_the_next_free_slot_in_order(self):
+        import math
+
+        model = ConsoleModel(FakeSession())
+        points = [
+            (int(32768 + 20000 * math.cos(2 * math.pi * i / 200)),
+             int(32768 + 20000 * math.sin(2 * math.pi * i / 200)))
+            for i in range(200)
+        ]
+        model.capture_frame(points)
+        model.capture_frame(points)
+        self.assertEqual(sorted(model.frames), [0, 1])
+        self.assertEqual(len(model.frames[0]), 1024)
+
+    def test_capture_needs_a_long_enough_trajectory(self):
+        with self.assertRaises(ValueError):
+            ConsoleModel(FakeSession()).capture_frame([(0, 0)] * 5)
+
+    def test_upload_sends_only_the_changed_frames(self):
+        session = FakeSession()
+        model = ConsoleModel(session)
+        model.frames = {0: [1] * 1024, 1: [2] * 1024}
+        model.uploaded_frames = {0: [1] * 1024}
+        model.upload_frames(shift=2, morph=True, period_s=20.0)
+        self.assertEqual(session.uploaded_this_call, ({0: [1] * 1024, 1: [2] * 1024},))
+
+    def test_upload_refuses_with_no_frames(self):
+        with self.assertRaises(RuntimeError):
+            ConsoleModel(FakeSession()).upload_frames(shift=2, morph=True, period_s=20.0)
 
 
 if __name__ == "__main__":

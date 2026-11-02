@@ -147,7 +147,7 @@ GUI 必须：**每条命令递增 seq 并校验回显**、校验帧 CRC、超时
 | 0x38 | POTTS_STATUS | RO | 0 | — | `[0]commit_done [1]busy [2]overflow [3]commit_timeout [4]capture_full` |
 | 0x3C | POTTS_LAMBDA | RW | 0xFFFF | — | Potts λ，默认 21600 |
 
-### 3.3 音色：波表（可用）与 patch bank（只存储）
+### 3.3 音色：波表
 
 | 地址 | 名称 | 访问 | 写掩码 | 值域/校验 | 说明 |
 | --- | --- | --- | --- | --- | --- |
@@ -159,15 +159,11 @@ GUI 必须：**每条命令递增 seq 并校验回显**、校验帧 CRC、超时
 | 0x74 | WT_VERSION | RW | 0xFFFF | — | 三方匹配用的 WT_VERSION 寄存器 |
 | 0x78 | WT_APPLY | WO | 0x8000FFFF | `data[31]==1` | 提交位 + 版本；成功条件：版本三方一致、表完整、CRC 匹配；**只在 idle 或 loop 边界翻 bank** |
 | 0x7C | WT_STATUS | RO | 0 | — | `[31:24]`err、`[17]`apply_busy、`[16]`shadow_valid、`[15:0]`active_version |
-| 0x48 | PATCH_SELECT | RW | 0x0000FF1F | family/track/index 组合校验 | `family[1:0]` `track[4:2]` `index[15:8]` |
-| 0x4C | PATCH_SHADOW_DATA | RW | 0xFFFFFFFF | `v2_patch_value_valid`（每个参数各自 MIN/MAX） | 写 shadow 参数 |
-| 0x50 | PATCH_ACTIVE_DATA | RO | 0 | — | 读当前生效参数 |
-| 0x54 | PATCH_STATUS | RO | 0 | — | `{last_error[31:24], apply_busy, crc_ok, shadow_dirty, active_version[15:0]}` |
-| 0x58 | PATCH_CRC | RW | 0xFFFF | — | 期望 CRC |
-| 0x5C | PATCH_APPLY | WO | 0x8000FFFF | `data[31]==1` | 版本[15:0] + 提交位 |
 
-> **注意**：patch bank（0x48–0x5C）目前只做"存储 + CRC + APPLY + 回读"，`u_patch_bank` 的输出
-> **没有接进音频路径**。GUI 里如果要给 patch 编辑做界面，要明确标注"硬件未接线"。
+> **0x48–0x5C 已是无效地址**：`v2_patch_bank` 已删除，写或读这六个字都会回
+> `BAD_ADDRESS (0x02)`。预设不再存在片上，改由主机在连接时把九个参数词
+> （`0x40/0x44/0x84/0x88/0x8C/0x90/0x94/0x98/0x9C`）逐条写入，约 2 ms。
+> GUI 不要给这些地址留控件；旧脚本/旧截图里的 `PATCH_*` 一律视为过期。
 
 ### 3.4 遥测
 
@@ -355,7 +351,7 @@ GUI 必须：**每条命令递增 seq 并校验回显**、校验帧 CRC、超时
 11. `BPM` 只对 PLAY 有效（LIVE 用 X 轴自动 tempo）。
 12. `THRESHOLDS` 写入要求 `[15:0] < [31:16]`；`λ` 在 `0x3C`，不在 `[31:16]`。
 13. `WT_INDEX` 值必须 <1024，`WT_LENGTH` 必须 ==1024，`WT_SELECT[2:0] ≤ 2`。
-14. `WT_APPLY`/`PATCH_APPLY` 需要 **bit31 提交位** + 版本三方一致。
+14. `WT_APPLY` 需要 **bit31 提交位** + 版本三方一致；`PATCH_APPLY` 不存在了（0x5C 回 `0x02`）。
 15. `test_active` 会顶替音频输出。
 16. 同一张波表重复 APPLY 会被判"不完整"（R14 未定案）。
 17. 被拒绝时 `err` 可能是 0（R13 未修：reason 1/2 未映射）。
@@ -379,7 +375,7 @@ GUI 必须：**每条命令递增 seq 并校验回显**、校验帧 CRC、超时
 
 ---
 
-## 7. 建 GUI 之前必须先定的 5 件事
+## 7. 建 GUI 之前必须先定的 4 件事
 
 1. **电平证据**：现在没有任何寄存器能回答"到底有没有声音"——只能看 `active_voice_count`。
    建议加一个只读 peak/RMS 寄存器（或固定走 GAO）。上一轮"有声部但 −66 dBFS 听不见"就是
@@ -388,8 +384,7 @@ GUI 必须：**每条命令递增 seq 并校验回显**、校验帧 CRC、超时
    同一张表能否幂等重放也没定。
 3. **未实现 CSR 的呈现**：`0x10/0x2C` 要么隐藏、要么显示为 N/A，
    否则用户会以为写了有用（P2a 的 `0x40/0x44/0x84–0x90` 与 P2b 的 `0x94–0x9C` 已实现，可以暴露）。
-4. **patch bank 是否需要接音频**：现在只存储/回读。
-5. **串口所有权模型**：GUI 要成为唯一拥有者（内部一个会话状态机），并禁止同时开
+4. **串口所有权模型**：GUI 要成为唯一拥有者（内部一个会话状态机），并禁止同时开
    `cursor_view.py`；同时把"上传强制 IDLE / 一次一个 outstanding / APPLY 延迟回复"内建。
    还要把**遥测流当开关**管好：`board_cursor.ps1` 打开 `TLM_CONTROL(0x80)` bit0 后**不会关**，
    之后任何命令的应答都会被 22 字节遥测帧插队（表现为 `SEQ MISMATCH sent=n got=0`、

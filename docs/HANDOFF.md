@@ -10,9 +10,12 @@
   CLS 10894/11520、DSP 28/28、BSRAM 38/56、Fmax 60.58 MHz、worst −4.007 ns；用户听感已确认。
 - **P2b 代码完成，但构建门未过、未做板上验收**：`0x94/0x98/0x9C` + `voice_cfg` 已实现，
   `tb_contract_clamp`(40) / `tb_voice_cfg` / `tb_top_p2_csr` 全绿，`sim.py` 13/4；
-  但 `p2b_voice_params` 只有 **Fmax 57.989 MHz、worst −4.745 ns、CLS 10946/11520（96% 容量）**。
+  上一次构建 `p2b_voice_params` 是 **Fmax 57.989 MHz、worst −4.745 ns、CLS 10946/11520（96%）**。
   `fx_a` 那条已被增益寄存消掉；整体变慢是布局/面积，不是 P2b 新路径。详见 `docs/progress-2026-11-01.md` 的 P2b 节。
-- **下一次的第一件事：决定把哪块面积还回去**（§2），在这之前不要再构建/烧板。
+- **面积决定已做、已落地（2026-11-02 晚）**：`u_patch_bank` 整块删除（原先 763 LUT / 261 寄存器 / 4 BSRAM），
+  `0x48–0x5C` 现在读写都回 `BAD_ADDRESS (0x02)`；预设改为主机连接时上传九个参数词（约 2 ms）。
+  **本轮没有跑综合**，所以省下的面积还没有新的位流数字。
+- **下一次的第一件事：用 `synth.py --run-id p2b_voice_params_no_patch` 重跑构建门**（§2）。
 
 ## 1. 开工前必须读（按顺序，约 15 分钟）
 
@@ -25,17 +28,17 @@
    （正弦三次式每拍一级流水、输出寄存）、`rtl/mgc3130_v2_top.sv` 里的音频链
    （`i2s_sample_raw` → LFO/`ci_total` → `u_filter` → 音量 → `i2s_sample`）。
 
-## 2. 第一件事：决定把哪块面积还回去（等用户点头）
+## 2. 第一件事：把删掉 patch bank 后的构建重跑一遍
 
-P2b 的 `+52 CLS` 把设计推到 96% 容量，布局把既有锥整体拖慢约 0.6–0.7 ns → Fmax 57.99、worst −4.745。
-唯一的大块捐赠者是 `v2_patch_bank`（763 LUT / 4 BSRAM，只存不接；用户之前说过留着），
-所以**要先问用户**能不能删/停用。可达的顺序：
+面积决定已经做了：`u_patch_bank`（763 LUT / 261 寄存器 / 4 BSRAM）整块删除，`v2_patch_bank.sv`
+已从 `filelist.f` 移除，`0x48–0x5C` 现在读写都 NACK `0x02`。**但本轮只做代码/测试/文档，
+没有跑综合**，所以 P2b 的 96% CLS 有没有降下来、Fmax 有没有回到 60 以上，都还没有数字。
 
-1. 问用户删 `u_patch_bank`（763 LUT / 4 BSRAM）→ 同意就用同一个 `synth.py --run-id p2b_voice_params*`
-   流程重跑、过门后上板复测 P2b；
-2. 若不同意，再考虑 P2c（预设接线）与 patch bank 一起重排，或接受 57.99 MHz 并把 P2b 留作
-   code-complete（不烧板、不声称听感）；
-3. 不要为了时序偷偷砍功能——P2a 的教训是 Fmax 20 → 46 靠流水/移位，不是删功能。
+1. 用 `python scripts/synth.py --run-id p2b_voice_params_no_patch` 重跑构建门
+   （`--max-cls 11300`、`--min-slack −3.5`）并读 `impl/<run>/impl/pnr/v2_board_top.tr`；
+2. 过门才烧板复测 P2b（`0x94/0x98/0x9C` 写读回 + 听感 + 一次 LOOP 回放）；
+3. 若仍不过门，再考虑 P2c 之类的功能重排，或接受 code-complete（不烧板、不声称听感）；
+4. 不要为了时序偷偷砍功能——P2a 的教训是 Fmax 20 → 46 靠流水/移位，不是删功能。
 
 ## 3. 铁律（都是踩过的）
 
@@ -87,17 +90,19 @@ P2a 位流 sha256：`915e87cd6367b23ba953e3ba6dd37640ab3b00eb8132a1e865a1dc3b59f
 
 ## 6. 未决事项
 
-1. **P2b 构建门未过（第一优先）**：Fmax 57.989 < 60、worst −4.745 < −4.2，CLS 10946/11520（96%）。
-   根因是 `+52 CLS` 引起的布局退化（uart −3.92 → −4.67、potts −4.01 → −4.69），**P2b 没有新关键路径**。
-   需要腾面积；**首选问用户能否删 `u_patch_bank`（763 LUT / 4 BSRAM）**。在这之前 P2b 保持
-   code-complete，不烧板、不复测听感。
+1. **P2b 构建门未过（第一优先）**：上一次实测 Fmax 57.989 < 60、worst −4.745 < −4.2，
+   CLS 10946/11520（96%）。根因是 `+52 CLS` 引起的布局退化（uart −3.92 → −4.67、potts −4.01 → −4.69），
+   **P2b 没有新关键路径**。现在 `u_patch_bank` 已删（763 LUT / 261 寄存器 / 4 BSRAM），
+   **但删完还没重跑构建**——下一步就是 `synth.py --run-id p2b_voice_params_no_patch`。
+   在过门之前 P2b 保持 code-complete，不烧板、不复测听感。
 2. **P2b 的板级/听感验证全部未做**：`0x94/0x98/0x9C` 写读回只在仿真 `tb_top_p2_csr` 里证明；
    包络/力度/失谐的听感需要手 + 一次 LOOP 回放。
-3. **P2c（预设接线，patch bank ↔ 9 个 CSR）** 未实现（spec §12 只有映射）；若 `u_patch_bank` 被删，
-   P2c 的存储基础要重新定。
+3. **预设只在主机侧**：spec §12 的 `F0_I0..I8` 映射已随 patch bank 作废，`0x48–0x5C` 回 `0x02`；
+   将来做预设，就是连接时把九个参数词（`0x40/0x44/0x84/0x88/0x8C/0x90/0x94/0x98/0x9C`）
+   逐条写一遍（约 2 ms，失去原子生效，换来 763 LUT）。
 4. **效果器接线**已在 P2a 接回，保持；`0x84–0x8C` 不要撤。
 5. **整机 −4.0 ns 的历史欠账**（uart/potts/voice/fx 几条锥）在 P2a 时是 −4.0 附近；
-   P2b 的布局把这几条整体放大到 −4.6 左右，等面积决定后再看。
+   P2b 的布局把这几条整体放大到 −4.6 左右，等删掉 patch bank 后的构建数字出来再看。
 
 ## 7. 交接检查清单
 

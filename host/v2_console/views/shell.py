@@ -701,6 +701,7 @@ class ConsoleWindow:
         self._param_after = None
         self._pending_param = None
         self._syncing = False           # a ttk.Scale fires its command on set(), too
+        self._pending_label = None
         self._current = TABS[0]
 
         self.dpi_awareness = theme_mod.enable_dpi_awareness()
@@ -1200,12 +1201,12 @@ class ConsoleWindow:
 
     def _on_commit(self):
         self.model.record_state = "idle"
-        self.loop_label.config(text=self.zh.t("loop.committing"), fg=self.palette.dim)
+        self._set_pending(self.zh.t("loop.committing"))
         self._run("commit", self.model.commit_take)
 
     def _on_publish(self):
         self.model.record_state = "idle"
-        self.loop_label.config(text=self.zh.t("loop.publishing"), fg=self.palette.dim)
+        self._set_pending(self.zh.t("loop.publishing"))
         self._run("publish", self.model.publish_take)
 
     def _on_reference(self):
@@ -1232,6 +1233,7 @@ class ConsoleWindow:
                 label, value, error = self._results.get_nowait()
             except queue.Empty:
                 return
+            self._pending_label = None
             if label == "progress":
                 table, done, total = value
                 self.progress.configure(maximum=total, value=done)
@@ -1351,6 +1353,11 @@ class ConsoleWindow:
 
     def _update_record_label(self) -> None:
         state = self.model.record_state
+        if getattr(self, "_pending_label", None):
+            # A worker is running: say so, and stop saying it when it answers.
+            if self.loop_label.cget("text") != self._pending_label:
+                self.loop_label.config(text=self._pending_label, fg=self.palette.dim)
+            return
         if state == "waiting":
             self.loop_label.config(
                 text=self.zh.t("loop.label_waiting", self.model.record_track),
@@ -1367,6 +1374,15 @@ class ConsoleWindow:
             )
         elif state == "failed":
             self.loop_label.config(text=self.zh.t("loop.label_failed"), fg=self.palette.danger)
+        else:
+            text = self.model.message or self.zh.t("loop.hint")
+            if self.loop_label.cget("text") != text:
+                self.loop_label.config(text=text, fg=self.palette.dim)
+
+    def _set_pending(self, text: str) -> None:
+        """Show a verb until the worker answers; a stuck label is worse than none."""
+        self._pending_label = text
+        self.loop_label.config(text=text, fg=self.palette.dim)
 
     def _empty_hint(self, tab: str):
         """A blank canvas looks broken; say what would fill it instead."""

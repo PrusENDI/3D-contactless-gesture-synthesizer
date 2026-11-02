@@ -5,22 +5,19 @@
 
 ## 0. 30 秒现状
 
-- 仓库：`C:\weizijian\documents\gowin fpga\mgc3130_clean`，工作区**干净**（HEAD 见 `git log -1`）。
-- **P1 已完成并板上验收**（VCA + 力度 + 失谐 + 激活走邮箱），板上位流
-  `impl/v2_board_top_vca_detune_mbox`（sha256 `6ab982d6…`），听感已由用户确认。
-- **P2a 已完成并板上验收**：滤波器 + LFO + 效果器接线 + 主音量。
-  位流 `impl/v2_board_top_p2a_timing3b`（sha256 `915e87cd…`，`0xB0=0x5A5A0003`），
-  **CLS 10894/11520、DSP 28/28、BSRAM 38/56、Fmax 60.58 MHz、worst −4.007 ns**。
-  用户听感确认：`0x40` 变暗、`0x44` 起伏、`0x90` 变响（"现在没问题了"）。
-  回归：`tb_top_wt_filter`（WT_PLAY + 滤波 + 音量 + LFO，仿真 1249 → 99 → 2498 → 摆幅 867）
-  等 7 个单元 tb 全绿，`sim.py` 13/4，`POTTS PLANE` 绿。
-- 音频链延迟 **3 个采样（62.4 µs）**，开滤波器 4 个；所有寄存器由 `sample_ce` 使能。
-- **下一次的第一件事：选 P2b（语音参数 `0x94/0x98/0x9C`）还是先还时序欠账**（见 §6 第 1、2 条）。
+- 仓库：`C:\weizijian\documents\gowin fpga\mgc3130_clean`，HEAD 见 `git log -1`，工作区干净。
+- **板上是 P2a，已验收**：`impl/v2_board_top_p2a_timing3b`（sha256 `915e87cd…`，`0xB0=0x5A5A0003`），
+  CLS 10894/11520、DSP 28/28、BSRAM 38/56、Fmax 60.58 MHz、worst −4.007 ns；用户听感已确认。
+- **P2b 代码完成，但构建门未过、未做板上验收**：`0x94/0x98/0x9C` + `voice_cfg` 已实现，
+  `tb_contract_clamp`(40) / `tb_voice_cfg` / `tb_top_p2_csr` 全绿，`sim.py` 13/4；
+  但 `p2b_voice_params` 只有 **Fmax 57.989 MHz、worst −4.745 ns、CLS 10946/11520（96% 容量）**。
+  `fx_a` 那条已被增益寄存消掉；整体变慢是布局/面积，不是 P2b 新路径。详见 `docs/progress-2026-11-01.md` 的 P2b 节。
+- **下一次的第一件事：决定把哪块面积还回去**（§2），在这之前不要再构建/烧板。
 
 ## 1. 开工前必须读（按顺序，约 15 分钟）
 
 1. 本文件；
-2. `docs/progress-2026-11-01.md` 的**最后一节**（P2a：三次构建、三个根因、还差一步）；
+2. `docs/progress-2026-11-01.md` 的**最后一节**（P2b：代码完成、构建门未过、未上板、未验证清单）；
 3. `docs/superpowers/specs/2026-11-01-filter-lfo-design.md` 的 **§13 实施回写**
    （真实面积/时序 + 三条硬规则：乘法片宽、DSP 稀缺、跨模块组合链）；
 4. 任务级计划 `docs/superpowers/plans/2026-11-01-p2a-filter-lfo.md`（Task 0–6 已完成，Task 7 未做完）；
@@ -28,24 +25,17 @@
    （正弦三次式每拍一级流水、输出寄存）、`rtl/mgc3130_v2_top.sv` 里的音频链
    （`i2s_sample_raw` → LFO/`ci_total` → `u_filter` → 音量 → `i2s_sample`）。
 
-## 2. 第一件事：修顶层音频链（决策已提给用户，未答复）
+## 2. 第一件事：决定把哪块面积还回去（等用户点头）
 
-最差 −9.20 ns 全在顶层，**与滤波器/LFO 无关**（它们已经退出最差 25 条）：
+P2b 的 `+52 CLS` 把设计推到 96% 容量，布局把既有锥整体拖慢约 0.6–0.7 ns → Fmax 57.99、worst −4.745。
+唯一的大块捐赠者是 `v2_patch_bank`（763 LUT / 4 BSRAM，只存不接；用户之前说过留着），
+所以**要先问用户**能不能删/停用。可达的顺序：
 
-```
-u_wt_playback → wt_quiet 移位加 → mult_3201（LIVE 包络乘法，仍是 LUT 阵列）
-             → 音频 mux → 音量乘法（2 片 MULT27X36）→ 饱和 → I2S
-```
-
-根因：DSP 28/28 满 → LIVE 的包络乘法掉进 LUT → 单个 LUT 乘法器 ~17 ns > 12.5 ns 周期，
-**所以只加流水寄存收不回来**。必须两条一起做：
-
-- **A**：撤掉本轮的效果器接线（`0x84–0x8C` 的四个乘法），腾 4 片 DSP 给 LIVE 包络与音量；
-  `0x84–0x8C` 改回未实现（写入 NACK），GUI 文档同步。
-- **B**：在音频 mux 之后加一级 `sample_ce` 寄存（总延迟 1 → 2 个采样 = 41.6 µs）。
-
-**待用户拍板的第二件事**：验收线用严格 `worst ≥ −3.5`，还是务实"新增路径不得进入最差 25 条
-且 Fmax ≥ 60 MHz（基线 63.6）、允许 worst 落在 −6 以内并作为既有欠账记账"。
+1. 问用户删 `u_patch_bank`（763 LUT / 4 BSRAM）→ 同意就用同一个 `synth.py --run-id p2b_voice_params*`
+   流程重跑、过门后上板复测 P2b；
+2. 若不同意，再考虑 P2c（预设接线）与 patch bank 一起重排，或接受 57.99 MHz 并把 P2b 留作
+   code-complete（不烧板、不声称听感）；
+3. 不要为了时序偷偷砍功能——P2a 的教训是 Fmax 20 → 46 靠流水/移位，不是删功能。
 
 ## 3. 铁律（都是踩过的）
 
@@ -80,27 +70,34 @@ u_wt_playback → wt_quiet 移位加 → mult_3201（LIVE 包络乘法，仍是 
 | LOOP 板测（要手） | `powershell -File scripts/board_stage2_loop.ps1 -Port COM4 -Tracks 1` | `STAGE2 LOOP RESULT: PASS` |
 | 阶段 1.5 板测（要手） | `powershell -File scripts/board_wt_voice_play.ps1 -Port COM4` | `WT VOICE PLAY RESULT: PASS` |
 
-## 5. 当前基线（两套，别混）
+## 5. 当前基线（三套，别混）
 
-| | P1 生产位流 `6ab982d6…`（**在板上**） | P2a 待验收 `p2a_timing3b` |
-| --- | --- | --- |
-| Logic / Register | 15793 / 8733 | 待抄（CLS 10894） |
-| CLS / DSP / BSRAM | 10510 / 8 / 37 | **10894 / 28 / 38** |
-| setup 违约 / TNS | 1401 / −1691.8 ns | 1693 / −2127 ns |
-| worst / Fmax | −3.214 ns / 63.639 MHz | **−4.007 ns / 60.580 MHz** |
-| 最差路径 | `u_v2_uart` 家族 | `fx_a → u_fx/delay_mem`（**本轮新引入的 0.8 ns**，其余 −4.0 附近是既有欠账） |
-| 回归 | 13 pass / 4 fail | 同样 13/4 |
-| 音频链延迟 | 1 个采样 | **3 个采样（62.4 µs）**，开滤波器 4 个 |
+| | P1 生产位流 `6ab982d6…`（已被 P2a 取代） | P2a 生产位流 `p2a_timing3b`（**在板上，已验收**） | P2b 待验收 `p2b_voice_params`（**未做板上验收，门未过**） |
+| --- | --- | --- | --- |
+| Logic / Register | 15793 / 8733 | 18373 / 9615 | 18757 / 9699 |
+| CLS / DSP / BSRAM | 10510 / 8 / 37 | **10894 / 28 / 38** | 10946 / 28 / 38 |
+| setup 违约 / TNS | 1401 / −1691.8 ns | 1693 / −2127 ns | 1531 / −3084.01 ns |
+| worst / Fmax | −3.214 ns / 63.639 MHz | **−4.007 ns / 60.580 MHz** | **−4.745 ns / 57.989 MHz** |
+| 最差路径 | `u_v2_uart` 家族 | `fx_a → u_fx/delay_mem` | `u_filter/u_full_0_s → nx1_25_s0`（fx_a 那条已消失） |
+| 回归 | 13 pass / 4 fail | 13 / 4 | 13 / 4 |
+| 音频链延迟 | 1 个采样 | 3 个采样（62.4 µs），开滤波器 4 个 | 同 P2a；PLAY 开效果器时 fx 内部再多 1 拍 |
+
+P2b 位流 sha256：`5156485899f46c050143f3f358eb300ad685ea137906247acda6210ea4116c8b`。
+P2a 位流 sha256：`915e87cd6367b23ba953e3ba6dd37640ab3b00eb8132a1e865a1dc3b59ff908f`。
 
 ## 6. 未决事项
 
-1. **时序欠账**：worst −4.007 ns（Fmax 60.58），其中 0.8 ns 是本轮新引入的
-   `fx_a → u_fx/delay_mem`；地板在 −4.0（fx/potts/voice/uart 四条既有锥）。
-   要再挤需动 `v2_fx_lite`（增益乘法后加寄存）等**本轮冻结的文件**。
-2. **效果器接线**若本轮撤掉，等设备有余量时接回（`v2_fx_lite` 参数已就绪，只差 CSR 六行）。
-3. **P2b**（`0x94/0x98/0x9C` 语音参数）未开始：设计在 spec §11.3/§11.6，计划未写。
-4. **P2c**（预设接线，patch bank ↔ 9 个 CSR）只有映射（spec §12），未实现。
-5. **整机 −3.2 ns 的历史欠账**仍在（UART 那一族），与 P2a 无关。
+1. **P2b 构建门未过（第一优先）**：Fmax 57.989 < 60、worst −4.745 < −4.2，CLS 10946/11520（96%）。
+   根因是 `+52 CLS` 引起的布局退化（uart −3.92 → −4.67、potts −4.01 → −4.69），**P2b 没有新关键路径**。
+   需要腾面积；**首选问用户能否删 `u_patch_bank`（763 LUT / 4 BSRAM）**。在这之前 P2b 保持
+   code-complete，不烧板、不复测听感。
+2. **P2b 的板级/听感验证全部未做**：`0x94/0x98/0x9C` 写读回只在仿真 `tb_top_p2_csr` 里证明；
+   包络/力度/失谐的听感需要手 + 一次 LOOP 回放。
+3. **P2c（预设接线，patch bank ↔ 9 个 CSR）** 未实现（spec §12 只有映射）；若 `u_patch_bank` 被删，
+   P2c 的存储基础要重新定。
+4. **效果器接线**已在 P2a 接回，保持；`0x84–0x8C` 不要撤。
+5. **整机 −4.0 ns 的历史欠账**（uart/potts/voice/fx 几条锥）在 P2a 时是 −4.0 附近；
+   P2b 的布局把这几条整体放大到 −4.6 左右，等面积决定后再看。
 
 ## 7. 交接检查清单
 
@@ -110,4 +107,4 @@ git log --oneline -3
 git status --short          # 必须为空
 ```
 
-板上是否还是 P1 位流：读 `0xB0`（不等于 `0x5A5A0003` 就重烧）。
+板上是否还是 P2a 位流：读 `0xB0`（等于 `0x5A5A0003`；不等于就按 §4 重烧 `p2a_timing3b`）。

@@ -72,6 +72,7 @@ module tb_voice_detune;
                            .USE_WT_SOURCE(0)) dut (
     .clk(clk), .rst_n(rst_n), .sample_ce(sample_ce),
     .event_valid(event_valid), .event_ready(event_ready), .event_data(event_data),
+    .voice_cfg(v2_contract_pkg::V2_VOICE_CFG_DEFAULT),
     .vibrato_hz_q8_8(16'd0), .vibrato_cents_q8_8(16'd0),
     .mixed_sample(mixed_sample), .sample_valid(sample_valid),
     .active_bitmap(active_bitmap), .voice_overflow(voice_overflow),

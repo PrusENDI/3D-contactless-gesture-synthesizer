@@ -578,6 +578,11 @@ logic [9:0] wt_read_index_sel;
         .clk(clk_sys_100m), .rst_n(rst_sys_n), .sample_ce(sample_ce),
         .event_valid(voice_event_valid), .event_ready(voice_event_ready),
         .event_data(voice_event_data), .vibrato_hz_q8_8(16'd0), .vibrato_cents_q8_8(16'd0),
+        // P2b voice parameters: the engine unpacks them from one packed bus.
+        // Until Task 2 registers 0x94/0x98/0x9C this top passes the documented
+        // default, so the whole design keeps the compile-time behaviour (and no
+        // CSR is exposed by this change).
+        .voice_cfg(V2_VOICE_CFG_DEFAULT),
         .mixed_sample(voice_sample), .sample_valid(voice_sample_valid),
         .active_bitmap(voice_bitmap), .voice_overflow(voice_overflow), .dbg_busy(voice_dbg_busy),
         .voice_steal_count(voice_steal_count), .revoice_count(revoice_count),

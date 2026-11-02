@@ -17,6 +17,10 @@ module v2_voice_engine_banked #(
     input  logic                   event_valid,
     output logic                   event_ready,
     input  logic [95:0]            event_data,
+    // P2b parameter pack (spec 11.3).  One bus instead of seven ports, and its
+    // default lives in the contract package: a bench only connects
+    // V2_VOICE_CFG_DEFAULT and then sees the design the engine was built with.
+    input  logic [95:0]            voice_cfg,
     input  logic [15:0]            vibrato_hz_q8_8,
     input  logic [15:0]            vibrato_cents_q8_8,
     output logic signed [15:0]     mixed_sample,
@@ -48,10 +52,18 @@ module v2_voice_engine_banked #(
     localparam logic [1:0] ENV_DECAY   = 2'd1;
     localparam logic [1:0] ENV_SUSTAIN = 2'd2;
     localparam logic [1:0] ENV_RELEASE = 2'd3;
-    localparam logic [15:0] SUSTAIN_LEVEL = 16'd49152;
-    localparam logic [15:0] ATTACK_STEP   = 16'd4096;
-    localparam logic [15:0] DECAY_STEP    = 16'd256;
-    localparam logic [15:0] RELEASE_STEP  = 16'd1024;
+    // The four envelope steps, the velocity depth, the detune width and the
+    // glide rate used to be localparams here.  They are the seven fields of
+    // voice_cfg now; the defaults live in V2_VOICE_CFG_DEFAULT (attack 4096,
+    // decay 256, sustain 49152, release 1024, shifts 0, glide 512), which is
+    // bit-identical to the constants this module compiled in before P2b.
+    wire [15:0] attack_step   = voice_cfg[15:0];
+    wire [15:0] decay_step    = voice_cfg[31:16];
+    wire [15:0] sustain_level = voice_cfg[47:32];
+    wire [15:0] release_step  = voice_cfg[63:48];
+    wire [1:0]  velocity_shift = voice_cfg[65:64];
+    wire [1:0]  detune_shift   = voice_cfg[67:66];
+    wire [15:0] glide_rate     = voice_cfg[83:68];
     // The reference advances one voice per slot inside each sample.  Keep an
     // eight-pass bounded release in the RTL by holding the victim for all
     // VOICES slot visits that make up each pass.
@@ -78,6 +90,15 @@ module v2_voice_engine_banked #(
     // 32-entry hold array creates a large RAMREG reset/writeback fanout.
     logic [15:0] steal_hold_value;
     logic [7:0]  steal_note_pending, steal_velocity_pending;
+    // The gain byte written at activation.  At velocity_shift 0 this is exactly
+    // the velocity, so P1 is reproduced bit for bit; shift 3 lifts a soft note
+    // to within 1/8 of a hard one.  It is one subtract and one shift on
+    // registers, so it does not lengthen the activation write cone that the
+    // mailbox exists to protect.  attenuate_sample() reads this same stored
+    // byte, so the 0..3 bit velocity attenuation follows with no second copy of
+    // the depth.
+    wire [7:0] activate_gain =
+        8'd255 - ((8'd255 - steal_velocity_pending) >> velocity_shift);
     logic signed [15:0] steal_pitch_pending;
     logic [15:0] steal_timbre_pending;
     logic [31:0] steal_base_step_pending;
@@ -264,7 +285,7 @@ module v2_voice_engine_banked #(
                 apply_delta(steal_base_step_pending, -steal_pitch_pending),
                 steal_velocity_pending);
             bank_wr_data[207:192] = 16'd0;
-            bank_wr_data[215:208] = steal_velocity_pending;
+            bank_wr_data[215:208] = activate_gain;
             bank_wr_data[223:216] = (steal_timbre_pending == 16'd0) ? DEFAULT_MIX_A : steal_timbre_pending[15:8];
             bank_wr_data[231:224] = (steal_timbre_pending == 16'd0) ? DEFAULT_MIX_B : steal_timbre_pending[7:0];
             bank_wr_data[233:232] = ENV_ATTACK;
@@ -314,27 +335,37 @@ module v2_voice_engine_banked #(
     // The second oscillator of a voice runs this much slower than the first.
     // The velocity picks the width in octave-like steps: the two high bits of
     // the velocity byte select a shift of 11/10/9/8, i.e. 0.05%, 0.10%, 0.20%
-    // or 0.39% of the increment.  It is a plain shift, so no multiplier is
-    // needed and the offset is exact for any pitch.
+    // or 0.39% of the increment; detune_shift (P2b) adds on top of that, so every
+    // step of the 2-bit field halves the width again (0.05% at 0+3).  It is a
+    // plain shift, so no multiplier is needed and the offset is exact for any
+    // pitch.  The shift is clamped at 15 because a 32-bit increment shifted by
+    // more than that would be indistinguishable from no detune at all.
     function automatic logic [31:0] detuned_step(
         input logic [31:0] base, input logic [7:0] gain
     );
-        logic [3:0] shift;
+        logic [4:0] shift;
         begin
-            shift = 4'd11 - {2'b00, gain[7:6]};
-            detuned_step = base - (base >> shift);
+            shift = 5'd11 - {3'b000, gain[7:6]} + {3'b000, detune_shift};
+            if (shift > 5'd15) shift = 5'd15;
+            detuned_step = base - (base >> shift[3:0]);
         end
     endfunction
 
-    function automatic logic [31:0] bounded_step(input logic [31:0] current, target);
+    // bounded_step walks a step byte towards its glide target by at most
+    // glide_rate per sample (the register that used to be a literal 512).
+    function automatic logic [31:0] bounded_step(input logic [31:0] current,
+                                                 input logic [31:0] target,
+                                                 input logic [15:0] rate);
         logic [31:0] distance;
+        logic [31:0] limit;
         begin
+            limit = {16'd0, rate};
             if (current < target) begin
                 distance = target - current;
-                bounded_step = current + ((distance > 32'd512) ? 32'd512 : distance);
+                bounded_step = current + ((distance > limit) ? limit : distance);
             end else if (current > target) begin
                 distance = current - target;
-                bounded_step = current - ((distance > 32'd512) ? 32'd512 : distance);
+                bounded_step = current - ((distance > limit) ? limit : distance);
             end else bounded_step = current;
         end
     endfunction
@@ -667,14 +698,14 @@ module v2_voice_engine_banked #(
                                   + oscillator_value(rd_phase_b, osc_stage, rd_gain, rd_mix_b);
                 end
                 calc_step_a <= add_signed_increment(
-                    bounded_step(rd_step_a, rd_target_a),
+                    bounded_step(rd_step_a, rd_target_a, glide_rate),
                     vibrato_increment_delta(
-                        bounded_step(rd_step_a, rd_target_a),
+                        bounded_step(rd_step_a, rd_target_a, glide_rate),
                         vibrato_cents(rd_vibrato_phase + vibrato_phase_increment(vibrato_hz_q8_8), vibrato_cents_q8_8)));
                 calc_step_b <= add_signed_increment(
-                    bounded_step(rd_step_b, rd_target_b),
+                    bounded_step(rd_step_b, rd_target_b, glide_rate),
                     -vibrato_increment_delta(
-                        bounded_step(rd_step_b, rd_target_b),
+                        bounded_step(rd_step_b, rd_target_b, glide_rate),
                         vibrato_cents(rd_vibrato_phase + vibrato_phase_increment(vibrato_hz_q8_8), vibrato_cents_q8_8)));
                 if (rd_slot == 0) begin
                     vibrato_phase <= rd_vibrato_phase + vibrato_phase_increment(vibrato_hz_q8_8);
@@ -684,23 +715,27 @@ module v2_voice_engine_banked #(
                 end
                 if (rd_releasing) begin
                     calc_env_stage <= ENV_RELEASE;
-                    if (rd_envelope <= RELEASE_STEP &&
+                    if (rd_envelope <= release_step &&
                         ((rd_slot != steal_slot_pending) || (steal_hold_value == 0))) begin
                         calc_envelope <= 16'd0;
                         calc_active_next <= 1'b0;
-                    end else if (rd_envelope <= RELEASE_STEP) begin
+                    end else if (rd_envelope <= release_step) begin
                         // Keep a quiet release tail while the bounded steal
                         // hold is active; never wrap the 16-bit envelope.
                         calc_envelope <= 16'd0;
-                    end else calc_envelope <= rd_envelope - RELEASE_STEP;
+                    end else calc_envelope <= rd_envelope - release_step;
                 end else if (rd_env_stage == ENV_ATTACK) begin
-                    if ({1'b0, rd_envelope} + {1'b0, ATTACK_STEP} >= 17'h0FFFF) begin
+                    if ({1'b0, rd_envelope} + {1'b0, attack_step} >= 17'h0FFFF) begin
                         calc_envelope <= 16'hFFFF; calc_env_stage <= ENV_DECAY;
-                    end else calc_envelope <= rd_envelope + ATTACK_STEP;
+                    end else calc_envelope <= rd_envelope + attack_step;
                 end else if (rd_env_stage == ENV_DECAY) begin
-                    if (rd_envelope <= SUSTAIN_LEVEL + DECAY_STEP) begin
-                        calc_envelope <= SUSTAIN_LEVEL; calc_env_stage <= ENV_SUSTAIN;
-                    end else calc_envelope <= rd_envelope - DECAY_STEP;
+                    // The sum is one bit wider than the fields so a host writing
+                    // sustain 65535 with decay 65535 cannot wrap it back below
+                    // the current envelope.
+                    if ({1'b0, rd_envelope} <=
+                        {1'b0, sustain_level} + {1'b0, decay_step}) begin
+                        calc_envelope <= sustain_level; calc_env_stage <= ENV_SUSTAIN;
+                    end else calc_envelope <= rd_envelope - decay_step;
                 end
             end
 

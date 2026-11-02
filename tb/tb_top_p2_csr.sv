@@ -191,13 +191,20 @@ module tb_top_p2_csr;
     $display("PASS 0x8C unpacking: feedback=0x%04h reverb=0x%04h",
              dut.fx_feedback_reg, dut.fx_reverb_reg);
 
-    // ---- 4. P2b is not implemented yet: 0x9C must still be rejected ------
+    // ---- 4. P2b is a live parameter surface now: 0x9C must ACK -----------
+    // Task 0 of P2b made 0x94/0x98/0x9C read/write in the contract, so the link
+    // stops NACKing them.  The register itself arrives with P2b task 2; this
+    // round only pins the contract side (accepted, and out-of-mask still
+    // BAD_DATA, because a mask is not a clamp input).
     send_frame(V2_OP_WRITE, 8'h9C, 32'h0000_0001);
-    if (reply[2] !== V2_TLM_NACK)
-      $fatal(1, "0x9C write was not NACKed (type=0x%02h err=0x%02h)", reply[2], reply[19]);
-    if (reply[19] !== V2_ERR_BAD_ADDRESS)
-      $fatal(1, "0x9C write NACKed with 0x%02h, expected BAD_ADDRESS 0x02", reply[19]);
-    $display("PASS 0x9C write is still NACKed with BAD_ADDRESS (0x02)");
+    if (reply[2] !== V2_TLM_ACK)
+      $fatal(1, "0x9C write was not ACKed (type=0x%02h err=0x%02h)", reply[2], reply[19]);
+    $display("PASS 0x9C write is ACKed (P2b parameter surface)");
+    send_frame(V2_OP_WRITE, 8'h9C, 32'h0000_0010);
+    if (reply[2] !== V2_TLM_NACK || reply[19] !== V2_ERR_BAD_DATA)
+      $fatal(1, "0x9C out-of-mask write: type=0x%02h err=0x%02h, expected NACK 0x07",
+             reply[2], reply[19]);
+    $display("PASS 0x9C write with a bit above [3:0] is NACKed with BAD_DATA (0x07)");
 
     // ---- 5. Write mask and the 2.0 volume ceiling -----------------------
     // Bits outside the mask are not a clamp input: v2_csr_data_valid() still

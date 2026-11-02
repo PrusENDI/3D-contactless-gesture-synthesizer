@@ -1,10 +1,11 @@
 `timescale 1ns/1ps
-// Contract clamp gate for the six P2a CSRs.
+// Contract clamp gate for the P2a and P2b parameter CSRs.
 //
 // Every row of spec 2026-11-01-filter-lfo-design.md section 11.6 that belongs to
-// 0x40 FILTER, 0x44 LFO, 0x84 FX_A, 0x88 FX_B, 0x8C FX_C, 0x90 VOLUME as one
+// 0x40 FILTER, 0x44 LFO, 0x84 FX_A, 0x88 FX_B, 0x8C FX_C, 0x90 VOLUME and to the
+// three P2b addresses 0x94 ENV_AD, 0x98 ENV_SR, 0x9C VOICE_MIX as one
 // assertion, plus rows proving (a) bits outside the write mask are cleared and
-// (b) an address of the next round (0x9C) is returned unchanged.  The clamp is
+// (b) the packed default of the seven voice parameters is the documented one.  The clamp is
 // the single source of truth for the parameter surface: a write succeeds with
 // the value clamped, never with an out-of-range value stored and never NACKed.
 module tb_contract_clamp;
@@ -78,32 +79,73 @@ module tb_contract_clamp;
     expect_clamp(8'h90, 32'h0002_0000, 32'h0002_0000, "volume at 2.0 is unchanged");
     expect_clamp(8'h90, 32'h0001_0000, 32'h0001_0000, "volume at unity is unchanged");
 
-    // A P2b address must pass through untouched: this round neither clamps nor
-    // re-addresses 0x9C (it stays read-only, so a write is still BAD_ADDRESS).
-    expect_clamp(8'h9C, 32'hFFFF_FFFF, 32'hFFFF_FFFF, "0x9C is returned unchanged");
+    // ---- P2b (spec 11.1): 0x94 ENV_AD --------------------------------
+    // Attack has a floor of 1: attack_step 0 means the envelope never rises, so
+    // the voice holds its slot and stays silent forever (spec 11.6).  Decay 0
+    // stops at the peak and is legal, so it must pass through untouched.
+    expect_clamp(8'h94, 32'h0100_0000, 32'h0100_0001, "env_ad attack 0 clamps to 1");
+    expect_clamp(8'h94, 32'h0000_1000, 32'h0000_1000, "env_ad decay 0 stays 0");
+    expect_clamp(8'h94, 32'hFFFF_FFFF, 32'hFFFF_FFFF, "env_ad full scale is unchanged");
+    // ---- P2b: 0x98 ENV_SR --------------------------------------------
+    // Release has a floor of 1: release_step 0 keeps the envelope above zero, so
+    // active[] never clears and event_ready deadlocks (spec 11.6).  Sustain 0 is
+    // a legal silent sustain and must stay 0.
+    expect_clamp(8'h98, 32'h0000_C000, 32'h0001_C000, "env_sr release 0 clamps to 1");
+    expect_clamp(8'h98, 32'h0400_0000, 32'h0400_0000, "env_sr sustain 0 stays 0");
+    expect_clamp(8'h98, 32'h1234_5678, 32'h1234_5678, "env_sr arbitrary values pass");
+    // ---- P2b: 0x9C VOICE_MIX -----------------------------------------
+    // The two 2-bit shift fields accept their whole range (3 is the narrowest
+    // detune / the weakest velocity depth), glide has a floor of 1, and bits
+    // 4..15 are outside the write mask.
+    expect_clamp(8'h9C, 32'h0200_000F, 32'h0200_000F, "voice_mix both shift fields accept 3");
+    expect_clamp(8'h9C, 32'h0000_0000, 32'h0001_0000, "voice_mix glide 0 clamps to 1");
+    expect_clamp(8'h9C, 32'hFFFF_FFFF, 32'hFFFF_000F, "voice_mix clears bits 4..15");
+    expect_clamp(8'h9C, 32'h0200_0000, 32'h0200_0000, "voice_mix glide 512 is unchanged");
 
-    // The six addresses are read/write; the next round's three stay read-only.
+    // The six P2a addresses and the three P2b addresses are read/write.
     expect_access(8'h40, V2_ACCESS_RW, "filter is read/write");
     expect_access(8'h44, V2_ACCESS_RW, "lfo is read/write");
     expect_access(8'h84, V2_ACCESS_RW, "fx_a is read/write");
     expect_access(8'h88, V2_ACCESS_RW, "fx_b is read/write");
     expect_access(8'h8C, V2_ACCESS_RW, "fx_c is read/write");
     expect_access(8'h90, V2_ACCESS_RW, "volume is read/write");
-    expect_access(8'h94, V2_ACCESS_RO, "0x94 stays read-only for P2b");
-    expect_access(8'h98, V2_ACCESS_RO, "0x98 stays read-only for P2b");
-    expect_access(8'h9C, V2_ACCESS_RO, "0x9C stays read-only for P2b");
+    expect_access(8'h94, V2_ACCESS_RW, "env_ad is read/write");
+    expect_access(8'h98, V2_ACCESS_RW, "env_sr is read/write");
+    expect_access(8'h9C, V2_ACCESS_RW, "voice_mix is read/write");
 
+    // A write mask is not a clamp input: in-mask data is accepted (and then
+    // clamped), bits outside the mask are still a BAD_DATA NACK.
     checks = checks + 1;
-    if (v2_csr_data_valid(8'h9C, 32'hFFFF_FFFF) !== 1'b0) begin
-      $display("FAIL 0x9C must still reject a write through v2_csr_data_valid");
+    if (v2_csr_data_valid(8'h9C, 32'hFFFF_000F) !== 1'b1) begin
+      $display("FAIL an in-mask 0x9C write must be accepted by v2_csr_data_valid");
       errors = errors + 1;
     end else begin
-      $display("PASS 0x9C write is still rejected by v2_csr_data_valid");
+      $display("PASS in-mask 0x9C write is accepted by v2_csr_data_valid");
+    end
+    checks = checks + 1;
+    if (v2_csr_data_valid(8'h9C, 32'h0000_00F0) !== 1'b0) begin
+      $display("FAIL an out-of-mask 0x9C write must be rejected by v2_csr_data_valid");
+      errors = errors + 1;
+    end else begin
+      $display("PASS out-of-mask 0x9C write is rejected by v2_csr_data_valid");
+    end
+
+    // The packed default of the seven voice parameters.  Writing the expected
+    // word out by field keeps the layout in one visible place.
+    checks = checks + 1;
+    if (V2_VOICE_CFG_DEFAULT !== {12'd0, 16'd512, 2'd0, 2'd0,
+                                  16'd1024, 16'd49152, 16'd256, 16'd4096}) begin
+      $display("FAIL V2_VOICE_CFG_DEFAULT is 0x%024h, expected 0x%024h",
+               V2_VOICE_CFG_DEFAULT,
+               {12'd0, 16'd512, 2'd0, 2'd0, 16'd1024, 16'd49152, 16'd256, 16'd4096});
+      errors = errors + 1;
+    end else begin
+      $display("PASS V2_VOICE_CFG_DEFAULT packs attack/decay/sustain/release/shifts/glide");
     end
 
     if (errors != 0)
       $fatal(1, "tb_contract_clamp: %0d of %0d checks failed", errors, checks);
-    $display("PASS tb_contract_clamp: %0d checks, all rows of spec 11.6 for P2a", checks);
+    $display("PASS tb_contract_clamp: %0d checks, all rows of spec 11.6 for P2a and P2b", checks);
     $finish;
   end
 endmodule

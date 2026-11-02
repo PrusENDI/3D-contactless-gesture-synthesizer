@@ -48,6 +48,30 @@ package v2_contract_pkg;
   localparam int V2_VOICE_STEAL_OLDEST=1;
   localparam int V2_VOICE_STEAL_LOWEST_VELOCITY=2;
   localparam int V2_VOICE_STEAL_LOWEST_VOICE_ID=3;
+  // P2b voice parameter pack (spec 11.1/11.3): the one source of the engine's
+  // seven defaults, and the only value a testbench has to pass.  The layout is
+  // low field first, exactly what v2_voice_engine_banked unpacks:
+  //   [15:0] attack_step   [31:16] decay_step  [47:32] sustain_level
+  //   [63:48] release_step [65:64] velocity_shift [67:66] detune_shift
+  //   [83:68] glide_rate   [95:84] reserved 0
+  // Every field is a named constant, so the default is readable as the numbers
+  // the design has always used and no field can drift out of place silently.
+  localparam logic [15:0] V2_VOICE_CFG_ATTACK_DEFAULT  = 16'd4096;
+  localparam logic [15:0] V2_VOICE_CFG_DECAY_DEFAULT   = 16'd256;
+  localparam logic [15:0] V2_VOICE_CFG_SUSTAIN_DEFAULT = 16'd49152;
+  localparam logic [15:0] V2_VOICE_CFG_RELEASE_DEFAULT = 16'd1024;
+  localparam logic [1:0]  V2_VOICE_CFG_VELOCITY_SHIFT_DEFAULT = 2'd0;
+  localparam logic [1:0]  V2_VOICE_CFG_DETUNE_SHIFT_DEFAULT   = 2'd0;
+  localparam logic [15:0] V2_VOICE_CFG_GLIDE_DEFAULT   = 16'd512;
+  localparam logic [95:0] V2_VOICE_CFG_DEFAULT = {
+      12'd0,
+      V2_VOICE_CFG_GLIDE_DEFAULT,
+      V2_VOICE_CFG_DETUNE_SHIFT_DEFAULT,
+      V2_VOICE_CFG_VELOCITY_SHIFT_DEFAULT,
+      V2_VOICE_CFG_RELEASE_DEFAULT,
+      V2_VOICE_CFG_SUSTAIN_DEFAULT,
+      V2_VOICE_CFG_DECAY_DEFAULT,
+      V2_VOICE_CFG_ATTACK_DEFAULT};
   localparam logic [7:0] V2_TEST_SELECTOR_N_TONE=8'd1;
   localparam logic [7:0] V2_TEST_SELECTOR_VIBRATO_READBACK=8'd2;
   localparam int V2_TEST_N_TONE_COUNT_MIN=1;
@@ -131,9 +155,12 @@ localparam logic [7:0] V2_ADDR_DIAG_FIRST   = 8'hB0;
       V2_CSR_WT_STATUS=8'h7C;
   localparam logic [7:0] V2_CSR_TLM_CONTROL=8'h80,
       V2_CSR_FX_A=8'h84, V2_CSR_FX_B=8'h88,
-      V2_CSR_FX_C=8'h8C, V2_CSR_VOLUME=8'h90,
-      V2_CSR_TLM_FIFO=8'h94, V2_CSR_TLM_FAULT=8'h98,
-      V2_CSR_TLM_TABLE_VERSION=8'h9C;
+      V2_CSR_FX_C=8'h8C, V2_CSR_VOLUME=8'h90;
+  // P2b parameter surface (spec 11.1).  These three addresses were the empty
+  // TLM_FIFO / TLM_FAULT / TLM_TABLE_VERSION shells; nothing ever implemented
+  // them, so they are reused rather than appended.
+  localparam logic [7:0] V2_CSR_ENV_AD=8'h94, V2_CSR_ENV_SR=8'h98,
+      V2_CSR_VOICE_MIX=8'h9C;
   localparam logic [7:0] V2_CSR_TEST_SELECT=8'hA0;
   localparam logic [1:0] V2_ACCESS_NONE=2'd0, V2_ACCESS_RO=2'd1,
       V2_ACCESS_WO=2'd2, V2_ACCESS_RW=2'd3;
@@ -187,9 +214,11 @@ localparam logic [7:0] V2_ADDR_DIAG_FIRST   = 8'hB0;
   localparam logic [31:0] V2_CSR_FX_B_WRITE_MASK=32'hFFFF03FF;
   localparam logic [31:0] V2_CSR_FX_C_WRITE_MASK=32'hFFFFFFFF;
   localparam logic [31:0] V2_CSR_VOLUME_WRITE_MASK=32'h0003FFFF;
-  localparam logic [31:0] V2_CSR_TLM_FIFO_WRITE_MASK=32'h00000000;
-  localparam logic [31:0] V2_CSR_TLM_FAULT_WRITE_MASK=32'h00000000;
-  localparam logic [31:0] V2_CSR_TLM_TABLE_VERSION_WRITE_MASK=32'h00000000;
+  localparam logic [31:0] V2_CSR_ENV_AD_WRITE_MASK=32'hFFFFFFFF;
+  localparam logic [31:0] V2_CSR_ENV_SR_WRITE_MASK=32'hFFFFFFFF;
+  // Only the two 2-bit shift fields live in the low half of VOICE_MIX; a
+  // velocity_depth byte is not part of this round (spec 11.3 uses a shift).
+  localparam logic [31:0] V2_CSR_VOICE_MIX_WRITE_MASK=32'hFFFF000F;
   localparam logic [31:0] V2_CSR_TEST_SELECT_WRITE_MASK=32'hFFFFFFFF;
   localparam int V2_CSR_STATUS_MODE_SHIFT=0;
   localparam int V2_CSR_STATUS_ACTIVE_VALID_SHIFT=8;
@@ -257,13 +286,13 @@ localparam logic [7:0] V2_ADDR_DIAG_FIRST   = 8'hB0;
   localparam int V2_CSR_WT_STATUS_LAST_ERROR_SHIFT=24;
   localparam int V2_CSR_TLM_CONTROL_ENABLE_SHIFT=0;
   localparam int V2_CSR_TLM_CONTROL_PERIOD_MS_SHIFT=16;
-  localparam int V2_CSR_TLM_FIFO_RX_LEVEL_SHIFT=0;
-  localparam int V2_CSR_TLM_FIFO_TX_LEVEL_SHIFT=8;
-  localparam int V2_CSR_TLM_FIFO_EVENT_LEVEL_SHIFT=16;
-  localparam int V2_CSR_TLM_FAULT_FAULT_CODE_SHIFT=0;
-  localparam int V2_CSR_TLM_FAULT_FAULT_COUNT_SHIFT=8;
-  localparam int V2_CSR_TLM_TABLE_VERSION_ACTIVE_VERSION_SHIFT=0;
-  localparam int V2_CSR_TLM_TABLE_VERSION_SHADOW_VERSION_SHIFT=16;
+  localparam int V2_CSR_ENV_AD_ATTACK_STEP_SHIFT=0;
+  localparam int V2_CSR_ENV_AD_DECAY_STEP_SHIFT=16;
+  localparam int V2_CSR_ENV_SR_SUSTAIN_LEVEL_SHIFT=0;
+  localparam int V2_CSR_ENV_SR_RELEASE_STEP_SHIFT=16;
+  localparam int V2_CSR_VOICE_MIX_VELOCITY_SHIFT_SHIFT=0;
+  localparam int V2_CSR_VOICE_MIX_DETUNE_SHIFT_SHIFT=2;
+  localparam int V2_CSR_VOICE_MIX_GLIDE_RATE_SHIFT=16;
   localparam int V2_PARAM_OSC_MIX=0;
   localparam int V2_PARAM_BRIGHTNESS=1;
   localparam int V2_PARAM_DETUNE_CENTS=2;
@@ -343,9 +372,7 @@ localparam logic [7:0] V2_ADDR_DIAG_FIRST   = 8'hB0;
     case (address)
       V2_CSR_STATUS, V2_CSR_POTTS_STATUS,
       V2_CSR_PATCH_ACTIVE_DATA, V2_CSR_PATCH_STATUS,
-      V2_CSR_WT_STATUS,
-      V2_CSR_TLM_FIFO,
-      V2_CSR_TLM_FAULT, V2_CSR_TLM_TABLE_VERSION: return V2_ACCESS_RO;
+      V2_CSR_WT_STATUS: return V2_ACCESS_RO;
       V2_CSR_PLAY, V2_CSR_STOP, V2_CSR_RECORD, V2_CSR_OVERDUB,
       V2_CSR_CLEAR_TRACK, V2_CSR_CLEAR_ALL, V2_CSR_COMMIT,
       V2_CSR_RESET, V2_CSR_PATCH_APPLY, V2_CSR_WT_APPLY: return V2_ACCESS_WO;
@@ -393,17 +420,16 @@ localparam logic [7:0] V2_ADDR_DIAG_FIRST   = 8'hB0;
       V2_CSR_FX_B: return V2_CSR_FX_B_WRITE_MASK;
       V2_CSR_FX_C: return V2_CSR_FX_C_WRITE_MASK;
       V2_CSR_VOLUME: return V2_CSR_VOLUME_WRITE_MASK;
-      V2_CSR_TLM_FIFO: return V2_CSR_TLM_FIFO_WRITE_MASK;
-      V2_CSR_TLM_FAULT: return V2_CSR_TLM_FAULT_WRITE_MASK;
-      V2_CSR_TLM_TABLE_VERSION: return V2_CSR_TLM_TABLE_VERSION_WRITE_MASK;
+      V2_CSR_ENV_AD: return V2_CSR_ENV_AD_WRITE_MASK;
+      V2_CSR_ENV_SR: return V2_CSR_ENV_SR_WRITE_MASK;
+      V2_CSR_VOICE_MIX: return V2_CSR_VOICE_MIX_WRITE_MASK;
       default: return 32'h00000000;
     endcase
   endfunction
   // Single source of truth for parameter validation: a write succeeds with the
   // value clamped (spec 2026-11-01 section 11.6), it is never NACKed for range.
-  // Addresses outside the six P2a CSRs are not parameter surfaces yet (0x94 /
-  // 0x98 / 0x9C are P2b and stay read-only), so they pass through untouched.
-  // For the six, the final AND with the write mask guarantees that a write can
+  // Addresses outside the nine parameter CSRs pass through untouched.
+  // For those, the final AND with the write mask guarantees that a write can
   // never leave a bit outside the mask behind.
   function automatic logic [31:0] v2_csr_clamp(input logic [7:0] address,
                                                input logic [31:0] data);
@@ -432,6 +458,24 @@ localparam logic [7:0] V2_ADDR_DIAG_FIRST   = 8'hB0;
         end
         V2_CSR_VOLUME: begin
           if (clamped[17:0] > 18'h20000) clamped[17:0] = 18'h20000;
+        end
+        V2_CSR_ENV_AD: begin
+          // decay_step 0 is legal (the envelope holds the peak); attack_step 0
+          // is not (the envelope never rises, so the voice is silent forever
+          // while still holding a slot).
+          if (clamped[15:0] == 16'd0) clamped[15:0] = 16'd1;
+        end
+        V2_CSR_ENV_SR: begin
+          // sustain_level 0 is legal (silent sustain); release_step 0 is a
+          // deadlock, not a silence: the envelope never reaches zero, active[]
+          // never clears and event_ready never comes back (spec 11.6).
+          if (clamped[31:16] == 16'd0) clamped[31:16] = 16'd1;
+        end
+        V2_CSR_VOICE_MIX: begin
+          // Both 2-bit shift fields accept their whole range, so only the glide
+          // floor is left: glide_rate 0 would pin every offset note to its base
+          // pitch forever.
+          if (clamped[31:16] == 16'd0) clamped[31:16] = 16'd1;
         end
         default: return data;
       endcase

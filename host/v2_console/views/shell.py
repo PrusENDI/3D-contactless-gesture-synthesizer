@@ -771,7 +771,13 @@ class ConsoleWindow:
             self._readout_at = now
             try:
                 self.model.refresh_readouts()
-                self.bpm_label.config(text="BPM %d" % self.model.bpm())
+                status = self.model.cached_status()
+                if status is not None and status.mode == 1:
+                    # LIVE derives tempo from cursor X (bpm_auto_q) and no register
+                    # exposes it, so showing bpm_reg here would be a lie.
+                    self.bpm_label.config(text="BPM: from X axis (not readable)")
+                else:
+                    self.bpm_label.config(text="BPM %d" % self.model.bpm())
                 self.identity_label.config(text=self.model.identity_text())
             except Exception as exc:
                 self.identity_label.config(text="link: %s" % exc)

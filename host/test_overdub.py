@@ -97,6 +97,32 @@ class HeadroomTest(unittest.TestCase):
         self.assertAlmostEqual(quiet / loud, 0.25, places=3)
 
 
+class LoudnessTest(unittest.TestCase):
+    """What was audible on track 1 must still be audible on track 4."""
+
+    def test_normalising_keeps_a_one_take_and_a_four_take_mix_equally_loud(self):
+        one = [reference.Segment(60, 0, 32)]
+        four = [reference.Segment(55, 0, 32), reference.Segment(60, 0, 32),
+                reference.Segment(64, 8, 32), reference.Segment(67, 16, 32)]
+        quiet = amplitude(reference.render_wav(one, table=TABLE, voice_shift=2, env=ENV,
+                                               normalize=True))
+        loud = amplitude(reference.render_wav(four, table=TABLE, voice_shift=2, env=ENV,
+                                              normalize=True))
+        self.assertAlmostEqual(loud / quiet, 1.0, places=2)
+
+    def test_without_normalising_the_mix_does_get_quieter(self):
+        one = reference.render_wav([reference.Segment(60, 0, 32)], table=TABLE,
+                                   voice_shift=2, env=ENV, extra_shift=0)
+        four = reference.render_wav([reference.Segment(60, 0, 32)], table=TABLE,
+                                    voice_shift=2, env=ENV, extra_shift=2)
+        self.assertAlmostEqual(amplitude(four) / amplitude(one), 0.25, places=2)
+
+    def test_normalising_never_clips(self):
+        four = [reference.Segment(note, 0, 32) for note in (55, 60, 64, 67)]
+        payload = reference.render_wav(four, table=TABLE, voice_shift=0, env=ENV, normalize=True)
+        self.assertLessEqual(amplitude(payload), int(0.5 * 32767) + 1)
+
+
 class DefaultTableTest(unittest.TestCase):
     def test_the_fallback_table_is_the_shape_the_board_starts_with(self):
         table = reference.sine_table()
@@ -158,6 +184,7 @@ class OrderTest(unittest.TestCase):
 
     def setUp(self):
         self.model = ConsoleModel(None)
+        self.model.record_offset = 0.0        # the window wait is not what this tests
         self.model.contours = {0: contour_of(0)}
         self.order = []
         model = self.model

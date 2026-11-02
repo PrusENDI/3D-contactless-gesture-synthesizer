@@ -101,20 +101,27 @@ class ArmTest(unittest.TestCase):
 class RecordFeedbackTest(unittest.TestCase):
     """A take has to be visible while it runs: the worker cannot report its own progress."""
 
-    def test_arming_marks_the_take_as_running(self):
+    def test_arming_marks_the_take_as_waiting_for_the_window(self):
         model, _ = model_with_flow()
         model.arm_take(track=1)
-        self.assertEqual(model.record_state, "armed")
+        self.assertEqual(model.record_state, "waiting")
         self.assertEqual(model.record_track, 1)
+        self.assertGreater(model.record_started, time.monotonic())
 
-    def test_progress_runs_from_zero_to_one_across_the_bar(self):
+    def test_progress_runs_from_zero_to_one_across_the_window(self):
         model, _ = model_with_flow()
         model.arm_take(track=0)
+        model.record_state = "armed"
         model.record_started = time.monotonic()
         self.assertLess(model.record_progress(), 0.05)
         model.record_started = time.monotonic() - model.record_seconds
         self.assertAlmostEqual(model.record_progress(), 1.0, places=2)
         self.assertEqual(model.record_ticks(), 32)
+
+    def test_the_window_offset_is_a_full_bar(self):
+        model, _ = model_with_flow()
+        model.arm_take(track=0)
+        self.assertAlmostEqual(model.record_offset, 4.0, places=3)
 
     def test_a_captured_take_says_so(self):
         model, _ = model_with_flow()

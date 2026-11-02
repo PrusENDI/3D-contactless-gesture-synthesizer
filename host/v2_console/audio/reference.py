@@ -82,11 +82,16 @@ def _envelope(env: dict, samples_in: int, total: int) -> float:
     return max(0.0, level)
 
 
-def render_wav(segments, table, voice_shift: int, env: dict, extra_shift: int = 0) -> bytes:
+def render_wav(segments, table, voice_shift: int, env: dict, extra_shift: int = 0,
+               normalize: bool = False, target_peak: float = 0.5) -> bytes:
     """One bar of int16 mono audio, ready for winsound's SND_LOOP.
 
     ``extra_shift`` is the headroom for a mix: four takes summed at the one-take
-    scale clip, and a clipped monitor is worse than a quiet one.
+    scale clip, and a clipped monitor is worse than a quiet one. ``normalize``
+    is the other half of that problem -- a fixed shift makes a four-take mix
+    12 dB quieter than a one-take mix, so what was audible on track 1 is gone by
+    track 3. Normalising to a fixed peak keeps the monitor at the same loudness
+    however many takes it plays.
     """
     total = int(SAMPLE_RATE * BAR_SECONDS)
     scale = 1.0 / (1 << max(0, min(15, voice_shift + extra_shift)))
@@ -108,6 +113,11 @@ def render_wav(segments, table, voice_shift: int, env: dict, extra_shift: int = 
             gain = _envelope(env, index, length) * scale
             out[position] += int(sample * gain)
             phase += step
+
+    if normalize:
+        peak = max(1, max(max(out), -min(out)))
+        gain = (target_peak * 32767.0) / peak
+        out = [int(value * gain) for value in out]
 
     buffer = io.BytesIO()
     with wave.open(buffer, "wb") as handle:

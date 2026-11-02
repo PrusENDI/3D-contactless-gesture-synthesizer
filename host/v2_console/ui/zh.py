@@ -50,6 +50,8 @@ ZH = {
     "loop.countdown": "第 %d 轨 %d 秒后开窗",
     "loop.armed": "第 %d 轨已就绪",
     "loop.rec_countdown": "准备第 %d 轨…",
+    "loop.rec_waiting": "第 %d 轨已武装，等板子开窗（约 4 秒）…",
+    "loop.label_waiting": "⏳ 轨 %d 已武装，等开窗…",
     "loop.recording": "● 正在录第 %d 轨     tick %d/32     剩 %.1f s",
     "loop.label_recording": "● 录音中  轨 %d   %d/32 tick",
     "loop.label_done": "✔ 轨 %d 已采下　→ 下一步：点【提交】",

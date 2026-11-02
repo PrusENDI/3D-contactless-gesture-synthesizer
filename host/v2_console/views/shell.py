@@ -54,10 +54,15 @@ class ConsoleModel:
         self._io = 0
         # What the LOOP page says while a take runs. The window paints this, not the
         # worker: a worker blocked in a capture cannot report its own progress.
-        self.record_state = "idle"        # idle | countdown | armed | captured | failed
+        self.record_state = "idle"        # idle | waiting | countdown | armed | captured | failed
         self.record_track = 0
         self.record_started = 0.0
-        self.record_seconds = 8.0        # measured: FULL lands 7.9 s after the arm
+        # The capture does not start at the arm: v2_loop_contour_capture waits for
+        # the next tick-0 of a 32-tick wrap, and 0x08=120 has just put the tick at 1,
+        # so it waits a whole bar. Measured: FULL lands 7.9 s after the arm on every
+        # take (spread 0.07 s) = 4 s of waiting + a 4 s window.
+        self.record_offset = 4.0
+        self.record_seconds = 4.0
         self._readouts = None
         self._readouts_at = 0.0
         self.params: dict = {}
@@ -256,7 +261,7 @@ class ConsoleModel:
             table=table,
             voice_shift=2,
             env=env or self.default_env(),
-            extra_shift=reference.headroom(len(self.contours)),
+            normalize=True,          # same loudness for one take and for four
         )
         path = path or self._audio_path("overdub.wav")
         with open(path, "wb") as handle:
@@ -306,6 +311,13 @@ class ConsoleModel:
         if overdub and self.contours and not self.overdub_path:
             self.start_overdub()
         self.arm_take(track)
+        # The board does not capture yet: it waits a bar for the next tick-0. Start
+        # the monitor when the window actually opens, or the backing plays against a
+        # capture that has not begun.
+        if self.overdub_path and self.record_offset > 0:
+            time.sleep(self.record_offset)
+        if self.record_state == "waiting":
+            self.record_state = "armed"
         if self.overdub_path:
             self.play_overdub()
         try:
@@ -372,9 +384,9 @@ class ConsoleModel:
         self.flow.arm()
         self.phase.force_bar()
         self.record_track = track
-        self.record_started = time.monotonic()
-        self.record_state = "armed"
-        self.message = "armed track %d: the window opens at the next bar" % track
+        self.record_started = time.monotonic() + self.record_offset
+        self.record_state = "waiting"
+        self.message = "armed track %d: the window opens one bar from now" % track
         return self.message
 
     def wait_for_take(self, timeout_s: float = 12.0) -> str:
@@ -490,7 +502,7 @@ class ConsoleModel:
         return int(self.phase.u() * score_mod.TICKS) % score_mod.TICKS
 
     def record_progress(self) -> float:
-        """How much of the four-second window has gone by, 0..1."""
+        """How much of the capture window has gone by, 0..1."""
         if self.record_state != "armed":
             return 0.0
         elapsed = time.monotonic() - self.record_started
@@ -1245,7 +1257,7 @@ class ConsoleWindow:
         zh = self.zh
         # While a worker owns the link this must not block: a stale line beats a freeze.
         status = self.model.cached_status(10.0 if self.model.io_busy() else 2.0)
-        if self.model.record_state == "armed":
+        if self.model.record_state in ("waiting", "armed"):
             # The poll is paused during a take, and the board is in RECORD now, so
             # the cached mode is stale by design. Say what is actually happening.
             parts = [zh.t("status.mode_recording")]
@@ -1300,12 +1312,15 @@ class ConsoleWindow:
     def _paint_record(self, canvas) -> None:
         """A red bar and a big caption: a take must be visible, not inferred."""
         state = self.model.record_state
-        if state not in ("countdown", "armed"):
+        if state not in ("countdown", "waiting", "armed"):
             return
         width = canvas.winfo_width()
         if state == "countdown":
             colour = self.palette.accent
             text = self.zh.t("loop.rec_countdown", self.model.record_track)
+        elif state == "waiting":
+            colour = self.palette.accent
+            text = self.zh.t("loop.rec_waiting", self.model.record_track)
         else:
             colour = self.palette.danger
             progress = self.model.record_progress()
@@ -1321,7 +1336,12 @@ class ConsoleWindow:
 
     def _update_record_label(self) -> None:
         state = self.model.record_state
-        if state == "armed":
+        if state == "waiting":
+            self.loop_label.config(
+                text=self.zh.t("loop.label_waiting", self.model.record_track),
+                fg=self.palette.accent,
+            )
+        elif state == "armed":
             self.loop_label.config(
                 text=self.zh.t("loop.label_recording", self.model.record_track, self.model.record_ticks()),
                 fg=self.palette.danger,

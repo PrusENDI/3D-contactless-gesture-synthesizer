@@ -119,9 +119,9 @@ class Session:
 
     # -- transport wrapper --------------------------------------------------
 
-    def _cmd(self, op: int, addr: int, data: int = 0) -> Reply:
+    def _cmd(self, op: int, addr: int, data: int = 0, attempts: int | None = None) -> Reply:
         try:
-            reply = self.link.command(op, addr, data)
+            reply = self.link.command(op, addr, data, attempts=attempts)
         except Exception as exc:
             # A lost command is evidence too: a log with only successes cannot
             # explain why a take or an upload ended early.
@@ -148,11 +148,11 @@ class Session:
         )
         return reply
 
-    def read(self, addr: int) -> int:
-        return self._cmd(linkmod.OP_READ, addr).data
+    def read(self, addr: int, attempts: int | None = None) -> int:
+        return self._cmd(linkmod.OP_READ, addr, attempts=attempts).data
 
-    def write(self, addr: int, data: int) -> Reply:
-        return self._cmd(linkmod.OP_WRITE, addr, data)
+    def write(self, addr: int, data: int, attempts: int | None = None) -> Reply:
+        return self._cmd(linkmod.OP_WRITE, addr, data, attempts=attempts)
 
     # -- identity and mode --------------------------------------------------
 
@@ -167,8 +167,8 @@ class Session:
         self.identity = Identity(board_id, status.mode, status.loop_active, status.fault)
         return self.identity
 
-    def status(self) -> Status:
-        word = self.read(0x00)
+    def status(self, attempts: int | None = None) -> Status:
+        word = self.read(0x00, attempts=attempts)
         return Status(mode=word & 0x7, loop_active=bool((word >> 8) & 1), fault=(word >> 9) & 0x1FFF)
 
     def require_mode(self, *allowed: int) -> Status:
@@ -194,21 +194,21 @@ class Session:
         # sees a 22-byte snapshot where it expected its reply.
         self.write(0x80, 0)
 
-    def readouts(self) -> dict:
+    def readouts(self, attempts: int | None = None) -> dict:
         """One screenful of state: the note the hand is on, and the voice engine's load.
 
-        Reading these costs two commands, so the window caches the result instead of
+        Reading these costs four commands, so the window caches the result instead of
         asking per redraw. The probe page write is the contour pointer as well, which
         is why this must not run while a contour is being read.
         """
-        live = self.read(0xE8)
-        self.write(0x34, 2)
-        page2 = self.read(0xF8)
+        live = self.read(0xE8, attempts=attempts)
+        self.write(0x34, 2, attempts=attempts)
+        page2 = self.read(0xF8, attempts=attempts)
         return {
             "note": live & 0xFF,
             "gate": bool((live >> 8) & 1),
             "active": bool((live >> 9) & 1),
-            "z": self.read(0xE0),
+            "z": self.read(0xE0, attempts=attempts),
             "voices": (page2 >> 17) & 0x3F,
             "steals": page2 & 0xFFFF,
             "overflow": (page2 >> 16) & 1,

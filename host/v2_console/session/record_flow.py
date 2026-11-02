@@ -74,6 +74,23 @@ class RecordFlow:
 
     # -- arming -------------------------------------------------------------
 
+    def probe(self, page: int) -> int:
+        """Read one 0xF8 probe page: 0 = loop state, 1 = store/commit, 2 = voices."""
+        self.session.write(CONTOUR, page)
+        return self.session.read(PROBE)
+
+    def commit_pending(self) -> bool:
+        """True while a commit waits for a bar boundary.
+
+        The store swaps banks only on a loop boundary, and the scheduler only runs
+        in PLAY, so a commit in IDLE/RECORD stays pending. ``cmd_ready`` is gated
+        on that, so any *other* loop command in that window (an arm, for instance)
+        parks the whole UART until the RTL's 34 s boundary timeout -- that is the
+        freeze to avoid, not a slow board.
+        """
+        word = self.probe(1)
+        return bool((word >> 6) & 1) or bool((word >> 9) & 1)
+
     def arm(self) -> None:
         """Force BPM 120, check it reads back, select the track, then PREPARE_RECORD.
 
@@ -89,6 +106,11 @@ class RecordFlow:
         identity = getattr(self.session, "identity", None)
         if identity is not None and identity.mode == 1:
             raise FlowError("the board is in LIVE: its tempo comes from the cursor, so the bar is not 4 s")
+        if self.commit_pending():
+            raise FlowError(
+                "the last commit is still waiting for a bar boundary: publish it (PLAY) "
+                "and wait for the swap, then arm -- arming now would freeze the link"
+            )
 
         self.state = COUNTDOWN
         self.session.write(BPM, 120)

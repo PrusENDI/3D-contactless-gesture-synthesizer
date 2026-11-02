@@ -27,8 +27,9 @@ def feed(session, values):
 
 
 def arm_session(mode=0):
-    # connect(2) + 0x08 write + 0x08 read-back + 0x0C write + 0x18 write
-    session = build([BOARD_ID, mode, 0, 120, 0, 0])
+    # connect(2) + probe page 1 write/read + 0x08 write + 0x08 read-back
+    # + 0x0C write + 0x18 write
+    session = build([BOARD_ID, mode, 0, 0, 0, 120, 0, 0])
     session.connect()
     flow = record_flow.RecordFlow(session, track=1)
     flow.arm()
@@ -36,11 +37,13 @@ def arm_session(mode=0):
 
 
 class ArmTest(unittest.TestCase):
-    def test_arm_forces_bpm_120_before_anything_else(self):
+    def test_arm_forces_bpm_120_before_it_arms_the_recorder(self):
         session, _ = arm_session()
-        writes = [frame for frame in session.link._port.written if frame[2] == link.OP_WRITE]
-        self.assertEqual(writes[0][3], 0x08)
-        self.assertEqual(int.from_bytes(writes[0][5:9], "big"), 120)
+        writes = [(frame[3], int.from_bytes(frame[5:9], "big"))
+                  for frame in session.link._port.written if frame[2] == link.OP_WRITE]
+        addrs = [addr for addr, _ in writes]
+        self.assertLess(addrs.index(0x08), addrs.index(0x18))
+        self.assertEqual(writes[addrs.index(0x08)][1], 120)
 
     def test_arm_reads_the_bpm_back(self):
         session, _ = arm_session()
@@ -50,7 +53,7 @@ class ArmTest(unittest.TestCase):
     def test_arm_selects_the_track_then_prepares(self):
         session, _ = arm_session()
         writes = [frame[3] for frame in session.link._port.written if frame[2] == link.OP_WRITE]
-        self.assertEqual(writes[1:3], [0x0C, 0x18])
+        self.assertEqual(writes[-3:], [0x08, 0x0C, 0x18])
 
     def test_arm_refuses_a_track_outside_the_contract(self):
         session = build([BOARD_ID, 0, 0, 0, 0, 120])
@@ -67,6 +70,18 @@ class ArmTest(unittest.TestCase):
         with self.assertRaises(record_flow.FlowError):
             flow.arm()
 
+    def test_arm_refuses_while_the_last_commit_is_still_waiting_for_a_boundary(self):
+        # 0xF8 page 1 bit 6 is loop_commit_pending. Arming there parks the whole
+        # command link until the RTL's 34 s boundary timeout, so it must not start.
+        pending = 1 << 6
+        session = build([BOARD_ID, 0, 0, pending])
+        session.connect()
+        before = session.link._port.written_count()
+        with self.assertRaises(record_flow.FlowError) as caught:
+            record_flow.RecordFlow(session, track=0).arm()
+        self.assertIn("publish", str(caught.exception))
+        self.assertEqual(session.link._port.written_count(), before + 2)   # the probe only
+
 
 class CoverageTest(unittest.TestCase):
     def test_coverage_counts_non_zero_ticks(self):
@@ -74,10 +89,7 @@ class CoverageTest(unittest.TestCase):
 
     def test_below_threshold_retries_twice_then_diagnoses(self):
         session, flow = arm_session()
-        session.link._port.chunks.extend(
-            reply_frame(6 + index, value)
-            for index, value in enumerate([0, 0, 0x1234, 0x2345, 0])
-        )
+        feed(session, [0, 0, 0x1234, 0x2345, 0])
         results = [flow.accept_take([100] * 29 + [0, 0, 0]) for _ in range(3)]
         self.assertEqual(results, ["retry", "retry", "diagnose"])
         diagnostic = [frame[3] for frame in session.link._port.written[-4:]]
@@ -130,10 +142,7 @@ class CommitTest(unittest.TestCase):
 class ContourTest(unittest.TestCase):
     def test_contour_read_zeroes_the_pointer_first(self):
         session, flow = arm_session()
-        queued = [reply_frame(7, record_flow.FULL_BIT)]
-        queued += [reply_frame(8, 0)]
-        queued += [reply_frame(index + 9, index) for index in range(32)]
-        session.link._port.chunks.extendleft(reversed(queued))
+        feed(session, [record_flow.FULL_BIT, 0] + list(range(32)))
         flow.poll()
         self.assertEqual(flow.state, record_flow.CAPTURED)
         contour = flow.contour()

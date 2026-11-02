@@ -65,6 +65,21 @@ LIVE 光标 214 帧/2.5 s。滑杆的写-读回路只在模拟端口上测过，
 5. 空画布会画中间提示（"等待手进入感应区"/"还没有波表"/"还没有轨道"），否则看着像坏了。
    截图脚本 `artifacts/tabs_shot.py` → `artifacts/ui/tab-*.png`（`artifacts/` 被忽略）。
 
+**LOOP 卡顿的真因（2026-11-02 深夜）**——不是手感问题，是**整条命令链路停摆 34 秒**：
+
+1. **板子**：`v2_loop_event_store_dpb` 里 `busy = copy_active || commit_pending`、`ctrl_ready = !busy`；
+   顶层 `cmd_ready = (!loop_ctrl_pending || cmd_is_abort) && …`。所以**提交之后、发布之前**再去"对准"，
+   顶层把控制命令挂进 `loop_ctrl_pending` 等 store 的 `ctrl_ready`，store 却在等一个只在 PLAY 才有的小节边界
+   → `cmd_ready` 一直 0 → **连读都不回**，直到 `BOUNDARY_TIMEOUT_CYCLES = 32'd3_400_000_000`
+   （100 MHz → **34.0 s**）超时。日志实测 22:07:37→22:08:11 正好 34 秒、28 条 `no usable reply`。
+2. **应用**：原来每 0.5 s 在 **Tk 线程**发 7 条命令（14 条/秒，25% 的界面时间在串口上）；
+   链路死时每条要 1.2 s（3 次 × 0.4 s），于是窗口整段冻住。
+3. **修法（已落地）**：提交后**立刻发布**（swap 的小节边界要靠 PLAY 提供）；对准前读 `0xF8` page 1
+   bit6/bit9，还在 pending 就拒绝并提示"先发布"，不再把链路卡死；轮询整体挪到**工作线程**（Tk 线程零 I/O）、
+   1 s 一次、单次尝试（死链 0.4 s 而不是 1.2 s）；`wait_for_take` 轮询 20 ms → 100 ms。
+4. **待办（要动板子，未做）**：`BOUNDARY_TIMEOUT_CYCLES` 从 3.4e9 降到 5e8（5 s），或让 IDLE/RECORD 下的
+   swap 立即完成。否则任何一次误操作都要等 34 秒。
+
 **PC 侧 overdub（2026-11-02 晚）**：LOOP 页勾上"边听边录（放已录轨）"，对准一小节时主机把**已录的每条轨**
 混成一个 4 s WAV 循环播，板子照旧盲录。板内做不到不是懒：`voice_rst_n` 只在 LIVE/PLAY 放开，
 `loop_probe_run = mode_play`，RECORD 时音频 mux 落到被 reset 的引擎（`fx_quiet`），是结构性的静音。

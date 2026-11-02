@@ -50,6 +50,7 @@ class ConsoleModel:
         self.commit_count = 0
         self.score = None
         self.hit = None
+        self._io = 0
         self._readouts = None
         self._readouts_at = 0.0
         self.params: dict = {}
@@ -62,13 +63,28 @@ class ConsoleModel:
     def status(self):
         return self.session.status() if self.session is not None else None
 
-    def cached_status(self, max_age_s: float = 0.5):
+    def cached_status(self, max_age_s: float = 1.0):
         """The window redraws at 30 Hz; a STATUS command per frame would be 17 ms each."""
         now = time.monotonic()
         if self._status is None or (now - self._status_at) > max_age_s:
             self._status = self.status()
             self._status_at = now
         return self._status
+
+    # -- who may touch the link ---------------------------------------------
+    #
+    # One command costs 17.6 ms and a lost one costs 1.2 s (three timeouts), so the
+    # window must not poll while a worker owns the link: the Tk thread would block
+    # behind it and every repaint would wait.
+
+    def begin_io(self) -> None:
+        self._io += 1
+
+    def end_io(self) -> None:
+        self._io = max(0, self._io - 1)
+
+    def io_busy(self) -> bool:
+        return self._io > 0
 
     def can_edit_params(self) -> bool:
         """The nine parameters are writable in PLAY too: tuning while it plays is supported."""
@@ -149,9 +165,19 @@ class ConsoleModel:
         self.message = "read back %d samples, %d differ from the file" % (len(samples), mismatches)
         return self.message
 
-    def play_reference(self, segments, table, voice_shift, env, path="reference.wav") -> str:
+    @staticmethod
+    def _audio_path(name: str) -> str:
+        """Rendered audio lives under artifacts/, never in the repo root."""
+        from pathlib import Path
+
+        folder = Path("artifacts") / "console"
+        folder.mkdir(parents=True, exist_ok=True)
+        return str(folder / name)
+
+    def play_reference(self, segments, table, voice_shift, env, path=None) -> str:
         if not table:
             raise RuntimeError("no wavetable loaded: upload one before playing a reference")
+        path = path or self._audio_path("reference.wav")
         payload = reference.render_wav(segments, table=table, voice_shift=voice_shift, env=env)
         with open(path, "wb") as handle:
             handle.write(payload)
@@ -181,7 +207,7 @@ class ConsoleModel:
         """The finished takes as one part; empty before the first one lands."""
         return reference.mix_contours(self.contours)
 
-    def start_overdub(self, env=None, path: str = "overdub.wav") -> str:
+    def start_overdub(self, env=None, path: str | None = None) -> str:
         """Render the finished takes into one looping bar, ready to play.
 
         The board cannot monitor an overdub: ``voice_rst_n`` is held in reset
@@ -203,6 +229,7 @@ class ConsoleModel:
             env=env or self.default_env(),
             extra_shift=reference.headroom(len(self.contours)),
         )
+        path = path or self._audio_path("overdub.wav")
         with open(path, "wb") as handle:
             handle.write(payload)
         self.overdub_path = path
@@ -317,7 +344,9 @@ class ConsoleModel:
             if self.flow.state == record_flow.ARMED:
                 if time.monotonic() >= deadline:
                     raise RuntimeError("the capture never filled; is a hand over the sensor?")
-                time.sleep(0.02)
+                # 100 ms is ten looks per four-second bar: a 20 ms poll spends the
+                # whole link on the question and starves the window.
+                time.sleep(0.1)
         return "captured"
 
     def capture_contour(self) -> str:
@@ -339,19 +368,32 @@ class ConsoleModel:
         return self.message
 
     def commit_take(self) -> str:
+        """Commit, then publish at once: the bank swap needs a bar boundary.
+
+        The store only swaps on a loop boundary, and the scheduler only runs in
+        PLAY -- so a commit left unpublushed parks every later loop command behind
+        the RTL's 34 s boundary timeout. Publishing here closes that window.
+        """
         if getattr(self, "flow", None) is None:
             raise RuntimeError("nothing is armed")
         count = self.flow.commit()
         self.commit_count = count
-        self.message = "committed %d event(s); press Publish to hear it" % count
+        self.flow.publish()
+        self.phase.reanchor()
+        self.message = "committed %d event(s) and published: it plays now" % count
         return self.message
 
     def publish_take(self) -> str:
+        from ..session import record_flow
+
         if getattr(self, "flow", None) is None:
-            raise RuntimeError("nothing is armed")
-        self.flow.publish()
+            return self.message
+        if self.flow.state == record_flow.PUBLISHING:
+            self.flow.publish()
+        elif hasattr(self.session, "set_mode"):
+            self.session.set_mode(4)          # committed and swapped already: just play
         self.phase.reanchor()
-        self.message = "published track %d: mode is PLAY now" % self.track
+        self.message = "playing track %d" % self.track
         return self.message
 
     # -- score guide --------------------------------------------------------
@@ -468,10 +510,37 @@ class ConsoleModel:
         self._readouts = snapshot
         return snapshot
 
-    def refresh_readouts(self) -> None:
-        """Cache the readout block; the window redraws too often to poll it per frame."""
+    def poll_board(self, slow: bool = False) -> dict:
+        """Everything the window shows, gathered off the Tk thread.
+
+        One attempt per command: a poll nobody waits on should cost 0.4 s on a dead
+        link, not 1.2 s. The status is cached here too, so the paint loop never has
+        to read it.
+        """
+        snapshot = {"readouts": None, "status": None, "bpm": None, "identity": None}
         try:
-            self._readouts = self.session.readouts()
+            self._readouts = self.session.readouts(attempts=1)
+            self._readouts_at = time.monotonic()
+            snapshot["readouts"] = self._readouts
+        except Exception:
+            self._readouts = None
+            raise
+        snapshot["status"] = self.session.status(attempts=1)
+        self._status = snapshot["status"]
+        self._status_at = time.monotonic()
+        if slow:
+            snapshot["bpm"] = self.bpm()
+            snapshot["identity"] = self.identity_numbers()
+        return snapshot
+
+    def refresh_readouts(self) -> None:
+        """Cache the readout block; the window redraws too often to poll it per frame.
+
+        One attempt, not three: this is a poll nobody is waiting on, and a dead link
+        should cost 0.4 s here and not 1.2 s.
+        """
+        try:
+            self._readouts = self.session.readouts(attempts=1)
             self._readouts_at = time.monotonic()
         except Exception:
             self._readouts = None
@@ -844,10 +913,13 @@ class ConsoleWindow:
         """Every board call runs off the Tk thread; one failed command can cost 800 ms."""
 
         def worker():
+            self.model.begin_io()
             try:
                 self._results.put((label, fn(), None))
             except Exception as exc:  # surfaced in the status bar, never swallowed
                 self._results.put((label, None, exc))
+            finally:
+                self.model.end_io()
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -1062,6 +1134,12 @@ class ConsoleWindow:
                 if bool(self.arp_var.get()) != bool(arp):
                     self.arp_var.set(bool(arp))
                 continue
+            if label == "poll":
+                if error is not None:
+                    self.identity_label.config(text="link: %s" % error)
+                else:
+                    self._apply_poll(value)
+                continue
             if error is not None:
                 self.model.message = "%s: %s" % (label, error)
             elif value:
@@ -1070,7 +1148,8 @@ class ConsoleWindow:
 
     def _status_text(self) -> str:
         zh = self.zh
-        status = self.model.cached_status()
+        # While a worker owns the link this must not block: a stale line beats a freeze.
+        status = self.model.cached_status(10.0 if self.model.io_busy() else 2.0)
         if status is None:
             return zh.t("status.none")
         parts = [zh.t("status.mode", zh.mode_name(status.mode))]
@@ -1092,6 +1171,18 @@ class ConsoleWindow:
             parts.append(self.model.message)
         return "    ".join(parts)
 
+    def _apply_poll(self, snapshot: dict) -> None:
+        status = snapshot.get("status")
+        if status is not None:
+            if status.mode == 1:
+                # LIVE derives tempo from cursor X (bpm_auto_q) and no register
+                # exposes it, so bpm_reg here would be a lie.
+                self.bpm_label.config(text=self.zh.t("mode.bpm_live"))
+            elif snapshot.get("bpm") is not None:
+                self.bpm_label.config(text=self.zh.t("mode.bpm", snapshot["bpm"]))
+        if snapshot.get("identity"):
+            self.identity_label.config(text=self.zh.t("mode.identity", *snapshot["identity"]))
+
     def _empty_hint(self, tab: str):
         """A blank canvas looks broken; say what would fill it instead."""
         if tab == "live":
@@ -1110,23 +1201,12 @@ class ConsoleWindow:
                 self.model.message = "link: %s" % exc
         self._drain_results()
         now = time.monotonic()
-        if now - getattr(self, "_readout_at", 0.0) > 0.5:
+        if not self.model.io_busy() and self.pump is not None and now - getattr(self, "_readout_at", 0.0) > 1.0:
             self._readout_at = now
-            try:
-                self.model.refresh_readouts()
-                status = self.model.cached_status()
-                if status is not None:
-                    if status.mode == 1:
-                        # LIVE derives tempo from cursor X (bpm_auto_q) and no register
-                        # exposes it, so showing bpm_reg here would be a lie.
-                        self.bpm_label.config(text=self.zh.t("mode.bpm_live"))
-                    else:
-                        self.bpm_label.config(text=self.zh.t("mode.bpm", self.model.bpm()))
-                self.identity_label.config(
-                    text=self.zh.t("mode.identity", *self.model.identity_numbers())
-                )
-            except Exception as exc:
-                self.identity_label.config(text="link: %s" % exc)
+            slow = now - getattr(self, "_slow_at", 0.0) > 3.0
+            if slow:
+                self._slow_at = now
+            self._run("poll", lambda wanted=slow: self.model.poll_board(wanted))
         self._refresh_value_labels()
         hit = self.model.hit
         if hit is None:

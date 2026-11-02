@@ -140,20 +140,25 @@ class Link:
 
     # -- public -------------------------------------------------------------
 
-    def command(self, op: int, addr: int, data: int = 0) -> Reply:
+    def command(self, op: int, addr: int, data: int = 0, attempts: int | None = None) -> Reply:
         """Send one command and wait for its reply. NACKs are returned, not raised.
 
         A fresh session can collide with the board's cached last frame: if its seq
         matches but the bytes differ, the board answers err=5 and executes nothing.
         That is not an answer to this command, so the retry uses a new seq.
+
+        ``attempts`` is for polling: a lost read that nobody is waiting on may cost
+        one timeout instead of three, which is the difference between a hiccup and
+        a frozen window when the link is not answering.
         """
         with self._guard:
-            return self._command_locked(op, addr, data)
+            return self._command_locked(op, addr, data, attempts)
 
-    def _command_locked(self, op: int, addr: int, data: int) -> Reply:
+    def _command_locked(self, op: int, addr: int, data: int, attempts: int | None = None) -> Reply:
+        limit = (MAX_ATTEMPTS + 1) if attempts is None else max(1, attempts)
         seq = self._next_seq()
         frame = build_frame(op, addr, data, seq)
-        for _ in range(MAX_ATTEMPTS + 1):
+        for _ in range(limit):
             started = self._clock()
             self._write(frame)
             reply = self._await(seq, started + self._timeout_s)
@@ -167,7 +172,7 @@ class Link:
                 continue
             self._last_round_trip_ms = (self._clock() - started) * 1000.0
             return reply
-        raise LinkLost("no usable reply for 0x%02X after %d attempts" % (addr, MAX_ATTEMPTS + 1))
+        raise LinkLost("no usable reply for 0x%02X after %d attempts" % (addr, limit))
 
     def burst(self, cmds: list[tuple[int, int, int]]) -> list[Reply]:
         """Send ``cmds`` at the paced cadence, then collect every reply in order.

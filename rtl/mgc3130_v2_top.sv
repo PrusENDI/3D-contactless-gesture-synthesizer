@@ -573,16 +573,41 @@ logic [9:0] wt_read_index_sel;
     logic        wt_voice_phase_we;
     logic [31:0] wt_voice_phase_a, wt_voice_phase_b;
 
+    // ---- P2b parameter CSRs (0x94 / 0x98 / 0x9C) ---------------------------
+    // Three 32-bit registers whose reset words are exactly the numbers the engine
+    // used to hard-code (attack 4096 / decay 256 / sustain 49152 / release 1024,
+    // velocity_shift 0, detune_shift 0, glide 512).  The registers are unpacked
+    // into the one packed bus the engine already consumes (task 1), so the reset
+    // state is bit-identical to V2_VOICE_CFG_DEFAULT and no voice testbench
+    // changes.  Field layout, low to high, follows v2_voice_engine_banked.
+    localparam logic [31:0] ENV_AD_RESET_VALUE    = 32'h0100_1000;
+    localparam logic [31:0] ENV_SR_RESET_VALUE    = 32'h0400_C000;
+    localparam logic [31:0] VOICE_MIX_RESET_VALUE = 32'h0200_0000;
+
+    logic [31:0] env_ad_reg, env_sr_reg, voice_mix_reg;
+    logic [95:0] voice_cfg;
+
+    assign voice_cfg = {
+        12'd0,                  // [95:84] reserved
+        voice_mix_reg[31:16],   // [83:68] glide_rate
+        voice_mix_reg[3:2],     // [67:66] detune_shift
+        voice_mix_reg[1:0],     // [65:64] velocity_shift
+        env_sr_reg[31:16],      // [63:48] release_step
+        env_sr_reg[15:0],       // [47:32] sustain_level
+        env_ad_reg[31:16],      // [31:16] decay_step
+        env_ad_reg[15:0]        // [15:0]  attack_step
+    };
+
     v2_voice_engine_banked #(.VOICES(32), .USE_GOWIN_RAM(USE_GOWIN_RAM),
                              .USE_WT_SOURCE(1)) u_voice (
         .clk(clk_sys_100m), .rst_n(rst_sys_n), .sample_ce(sample_ce),
         .event_valid(voice_event_valid), .event_ready(voice_event_ready),
         .event_data(voice_event_data), .vibrato_hz_q8_8(16'd0), .vibrato_cents_q8_8(16'd0),
-        // P2b voice parameters: the engine unpacks them from one packed bus.
-        // Until Task 2 registers 0x94/0x98/0x9C this top passes the documented
-        // default, so the whole design keeps the compile-time behaviour (and no
-        // CSR is exposed by this change).
-        .voice_cfg(V2_VOICE_CFG_DEFAULT),
+        // P2b voice parameters: the engine unpacks them from one packed bus,
+        // assembled above from 0x94/0x98/0x9C.  Their reset values are the
+        // numbers the engine used to hard-code, so a host that never writes them
+        // hears exactly the pre-P2b voice.
+        .voice_cfg(voice_cfg),
         .mixed_sample(voice_sample), .sample_valid(voice_sample_valid),
         .active_bitmap(voice_bitmap), .voice_overflow(voice_overflow), .dbg_busy(voice_dbg_busy),
         .voice_steal_count(voice_steal_count), .revoice_count(revoice_count),
@@ -1273,6 +1298,8 @@ end
             filter_ctrl <= 32'd0; lfo_ctrl <= 32'd0;
             fx_a <= FX_A_RESET_VALUE; fx_b <= FX_B_RESET_VALUE;
             fx_c <= 32'd0; volume_reg <= VOLUME_RESET_VALUE;
+            env_ad_reg <= ENV_AD_RESET_VALUE; env_sr_reg <= ENV_SR_RESET_VALUE;
+            voice_mix_reg <= VOICE_MIX_RESET_VALUE;
             bpm_reg <= 16'd120; bpm_we_q <= 1'b0;
             loop_ctrl_valid <= 1'b0; loop_ctrl_op <= 3'd0; loop_ctrl_track <= 3'd0;
             loop_ctrl_pending <= 1'b0; loop_ctrl_pending_op <= 3'd0;
@@ -1364,6 +1391,11 @@ end
                     V2_CSR_FX_B: rsp_data <= fx_b;
                     V2_CSR_FX_C: rsp_data <= fx_c;
                     V2_CSR_VOLUME: rsp_data <= volume_reg;
+                    // P2b parameters: readback is the clamped word that was
+                    // stored, so the host sees the effective value (spec 11.6).
+                    V2_CSR_ENV_AD: rsp_data <= env_ad_reg;
+                    V2_CSR_ENV_SR: rsp_data <= env_sr_reg;
+                    V2_CSR_VOICE_MIX: rsp_data <= voice_mix_reg;
                     V2_CSR_WT_SELECT: rsp_data <= {wt_lfo_step, wt_morph_en,
                                                     wt_voice_shift, 2'd0, wt_select_table};
                     V2_CSR_WT_INDEX: rsp_data <= {22'd0, wt_select_index};
@@ -1507,6 +1539,15 @@ end
                     fx_c <= v2_csr_clamp(V2_CSR_FX_C, cmd_data);
                 if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_VOLUME)
                     volume_reg <= v2_csr_clamp(V2_CSR_VOLUME, cmd_data);
+                // P2b parameters: same shape as the P2a six.  The contract owns
+                // the floors (attack/release/glide >= 1, spec 11.6), so a zero
+                // written here reads back as 1 and never deadlocks the envelope.
+                if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_ENV_AD)
+                    env_ad_reg <= v2_csr_clamp(V2_CSR_ENV_AD, cmd_data);
+                if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_ENV_SR)
+                    env_sr_reg <= v2_csr_clamp(V2_CSR_ENV_SR, cmd_data);
+                if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_VOICE_MIX)
+                    voice_mix_reg <= v2_csr_clamp(V2_CSR_VOICE_MIX, cmd_data);
             if (cmd_op == V2_OP_WRITE && cmd_address == V2_CSR_BPM)
                     bpm_reg <= cmd_data[15:0];
                 bpm_we_q <= bpm_write;

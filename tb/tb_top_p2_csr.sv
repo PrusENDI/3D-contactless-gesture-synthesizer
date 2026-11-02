@@ -171,6 +171,20 @@ module tb_top_p2_csr;
     expect_csr(V2_CSR_FX_C,   32'h0000_0000, "0x8C fx_c reset");
     expect_csr(V2_CSR_VOLUME, 32'h0001_0000, "0x90 volume reset (unity)");
 
+    // ---- 1b. P2b reset values and the packed default on voice_cfg --------
+    // The three P2b registers must reset to the words that reproduce the
+    // compile-time constants of the engine, and the top must unpack them into a
+    // voice_cfg that is bit-identical to V2_VOICE_CFG_DEFAULT before any write,
+    // otherwise every voice testbench changes its numbers.
+    expect_csr(V2_CSR_ENV_AD,    32'h0100_1000, "0x94 env_ad reset (decay 256, attack 4096)");
+    expect_csr(V2_CSR_ENV_SR,    32'h0400_C000, "0x98 env_sr reset (release 1024, sustain 49152)");
+    expect_csr(V2_CSR_VOICE_MIX, 32'h0200_0000, "0x9C voice_mix reset (glide 512, shifts 0)");
+    if (dut.voice_cfg !== V2_VOICE_CFG_DEFAULT)
+      $fatal(1, "voice_cfg at reset is 0x%024h, expected 0x%024h",
+             dut.voice_cfg, V2_VOICE_CFG_DEFAULT);
+    $display("PASS voice_cfg at reset = 0x%024h (WYSIWYG with V2_VOICE_CFG_DEFAULT)",
+             dut.voice_cfg);
+
     // ---- 2. Write/read round trip ---------------------------------------
     write_csr(V2_CSR_FILTER, 32'h0101_00C5, "0x40 = 0x010100C5");
     expect_csr(V2_CSR_FILTER, 32'h0101_00C5, "0x40 round trip (ci 0xC5, res 0x10, enable 1)");
@@ -192,10 +206,9 @@ module tb_top_p2_csr;
              dut.fx_feedback_reg, dut.fx_reverb_reg);
 
     // ---- 4. P2b is a live parameter surface now: 0x9C must ACK -----------
-    // Task 0 of P2b made 0x94/0x98/0x9C read/write in the contract, so the link
-    // stops NACKing them.  The register itself arrives with P2b task 2; this
-    // round only pins the contract side (accepted, and out-of-mask still
-    // BAD_DATA, because a mask is not a clamp input).
+    // 0x94/0x98/0x9C are read/write in the contract, so the link stops NACKing
+    // them.  A write inside the mask is accepted and latched (task 2); an
+    // out-of-mask write is still BAD_DATA, because a mask is not a clamp input.
     send_frame(V2_OP_WRITE, 8'h9C, 32'h0000_0001);
     if (reply[2] !== V2_TLM_ACK)
       $fatal(1, "0x9C write was not ACKed (type=0x%02h err=0x%02h)", reply[2], reply[19]);
@@ -234,7 +247,45 @@ module tb_top_p2_csr;
     $display("PASS 0x44 unpacking: rate=%0d depth=0x%02h wave=%0d",
              dut.lfo_rate_mhz, dut.lfo_depth, dut.lfo_wave);
 
-    $display("PASS tb_top_p2_csr: six P2a CSRs latch, clamp and read back");
+    // ---- 6. P2b parameter registers (0x94 / 0x98 / 0x9C) ----------------
+    write_csr(V2_CSR_ENV_AD, 32'h1234_5678, "0x94 = 0x12345678");
+    expect_csr(V2_CSR_ENV_AD, 32'h1234_5678, "0x94 round trip (decay 0x1234, attack 0x5678)");
+    write_csr(V2_CSR_ENV_SR, 32'h0800_C000, "0x98 = 0x0800C000");
+    expect_csr(V2_CSR_ENV_SR, 32'h0800_C000, "0x98 round trip (release 0x0800, sustain 0xC000)");
+    write_csr(V2_CSR_VOICE_MIX, 32'h0ABC_000F, "0x9C = 0x0ABC000F");
+    expect_csr(V2_CSR_VOICE_MIX, 32'h0ABC_000F,
+               "0x9C round trip (glide 0x0ABC, detune 3, velocity 3)");
+
+    // attack_step 0 is clamped to 1 (spec 11.6); decay is kept as written.
+    write_csr(V2_CSR_ENV_AD, 32'h0100_0000, "0x94 = 0x01000000 (attack 0)");
+    expect_csr(V2_CSR_ENV_AD, 32'h0100_0001, "0x94 attack clamps 0 -> 1, decay kept");
+    // Only [3:0] of VOICE_MIX is inside the write mask, so bits 4..15 can never
+    // be stored.  They are still refused by the link (a mask is not a clamp),
+    // and the in-mask word keeps both 2-bit shift fields.
+    send_frame(V2_OP_WRITE, V2_CSR_VOICE_MIX, 32'h0000_003F);
+    if (reply[2] !== V2_TLM_NACK || reply[19] !== V2_ERR_BAD_DATA)
+      $fatal(1, "0x9C 0x3F: type=0x%02h err=0x%02h, expected NACK 0x07", reply[2], reply[19]);
+    $display("PASS 0x9C 0x3F has bits above [3:0] and is NACKed with BAD_DATA (0x07)");
+    expect_csr(V2_CSR_VOICE_MIX, 32'h0ABC_000F, "0x9C unchanged by the out-of-mask write");
+    write_csr(V2_CSR_VOICE_MIX, 32'h0000_000F, "0x9C = 0x0000000F (both shift fields 3)");
+    // The low word holds only [3:0]; the glide field reads back 1, not 0, because
+    // the contract floor for glide_rate is 1 (spec 11.6).
+    expect_csr(V2_CSR_VOICE_MIX, 32'h0001_000F, "0x9C stores [3:0] only, glide clamps 0 -> 1");
+
+    // Back to the documented defaults, then move only attack and watch the bus.
+    write_csr(V2_CSR_ENV_SR, 32'h0400_C000, "0x98 back to its reset value");
+    write_csr(V2_CSR_VOICE_MIX, 32'h0200_0000, "0x9C back to its reset value");
+    write_csr(V2_CSR_ENV_AD, 32'h0100_FFFF, "0x94 = 0x0100FFFF (decay 256, attack 65535)");
+    if (dut.voice_cfg !== 96'h0000_2000_0400_C000_0100_FFFF)
+      $fatal(1, "voice_cfg after 0x94 = 0x0100FFFF is 0x%024h", dut.voice_cfg);
+    if (dut.voice_cfg === V2_VOICE_CFG_DEFAULT)
+      $fatal(1, "voice_cfg did not change after writing 0x94");
+    if (dut.voice_cfg[15:0] !== 16'hFFFF ||
+        dut.voice_cfg[95:16] !== V2_VOICE_CFG_DEFAULT[95:16])
+      $fatal(1, "voice_cfg field layout changed unexpectedly: 0x%024h", dut.voice_cfg);
+    $display("PASS voice_cfg after 0x94 = 0x0100FFFF is 0x%024h", dut.voice_cfg);
+
+    $display("PASS tb_top_p2_csr: six P2a CSRs plus the three P2b parameters latch, clamp and read back");
     $finish;
   end
 

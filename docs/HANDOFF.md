@@ -102,7 +102,14 @@ LIVE 光标 214 帧/2.5 s。滑杆的写-读回路只在模拟端口上测过，
    【录制】里创建 —— 板子明明还存着完整轮廓（`0x38` bit4 = 1）、上一轮也提交成功过，界面却抛
    "nothing is armed"。现在 `RecordFlow.adopt()` + `ConsoleModel.adopt_board_take()`：flow 为空时先读
    `0x38`，满了就接管 `0x34` 的 32 点轮廓（同一 30/32 门禁），再走正常提交/发布。
-   **注意**：接管只解决"发不发命令"，位流里 `USE_POTTS = 0` 仍然让提交写出 **0 事件**，PLAY 依旧无声。
+12. **`USE_POTTS` 在板级是开着的**：模块默认 0，但 `rtl/v2_board_top.sv:22` 传 `.USE_POTTS(1)`，
+   `.POTTS_HORIZON(32)` —— 出厂位流里 DP **是**在跑的。我曾只看模块默认值和构建脚本，误判成 stub，
+   并在文档里写过"提交只会写 0 事件"；**那是错的**，已更正。板级实测：page1 `0x0082006B` 解出
+   `commit_count = 4`、`record_count = 4`（事件确实写进去了），只是在 swap 刚发生那一刻读到的
+   `0x6B` 还是 0，容易被误读成"没写"。
+13. **PLAY/WT_PLAY 没声的常见原因是 morph**：两者都走 `WT_SELECT` 的 `morph` 位与 `shift` 位。
+   只填了 A 却开 morph，三分之二的插值落在空表上；`shift`（WT_SELECT[7:4]，界面"增益移位"）
+   是 `sample >>> shift`，**数值越小越响**（0 最响、可能削顶）。
 
 **PC 侧 overdub（2026-11-02 晚）**：LOOP 页勾上"边听边录（放已录轨）"，对准一小节时主机把**已录的每条轨**
 混成一个 4 s WAV 循环播，板子照旧盲录。板内做不到不是懒：`voice_rst_n` 只在 LIVE/PLAY 放开，

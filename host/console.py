@@ -15,17 +15,19 @@ import datetime
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+# Import the package the same way the tests do (`host.v2_console`), or the modules
+# that reach back into `host.*` fail only when launched as a script.
+REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT))
 
-from v2_console import presets as preset_store  # noqa: E402
-from v2_console.link import Link, LinkLost  # noqa: E402
-from v2_console.serial_port import SerialPort  # noqa: E402
-from v2_console.session import core  # noqa: E402
-from v2_console.views.shell import ConsoleModel, ConsoleWindow  # noqa: E402
+from host.v2_console import presets as preset_store  # noqa: E402
+from host.v2_console.link import Link, LinkLost  # noqa: E402
+from host.v2_console.serial_port import SerialPort  # noqa: E402
+from host.v2_console.session import core  # noqa: E402
+from host.v2_console.views.shell import ConsoleModel, ConsoleWindow  # noqa: E402
 
 TLM_CONTROL = 0x80
 TLM_PERIOD = 240          # 200 frames per second, the sensor's own rate
-REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 def load_presets() -> list:

@@ -5,6 +5,8 @@
 // LIVE and LOOP event paths, voice engine, reduced FX and I2S transmitter.
 // USE_MGC_READER=0 is the deterministic simulation/P&R diagnostic mode; the
 // board build enables the existing MGC3130 reader through the parameter.
+// audio chain latency = 3 samples = 62.4 us (all stages on sample_ce; the
+// ladder adds one more sample when the filter is enabled).
 module mgc3130_v2_top #(
     parameter integer USE_MGC_READER = 0,
     parameter integer UART_BAUD = 1_000_000,
@@ -655,8 +657,16 @@ logic [9:0] wt_read_index_sel;
     // (spec 11.2 item 2), so a board or a testbench that never writes them
     // behaves as before; enable and level only gate the level mux, gain and
     // cutoff are always applied.
+    // The voice engine publishes one mixed sample per scan; the reduced FX block
+    // consumes it on sample_ce, so this register is a clean one-sample pipeline
+    // boundary between the voice accumulator/VCA cone and the FX gain slice.
+    logic signed [15:0] voice_sample_q;
+    always_ff @(posedge clk_sys_100m or negedge rst_sys_n) begin
+        if (!rst_sys_n) voice_sample_q <= 16'sd0;
+        else if (sample_ce) voice_sample_q <= voice_sample;
+    end
     v2_fx_lite #(.USE_GOWIN_RAM(1)) u_fx (
-        .clk(clk_sys_100m), .rst_n(rst_sys_n), .sample_ce(sample_ce), .audio_in(voice_sample),
+        .clk(clk_sys_100m), .rst_n(rst_sys_n), .sample_ce(sample_ce), .audio_in(voice_sample_q),
         .audio_out(fx_sample), .fx_enable(fx_enable_reg), .fx_level(fx_level_reg),
         .fx_gain_q16(fx_gain_reg), .fx_cutoff_q16(fx_cutoff_reg),
         .fx_delay_samples(fx_delay_reg), .fx_feedback_q15(fx_feedback_reg),
@@ -696,7 +706,6 @@ logic [9:0] wt_read_index_sel;
     wire live_note_hit = live_event_valid && (live_event_type == V2_EV_NOTE_ON);
     logic hit_sticky, wt_env_gate;
     logic [15:0] wt_env;
-    logic signed [31:0] wt_env_prod;
     localparam logic [15:0] ENV_ATT = 16'd96, ENV_DEC = 16'd8, ENV_SUS = 16'd45875;
     assign wt_env_gate = mode_live && live_gate;
     always_ff @(posedge clk_sys_100m or negedge rst_sys_n) begin
@@ -713,11 +722,39 @@ logic [9:0] wt_read_index_sel;
             else if (wt_env > ENV_SUS)          wt_env <= wt_env - ENV_DEC;
         end
     end
+    // The LIVE envelope multiply is pinned to a DSP slice.  DSP is full, so the
+    // synthesizer used to build it from a LUT array (~8 ns of carry tree) and
+    // that one operator alone would exceed the 12.5 ns period; the freed slice
+    // from the narrowed master volume (see below) pays for it.
+    (* multstyle = "dsp" *) logic signed [31:0] wt_env_prod;
     assign wt_env_prod = wt_quiet * $signed({1'b0, wt_env});
-    wire signed [15:0] wt_live_sample = wt_env_prod[31:16];
-    // The four-way audio mux keeps its old behaviour; the P2a chain below sits
-    // between it and the I2S transmitter.
-    assign i2s_sample_raw = mode_wt_play ? wt_quiet : mode_live ? wt_live_sample : test_active ? test_sample : fx_quiet;
+
+    // ---- P2a audio chain, stage 1: trim and LIVE envelope ------------------
+    // The trim (three shifts and two subtractions) and the envelope multiply
+    // leave their source through this register pair, so nothing between here
+    // and the audio mux holds more than one wide operator.
+    logic signed [15:0] wt_trim_q;   // PLAY/LIVE -19.9 dB trim, registered
+    logic signed [15:0] wt_live_q;   // LIVE envelope product, registered
+    always_ff @(posedge clk_sys_100m or negedge rst_sys_n) begin
+        if (!rst_sys_n) begin
+            wt_trim_q <= 16'sd0;
+            wt_live_q <= 16'sd0;
+        end else if (sample_ce) begin
+            wt_trim_q <= wt_quiet;
+            wt_live_q <= wt_env_prod[31:16];
+        end
+    end
+
+    // ---- P2a audio chain, stage 2: the four-way audio mux ------------------
+    // i2s_sample_raw is the post-mux sample and now a register on the 48 kHz
+    // beat; the ladder, the bypass mux and the master volume all read this
+    // register, never the mux combinationally.
+    always_ff @(posedge clk_sys_100m or negedge rst_sys_n) begin
+        if (!rst_sys_n) i2s_sample_raw <= 16'sd0;
+        else if (sample_ce)
+            i2s_sample_raw <= mode_wt_play ? wt_trim_q : mode_live ? wt_live_q :
+                              test_active ? test_sample : fx_quiet;
+    end
 
     // ---- P2a audio chain: LFO -> cutoff add and clamp -> ladder -> volume ----
     // Everything here runs on sample_ce (the continuous 48 kHz beat), never on
@@ -765,9 +802,24 @@ logic [9:0] wt_read_index_sel;
     // an exact multiple of 2^16 and the arithmetic shift returns the sample
     // unchanged.  0x20000 can ask for more than int16 holds, and the saturator
     // clamps instead of wrapping (spec 11.2 item 5).
+    //
+    // The 0x90 write clamp caps the register at 0x20000, so the gain is an
+    // 18-bit quantity, not a 32-bit one.  As a 27-bit signed operand it pairs
+    // with the 16-bit sample inside ONE MULTALU27X18 (27x18); the old 16x32
+    // pair needed a MULT27X36 and therefore two DSP slices.  Bit 17 is a value
+    // bit, so the operand is zero extended and stays a positive signed value
+    // for every value the CSR can hold, which keeps 0x20000 exact as well.
+    logic signed [26:0] vol_gain_q16;
+    logic signed [17:0] vol_sample_q15;
+    logic signed [44:0] vol_product_full;
     logic signed [33:0] vol_product;
     logic signed [33:0] vol_scaled;
-    assign vol_product = $signed(chain_sample) * $signed({1'b0, volume_reg});
+    assign vol_gain_q16     = $signed({9'd0, volume_reg[17:0]});
+    assign vol_sample_q15   = $signed(chain_sample);
+    assign vol_product_full = vol_gain_q16 * vol_sample_q15;
+    // 16-bit sample x 18-bit gain is at most 2^32, so 34 bits hold the exact
+    // product and the upper bits of the 45-bit DSP result are sign extension.
+    assign vol_product = vol_product_full[33:0];
     assign vol_scaled  = vol_product >>> 16;
 
     function automatic logic signed [15:0] volume_sat(input logic signed [33:0] value);
@@ -987,12 +1039,30 @@ end
     logic signed [15:0] wt_sample_a, wt_sample_b, wt_mix_out;
     logic wt_rd_valid0, wt_rd_valid1;
     logic [7:0] wt_frac_q;
+    // One-clock pipeline stage in front of the crossfade.  The loader read data
+    // reached the mixer's DSP multiply straight from the DPB output, so the
+    // morph path was RAM -> loader LUTs -> multiply -> add -> mux -> playback
+    // register (17.3 ns measured).  a, b and frac are all registered by the
+    // same clock, so the crossfade arithmetic keeps the exact alignment the
+    // comment above describes; only the audio sample moves by one clock, which
+    // is 1/1667 of a 48 kHz sample and cannot be heard.
+    logic signed [15:0] wt_mix_a_q, wt_mix_b_q;
+    logic [7:0] wt_mix_frac_q;
     always_ff @(posedge clk_sys_100m or negedge rst_sys_n) begin
-        if (!rst_sys_n) wt_frac_q <= 8'd0;
-        else            wt_frac_q <= wt_frac;
+        if (!rst_sys_n) begin
+            wt_frac_q     <= 8'd0;
+            wt_mix_frac_q <= 8'd0;
+            wt_mix_a_q    <= 16'sd0;
+            wt_mix_b_q    <= 16'sd0;
+        end else begin
+            wt_frac_q     <= wt_frac;
+            wt_mix_frac_q <= wt_frac_q;
+            wt_mix_a_q    <= wt_sample_a;
+            wt_mix_b_q    <= wt_sample_b;
+        end
     end
     v2_wt_mix u_wt_mix (
-        .a(wt_sample_a), .b(wt_sample_b), .frac(wt_frac_q), .out(wt_mix_out)
+        .a(wt_mix_a_q), .b(wt_mix_b_q), .frac(wt_mix_frac_q), .out(wt_mix_out)
     );
     logic signed [15:0] wt_table_sample;
     // Either frame may be a table that was never APPLYed; use whichever frame is

@@ -75,6 +75,25 @@ class UploadFramesTest(unittest.TestCase):
         self.assertEqual(last[3], 0x60)
         self.assertEqual(int.from_bytes(last[5:9], "big"), select_word(0, 3, False, bar_step(4.0)))
 
+    def test_morph_is_refused_until_all_three_frames_exist(self):
+        # The LFO sweeps A -> B -> C.  With one frame uploaded, two thirds of the
+        # sweep is an empty table, so WT_PLAY sounds silent -- that was reported as
+        # "波表试听没反应" even though the table had applied cleanly.
+        session = build(upload_plan(tables=1))
+        session.connect()
+        result = session.upload_frames({0: FRAME}, shift=2, morph=True, period_s=20.0)
+        self.assertEqual(result.select & 0x100, 0)
+
+    def test_progress_counts_one_past_the_last_sample(self):
+        session = build(upload_plan(tables=1))
+        session.connect()
+        seen = []
+        session.upload_frames(
+            {0: FRAME}, shift=2, morph=False, period_s=20.0,
+            on_progress=lambda table, done, total: seen.append((done, total)),
+        )
+        self.assertEqual(seen[-1], (1024, 1024))
+
     def test_a_refused_frame_stops_the_upload_and_reports_the_table(self):
         plan = upload_plan(tables=2)
         plan[5 + 500] = (0, 7)           # the 500th sample of the first frame is refused

@@ -367,11 +367,16 @@ class ConsoleModel:
         )
         self.uploaded_frames = {table: list(frame) for table, frame in self.frames.items()}
         which = ", ".join("ABC"[table] for table in result.uploaded) or "none"
-        self.message = "uploaded frames %s (shift %d, %.1f s), morph %s" % (
+        morph_on = bool(result.select & 0x100)
+        if morph and not morph_on:
+            note = "morph off: it sweeps A/B/C, and there are only %d frame(s)" % len(self.frames)
+        else:
+            note = "morph on" if morph_on else "morph off"
+        self.message = "uploaded frames %s (shift %d, %.1f s), %s" % (
             which,
             shift,
             result.elapsed_s,
-            "on" if morph else "off",
+            note,
         )
         return self.message
 

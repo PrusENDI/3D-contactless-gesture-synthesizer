@@ -244,7 +244,9 @@ class Session:
             if reply.nack or reply.err:
                 raise UploadRefused(WT_DATA, index, reply)
             if on_sample is not None:
-                on_sample(index, len(samples))
+                # One-based: a progress bar that stops at 1023/1024 reads as hung
+                # during the CRC/APPLY that follow, which is exactly how it was read.
+                on_sample(index + 1, len(samples))
         # The script writes the length after the samples, not before.
         self.write(WT_LENGTH, len(samples))
         value = table_crc(samples)
@@ -330,7 +332,7 @@ class Session:
                     on_progress(table, index, total) if on_progress is not None else None
                 ),
             )
-        word = select_word(0, shift, morph, bar_step(period_s))
+        word = select_word(0, shift, morph and len(frames) >= 3, bar_step(period_s))
         self.write(WT_SELECT, word)
         return FramesUploadResult(
             ok=True,

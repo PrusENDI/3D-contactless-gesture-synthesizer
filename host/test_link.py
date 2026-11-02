@@ -98,5 +98,37 @@ class LinkTest(unittest.TestCase):
         self.assertEqual(port.written_count(), 3)
 
 
+class ConcurrencyTest(unittest.TestCase):
+    def test_two_threads_do_not_steal_each_others_replies(self):
+        import threading
+        import time as _time
+
+        class SlowPort(ScriptedPort):
+            def read(self, n, timeout_s):
+                _time.sleep(0.002)
+                return super().read(n, timeout_s)
+
+        seqs = list(range(1, 21))
+        port = SlowPort(chunks=[reply_frame(seq, seq) for seq in seqs])
+        link_ = link.Link(port, pacing_s=0.0, timeout_s=0.3)
+        results, errors = [], []
+
+        def worker(count):
+            try:
+                for _ in range(count):
+                    results.append(link_.command(link.OP_READ, 0xB0))
+            except Exception as exc:  # LinkLost means a reply was stolen
+                errors.append(exc)
+
+        threads = [threading.Thread(target=worker, args=(10,)) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        self.assertEqual(errors, [])
+        self.assertEqual(len({reply.seq for reply in results}), 20)
+
+
 if __name__ == "__main__":
     unittest.main()

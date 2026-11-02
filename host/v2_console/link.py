@@ -12,6 +12,7 @@ response for a byte-identical duplicate, which makes the retry exactly-once.
 
 from __future__ import annotations
 
+import threading
 import time
 
 from .crc import CRC_SELFTEST, crc16
@@ -81,6 +82,10 @@ class Link:
         self._parser = StreamParser()
         self._telemetry: list[Telemetry] = []
         self._last_round_trip_ms = 0.0
+        # The window polls readouts on the Tk thread while buttons run on worker
+        # threads; without this, one command's reply is taken by the other and both
+        # time out. One command is in flight at a time, by construction.
+        self._guard = threading.RLock()
 
     # -- primitives ---------------------------------------------------------
 
@@ -142,6 +147,10 @@ class Link:
         matches but the bytes differ, the board answers err=5 and executes nothing.
         That is not an answer to this command, so the retry uses a new seq.
         """
+        with self._guard:
+            return self._command_locked(op, addr, data)
+
+    def _command_locked(self, op: int, addr: int, data: int) -> Reply:
         seq = self._next_seq()
         frame = build_frame(op, addr, data, seq)
         for _ in range(MAX_ATTEMPTS + 1):
@@ -169,6 +178,10 @@ class Link:
         """
         if not cmds:
             return []
+        with self._guard:
+            return self._burst_locked(cmds)
+
+    def _burst_locked(self, cmds: list[tuple[int, int, int]]) -> list[Reply]:
         frames: list[bytes] = []
         seqs: list[int] = []
         for op, addr, data in cmds:
@@ -225,7 +238,8 @@ class Link:
 
     def pump(self) -> list[Telemetry]:
         """Read whatever is waiting and return the telemetry frames it held."""
-        self._fill(0.0)
+        with self._guard:
+            self._fill(0.0)
         out, self._telemetry = self._telemetry, []
         return out
 

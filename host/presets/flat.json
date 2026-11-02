@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "name": "flat",
+  "notes": "every default, for A/B against the raw sound (wavetable identity not captured: this preset was applied to whatever table was loaded)",
+  "created": "2026-11-02",
+  "bitstream": {
+    "run": "v2_board_top_p2b_no_patch",
+    "sha256": "471fa9ba4b2878c0d83b0867447012fcfc70714d9d234276823a554537a0e48a"
+  },
+  "wavetable": {
+    "table": 0,
+    "version": 0,
+    "crc": 0,
+    "voice_shift": 2,
+    "morph": false
+  },
+  "words": {
+    "0x40": 0,
+    "0x44": 0,
+    "0x84": 1376256,
+    "0x88": 4294901760,
+    "0x8C": 0,
+    "0x90": 65536,
+    "0x94": 16781312,
+    "0x98": 67158016,
+    "0x9C": 33554432
+  }
+}

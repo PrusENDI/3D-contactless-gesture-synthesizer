@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "name": "warm",
+  "notes": "low-pass ci=288 res=72, 350 mHz triangle LFO depth 12, slow attack/release, dry, volume 1.5 (wavetable identity not captured: this preset was applied to whatever table was loaded)",
+  "created": "2026-11-02",
+  "bitstream": {
+    "run": "v2_board_top_p2b_no_patch",
+    "sha256": "471fa9ba4b2878c0d83b0867447012fcfc70714d9d234276823a554537a0e48a"
+  },
+  "wavetable": {
+    "table": 0,
+    "version": 0,
+    "crc": 0,
+    "voice_shift": 2,
+    "morph": false
+  },
+  "words": {
+    "0x40": 17072416,
+    "0x44": 51118430,
+    "0x84": 1114112,
+    "0x88": 1610613247,
+    "0x8C": 12288,
+    "0x90": 98304,
+    "0x94": 4194368,
+    "0x98": 1084621,
+    "0x9C": 33554432
+  }
+}

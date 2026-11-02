@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "name": "space",
+  "notes": "ci=276 res=40, 1.2 Hz LFO depth 32, level 3 comb -- clips to DC with four tracks, use it on few voices (wavetable identity not captured: this preset was applied to whatever table was loaded)",
+  "created": "2026-11-02",
+  "bitstream": {
+    "run": "v2_board_top_p2b_no_patch",
+    "sha256": "471fa9ba4b2878c0d83b0867447012fcfc70714d9d234276823a554537a0e48a"
+  },
+  "wavetable": {
+    "table": 0,
+    "version": 0,
+    "crc": 0,
+    "voice_shift": 2,
+    "morph": false
+  },
+  "words": {
+    "0x40": 16941332,
+    "0x44": 52430024,
+    "0x84": 1835008,
+    "0x88": 1879049215,
+    "0x8C": 1073753702,
+    "0x90": 81920,
+    "0x94": 2097184,
+    "0x98": 547226,
+    "0x9C": 33554432
+  }
+}

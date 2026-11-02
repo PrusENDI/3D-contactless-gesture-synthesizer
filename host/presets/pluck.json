@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "name": "pluck",
+  "notes": "ci=312 res=96, fast attack, short decay, 256-sample slap with 0.31 feedback, volume 1.5 (wavetable identity not captured: this preset was applied to whatever table was loaded)",
+  "created": "2026-11-02",
+  "bitstream": {
+    "run": "v2_board_top_p2b_no_patch",
+    "sha256": "471fa9ba4b2878c0d83b0867447012fcfc70714d9d234276823a554537a0e48a"
+  },
+  "wavetable": {
+    "table": 0,
+    "version": 0,
+    "crc": 0,
+    "voice_shift": 2,
+    "morph": false
+  },
+  "words": {
+    "0x40": 17170744,
+    "0x44": 50856536,
+    "0x84": 1638400,
+    "0x88": 1342177535,
+    "0x8C": 10240,
+    "0x90": 98304,
+    "0x94": 2098176,
+    "0x98": 2116813,
+    "0x9C": 33554432
+  }
+}

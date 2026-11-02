@@ -8,16 +8,36 @@ itself when 0x18 arms -- so this layer only offers the three user-visible modes.
 from __future__ import annotations
 
 import datetime as _dt
+import time as _time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Sequence
 
 from .. import link as linkmod
+from ..crc import crc16
 from ..link import Link, Reply
 from .log import JsonlLog
 
 BOARD_ID = 0x5A5A0003
 LIVE, RECORD, COMMIT, PLAY, ERROR, WT_PLAY = 1, 2, 3, 4, 5, 6
 MODE_NAMES = {0: "IDLE", 1: "LIVE", 2: "RECORD", 3: "COMMIT", 4: "PLAY", 5: "ERROR", 6: "WT_PLAY"}
+
+WT_SELECT = 0x60
+WT_INDEX = 0x64
+WT_DATA = 0x68
+WT_LENGTH = 0x6C
+WT_CRC = 0x70
+WT_VERSION = 0x74
+WT_APPLY = 0x78
+WT_STATUS = 0x7C
+
+APPLY_COMMIT = 0x80000000
+APPLY_RETRIES = 4
+
+
+def table_crc(samples: Sequence[int]) -> int:
+    """CRC over MSB-first sample bytes; hashing the little-endian file is rejected."""
+    return crc16(b"".join((sample & 0xFFFF).to_bytes(2, "big") for sample in samples))
 
 
 class WrongBitstream(RuntimeError):
@@ -45,6 +65,15 @@ class Status:
     mode: int
     loop_active: bool
     fault: int
+
+
+@dataclass
+class UploadResult:
+    ok: bool
+    active_version: int
+    crc: int
+    attempts: int
+    elapsed_s: float
 
 
 def _addr(text: str) -> int:
@@ -119,3 +148,59 @@ class Session:
         # board_cursor.ps1 leaves the stream on, and then every later command
         # sees a 22-byte snapshot where it expected its reply.
         self.write(0x80, 0)
+
+    # -- wavetable ----------------------------------------------------------
+
+    def upload_table(
+        self,
+        samples: Sequence[int],
+        table: int = 0,
+        voice_shift: int = 2,
+        morph: bool = False,
+    ) -> UploadResult:
+        """Upload one 1024-point table. Forces IDLE first, exactly like the script.
+
+        Writing a table while one plays is NACKed, so the script drops to IDLE
+        before the first byte; the caller re-enters its mode afterwards. The
+        APPLY version must equal the active version read from WT_STATUS, or the
+        three-way version match fails and the table is refused.
+        """
+        started = _time.monotonic()
+        self.write(0x04, 0)
+        self.write(WT_SELECT, table & 0x3)
+        self.write(WT_LENGTH, len(samples))
+        self.write(WT_INDEX, 0)
+        for sample in samples:
+            self.write(WT_DATA, sample & 0xFFFF)
+        value = table_crc(samples)
+        self.write(WT_CRC, value)
+        active_version = self.read(WT_STATUS) & 0xFFFF
+        self.write(WT_VERSION, active_version)
+
+        attempts = 0
+        ok = False
+        for attempt in range(1, APPLY_RETRIES + 1):
+            reply = self.write(WT_APPLY, APPLY_COMMIT | active_version)
+            attempts = attempt
+            # The script retries on a non-zero err byte, not on the ACK/NACK bit:
+            # APPLY answers err=7 while the loader is still preparing, and a real
+            # rejection (CRC/version) comes back the same way on every attempt.
+            if not reply.nack and reply.err == 0:
+                ok = True
+                break
+        if ok:
+            select = ((1 if morph else 0) << 8) | ((voice_shift & 0xF) << 4) | (table & 0x3)
+            self.write(WT_SELECT, select)
+        return UploadResult(
+            ok=ok,
+            active_version=active_version,
+            crc=value,
+            attempts=attempts,
+            elapsed_s=_time.monotonic() - started,
+        )
+
+    def read_table(self) -> list[int]:
+        """Read the 1024 samples back. Only in IDLE: in PLAY the port returns 0."""
+        self.require_mode(0)
+        self.write(WT_INDEX, 0)
+        return [self.read(WT_DATA) & 0xFFFF for _ in range(1024)]

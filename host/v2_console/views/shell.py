@@ -702,6 +702,8 @@ class ConsoleWindow:
         self._pending_param = None
         self._syncing = False           # a ttk.Scale fires its command on set(), too
         self._pending_label = None
+        self._capture_mark = None
+        self._capture_until = 0.0
         self._current = TABS[0]
 
         self.dpi_awareness = theme_mod.enable_dpi_awareness()
@@ -1049,14 +1051,21 @@ class ConsoleWindow:
         self._run("upload", action)
 
     def _on_capture_frame(self):
-        started = len(self.model.buffer.trail(10 ** 6))
+        self._capture_mark = self.model.buffer.mark()
+        self._capture_until = time.monotonic() + 4.0
         self.model.message = "capturing 4 s: move your hand over the sensor"
-        self.root.after(4000, lambda: self._finish_capture(started))
+        self.root.after(4000, self._finish_capture)
 
-    def _finish_capture(self, started: int):
-        points = self.model.buffer.trail(10 ** 6)[started:]
+    def _finish_capture(self):
+        frames = self.model.buffer.since(self._capture_mark)
+        self._capture_mark = None
+        points = [(frame.x, frame.y) for frame in frames]
         if len(points) < 32:
-            self.model.message = "capture got %d samples; is the telemetry stream on?" % len(points)
+            self.model.message = (
+                "capture got %d samples in 4 s; the board only streams telemetry while "
+                "a hand is in the field" % len(points)
+            )
+            self.loop_label.config(text=self.model.message, fg=self.palette.danger)
             return
         self._run("capture-frame", lambda: self.model.capture_frame(points))
 
@@ -1384,6 +1393,18 @@ class ConsoleWindow:
         self._pending_label = text
         self.loop_label.config(text=text, fg=self.palette.dim)
 
+    def _paint_capture(self, canvas) -> None:
+        """Frame count while a wavetable capture runs: zero means no stream, now."""
+        if self._capture_mark is None:
+            return
+        frames = self.model.buffer.since(self._capture_mark)
+        left = max(0.0, self._capture_until - time.monotonic())
+        canvas.create_text(
+            canvas.winfo_width() / 2, self.px(30),
+            text=self.zh.t("wave.capturing", len(frames), left),
+            fill=self.palette.accent, font=(self.font_family, 13, "bold"),
+        )
+
     def _empty_hint(self, tab: str):
         """A blank canvas looks broken; say what would fill it instead."""
         if tab == "live":
@@ -1434,6 +1455,7 @@ class ConsoleWindow:
                         justify="center",
                     )
                 self._paint_record(canvas)
+                self._paint_capture(canvas)
             self._update_record_label()
             self.status.config(text=self._status_text())
         except Exception as exc:  # a render error must not kill the loop

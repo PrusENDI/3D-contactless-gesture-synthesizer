@@ -72,5 +72,37 @@ class TestTelemetryStillStarts(unittest.TestCase):
         self.assertEqual(buffer.trail(10), [])
 
 
+class TestTelemetryMarks(unittest.TestCase):
+    """A capture must not index the ring by length: the length stops growing."""
+
+    @staticmethod
+    def frame(index):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(x=index, y=index)
+
+    def test_frames_pushed_after_a_mark_are_returned_even_when_the_ring_is_full(self):
+        buffer = telemetry.TelemetryBuffer(capacity=4)
+        for index in range(4):
+            buffer.push(self.frame(index))
+        mark = buffer.mark()                       # the ring is now full
+        for index in range(4, 6):
+            buffer.push(self.frame(index))
+        self.assertEqual([f.x for f in buffer.since(mark)], [4, 5])
+
+    def test_a_mark_older_than_the_ring_returns_what_is_left(self):
+        buffer = telemetry.TelemetryBuffer(capacity=4)
+        mark = buffer.mark()
+        for index in range(10):
+            buffer.push(self.frame(index))
+        self.assertEqual([f.x for f in buffer.since(mark)], [6, 7, 8, 9])
+
+    def test_the_trail_still_answers_the_painter(self):
+        buffer = telemetry.TelemetryBuffer(capacity=4)
+        for index in range(6):
+            buffer.push(self.frame(index))
+        self.assertEqual(buffer.trail(2), [(4, 4), (5, 5)])
+
+
 if __name__ == "__main__":
     unittest.main()

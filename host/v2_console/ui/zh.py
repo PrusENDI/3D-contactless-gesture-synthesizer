@@ -65,6 +65,7 @@ ZH = {
     "score.wrong": "错 tick %s",
     # wave strip
     "wave.capture": "捕获一帧（4 秒）",
+    "wave.capturing": "● 捕获中 %d 帧    剩 %.1f s",
     "wave.gain": "增益移位",
     "wave.period": "LFO 周期（秒）",
     "wave.upload": "上传三帧",

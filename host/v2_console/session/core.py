@@ -194,6 +194,26 @@ class Session:
         # sees a 22-byte snapshot where it expected its reply.
         self.write(0x80, 0)
 
+    def readouts(self) -> dict:
+        """One screenful of state: the note the hand is on, and the voice engine's load.
+
+        Reading these costs two commands, so the window caches the result instead of
+        asking per redraw. The probe page write is the contour pointer as well, which
+        is why this must not run while a contour is being read.
+        """
+        live = self.read(0xE8)
+        self.write(0x34, 2)
+        page2 = self.read(0xF8)
+        return {
+            "note": live & 0xFF,
+            "gate": bool((live >> 8) & 1),
+            "active": bool((live >> 9) & 1),
+            "z": self.read(0xE0),
+            "voices": (page2 >> 17) & 0x3F,
+            "steals": page2 & 0xFFFF,
+            "overflow": (page2 >> 16) & 1,
+        }
+
     # -- wavetable ----------------------------------------------------------
 
     def upload_table(

@@ -46,6 +46,9 @@ class ConsoleModel:
         self.flow_factory = None
         self.track = 0
         self.commit_count = 0
+        self._readouts = None
+        self._readouts_at = 0.0
+        self.params: dict = {}
         from ..session import record_flow as _record_flow
 
         self.flow_factory = _record_flow.RecordFlow
@@ -86,6 +89,11 @@ class ConsoleModel:
             parts.append("waiting for a hand over the sensor")
         else:
             parts.append("%d frames" % len(self.buffer.trail(10 ** 6)))
+        if self._readouts:
+            parts.append("voices %d" % self._readouts.get("voices", 0))
+            parts.append("steals %d" % self._readouts.get("steals", 0))
+            parts.append("note %d" % self._readouts.get("note", 0))
+            parts.append("z %d" % self._readouts.get("z", 0))
         if self.message:
             parts.append(self.message)
         return "  ".join(parts)
@@ -257,6 +265,91 @@ class ConsoleModel:
         self.message = "published track %d: mode is PLAY now" % self.track
         return self.message
 
+    # -- parameters, modes and readouts ------------------------------------
+
+    def set_param(self, addr: int, word: int) -> str:
+        """Write one register and read it back; report a clamp instead of hiding it."""
+        from ..params import PARAMS
+
+        param = PARAMS.get(addr)
+        if param is None:
+            raise ValueError("0x%02X is not a parameter register" % addr)
+        outside = word & ~param.mask
+        if outside:
+            raise ValueError(
+                "0x%02X has bits outside its mask (0x%08X): the board would NACK it"
+                % (addr, outside)
+            )
+        reply = self.session.write(addr, word)
+        if reply.nack or reply.err:
+            raise RuntimeError("0x%02X refused (err=0x%02X)" % (addr, reply.err))
+        back = self.session.read(addr)
+        if back == word:
+            return "0x%02X = 0x%08X" % (addr, word)
+        return "0x%02X wrote 0x%08X, board clamped to 0x%08X" % (addr, word, back)
+
+    def read_params(self) -> dict:
+        from ..params import PARAM_ADDRS
+
+        words = {addr: self.session.read(addr) for addr in PARAM_ADDRS}
+        self.params = dict(words)
+        return words
+
+    def write_field(self, addr: int, name: str, value: int) -> str:
+        """Move one slider: keep every other field of that register as it is on the board."""
+        from ..params import PARAMS, set_field
+
+        current = self.params.get(addr, PARAMS[addr].default)
+        word = set_field(addr, current, name, value)
+        message = self.set_param(addr, word)
+        self.params[addr] = self.session.read(addr)
+        self.message = message
+        return message
+
+    def set_mode(self, mode: int) -> str:
+        self.session.set_mode(mode)
+        self._status = None
+        self.message = "mode %s" % core.MODE_NAMES.get(mode, mode)
+        return self.message
+
+    def set_arp(self, on: bool) -> str:
+        """THRESHOLDS[23]: 1 = step arpeggio, 0 = per-frame tracking."""
+        word = self.session.read(0x30)
+        word = (word | (1 << 23)) if on else (word & ~(1 << 23))
+        low, high = word & 0xFFFF, (word >> 16) & 0xFFFF
+        if low >= high:                       # the board refuses low >= high
+            high = low + 1
+            word = (high << 16) | low
+        self.session.write(0x30, word)
+        self.message = "rule: %s" % ("step arpeggio" if on else "per-frame tracking")
+        return self.message
+
+    def arp_on(self) -> bool:
+        return bool((self.session.read(0x30) >> 23) & 1)
+
+    def bpm(self) -> int:
+        return self.session.read(0x08) & 0xFFFF
+
+    def readouts(self) -> dict:
+        """The numbers the storyboard puts on screen: note, gate, z, voices, steals."""
+        snapshot = self.session.readouts()
+        self._readouts = snapshot
+        return snapshot
+
+    def refresh_readouts(self) -> None:
+        """Cache the readout block; the window redraws too often to poll it per frame."""
+        try:
+            self._readouts = self.session.readouts()
+            self._readouts_at = time.monotonic()
+        except Exception:
+            self._readouts = None
+
+    def identity_text(self) -> str:
+        board = getattr(self.session, "identity", None)
+        board_id = board.board_id if board is not None else self.session.read(0xB0)
+        version = self.session.read(0x7C) & 0xFFFF
+        return "board 0x%08X  table v%d" % (board_id, version)
+
     # -- what to draw -------------------------------------------------------
 
     def drawing(self, tab: str):
@@ -325,12 +418,32 @@ class ConsoleWindow:
         self.canvases = {}
         for name in TABS:
             frame = tk.Frame(self.notebook, bg="#101014")
-            canvas = tk.Canvas(frame, bg="#101014", highlightthickness=0)
-            canvas.pack(fill="both", expand=True)
+            if name == "tone":
+                self._build_tone_panel(frame)
+                self.canvases[name] = None
+            else:
+                canvas = tk.Canvas(frame, bg="#101014", highlightthickness=0)
+                canvas.pack(fill="both", expand=True)
+                self.canvases[name] = canvas
             self.notebook.add(frame, text=name)
-            self.canvases[name] = canvas
         self._current = TABS[0]
         self.notebook.bind("<<NotebookTabChanged>>", self._on_tab)
+
+        mode_row = tk.Frame(self.root, bg="#101014")
+        mode_row.pack(fill="x")
+        self._button(mode_row, "LIVE", lambda: self._on_mode(1), side="left")
+        self._button(mode_row, "PLAY", lambda: self._on_mode(4), side="left")
+        self._button(mode_row, "WT_PLAY", lambda: self._on_mode(6), side="left")
+        self.arp = tk.Checkbutton(
+            mode_row, text="step arpeggio", command=self._on_arp,
+            bg="#101014", fg="#cccccc", selectcolor="#202024", activebackground="#101014",
+        )
+        self.arp.pack(side="left", padx=8)
+        self.bpm_label = tk.Label(mode_row, text="BPM -", fg="#888888", bg="#101014")
+        self.bpm_label.pack(side="left", padx=8)
+        self._button(mode_row, "Read params", self._on_read_params, side="left")
+        self.identity_label = tk.Label(mode_row, text="", fg="#888888", bg="#101014")
+        self.identity_label.pack(side="left", padx=8)
 
         controls = tk.Frame(self.root, bg="#101014")
         controls.pack(fill="x")
@@ -340,7 +453,7 @@ class ConsoleWindow:
 
         morph = tk.Frame(self.root, bg="#101014")
         morph.pack(fill="x")
-        self._button(morph, "Capture frame (4 s)", self._on_capture, side="left")
+        self._button(morph, "Capture frame (4 s)", self._on_capture_frame, side="left")
         tk.Label(morph, text="gain shift", fg="#cccccc", bg="#101014").pack(side="left", padx=(8, 2))
         self.gain = tk.Scale(
             morph, from_=0, to=15, orient="horizontal", length=140,
@@ -392,6 +505,82 @@ class ConsoleWindow:
             return None
         selection = self.preset_list.curselection()
         return self.presets[selection[0]] if selection else None
+
+    # -- tone panel ---------------------------------------------------------
+
+    def _build_tone_panel(self, parent) -> None:
+        """One slider per field of the nine parameter registers, with units on the right."""
+        from ..params import PARAMS
+
+        tk = self.tk
+        self.param_scales = {}
+        self._param_after = None
+        self._pending_param = None
+        row = 0
+        for addr in sorted(PARAMS):
+            param = PARAMS[addr]
+            tk.Label(
+                parent, text="0x%02X %s   (%s only)" % (addr, param.key, param.scope),
+                fg="#aaaaaa", bg="#101014", anchor="w",
+            ).grid(row=row, column=0, columnspan=3, sticky="w", pady=(6, 0))
+            row += 1
+            for field in param.fields:
+                tk.Label(parent, text=field.name, fg="#cccccc", bg="#101014", width=15, anchor="w").grid(
+                    row=row, column=0, sticky="w"
+                )
+                scale = tk.Scale(
+                    parent, from_=field.lo, to=field.hi, orient="horizontal", length=240,
+                    bg="#101014", fg="#cccccc", highlightthickness=0, showvalue=0,
+                    command=lambda value, a=addr, f=field.name: self._on_param_drag(a, f, value),
+                )
+                scale.set(field.lo)
+                scale.grid(row=row, column=1, sticky="w")
+                value_label = tk.Label(parent, text="", fg="#888888", bg="#101014", width=22, anchor="w")
+                value_label.grid(row=row, column=2, sticky="w")
+                self.param_scales[(addr, field.name)] = (scale, value_label)
+                row += 1
+
+    def _on_param_drag(self, addr: int, name: str, value: str) -> None:
+        """Sliders fire on every pixel; wait for the hand to stop before talking to the board."""
+        self._pending_param = (addr, name, int(float(value)))
+        if self._param_after is not None:
+            self.root.after_cancel(self._param_after)
+        self._param_after = self.root.after(250, self._flush_param)
+
+    def _flush_param(self) -> None:
+        self._param_after = None
+        if self._pending_param is None:
+            return
+        addr, name, value = self._pending_param
+        self._pending_param = None
+        self._run("param", lambda: self.model.write_field(addr, name, value))
+
+    def _on_read_params(self):
+        def action():
+            words = self.model.read_params()
+            self._results.put(("params", words, None))
+            return "read %d registers" % len(words)
+
+        self._run("read-params", action)
+
+    def _sync_sliders(self, words: dict) -> None:
+        from ..params import display, get_field
+
+        for (addr, name), (scale, label) in getattr(self, "param_scales", {}).items():
+            word = words.get(addr)
+            if word is None:
+                continue
+            value = get_field(addr, name, word)
+            if int(float(scale.get())) != value:
+                scale.set(value)
+            label.config(text=display(addr, name, word))
+
+    def _on_mode(self, mode: int):
+        self._run("mode", lambda: self.model.set_mode(mode))
+
+    def _on_arp(self):
+        wanted = bool(self.arp.get())
+        self._run("rule", lambda: self.model.set_arp(wanted))
 
     # -- button handlers ----------------------------------------------------
 
@@ -447,7 +636,7 @@ class ConsoleWindow:
     def _on_reference_stop(self):
         self._run("reference-stop", self.model.stop_reference)
 
-    def _on_capture(self):
+    def _on_capture_frame(self):
         """Collect four seconds of trajectory first; one frame is one pass of the hand."""
         started = len(self.model.buffer.trail(10 ** 6))
         self.model.message = "capturing 4 s: move your hand over the sensor"
@@ -462,6 +651,13 @@ class ConsoleWindow:
 
     def _on_arm(self):
         track = int(self.track_box.get())
+        self._countdown(3, track)
+
+    def _countdown(self, remaining: int, track: int) -> None:
+        if remaining > 0:
+            self.loop_label.config(text="track %d in %d" % (track, remaining))
+            self.root.after(1000, lambda: self._countdown(remaining - 1, track))
+            return
 
         def action():
             self.model.arm_take(track)
@@ -516,6 +712,9 @@ class ConsoleWindow:
                 self.progress.configure(maximum=total, value=done)
                 self.progress_label.config(text="frame %s  %d/%d" % ("ABC"[table], done, total))
                 continue
+            if label == "params":
+                self._sync_sliders(value)
+                continue
             if error is not None:
                 self.model.message = "%s: %s" % (label, error)
             elif value:
@@ -528,9 +727,19 @@ class ConsoleWindow:
             except Exception as exc:  # a dead link must not kill the window
                 self.model.message = "link: %s" % exc
         self._drain_results()
-        canvas = self.canvases[self._current]
+        now = time.monotonic()
+        if now - getattr(self, "_readout_at", 0.0) > 0.5:
+            self._readout_at = now
+            try:
+                self.model.refresh_readouts()
+                self.bpm_label.config(text="BPM %d" % self.model.bpm())
+                self.identity_label.config(text=self.model.identity_text())
+            except Exception as exc:
+                self.identity_label.config(text="link: %s" % exc)
+        canvas = self.canvases.get(self._current)
         try:
-            self.render.draw(canvas, self.model.drawing(self._current))
+            if canvas is not None:
+                self.render.draw(canvas, self.model.drawing(self._current))
             self.status.config(text=self.model.status_line())
         except Exception as exc:  # a render error must not kill the loop
             self.status.config(text="draw error: %s" % exc)
@@ -538,5 +747,7 @@ class ConsoleWindow:
 
     def run(self) -> int:
         self.refresh()
+        # Show the board's actual values, not the dataclass defaults.
+        self.root.after(200, self._on_read_params)
         self.root.mainloop()
         return 0

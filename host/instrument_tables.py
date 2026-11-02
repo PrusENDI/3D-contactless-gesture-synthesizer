@@ -92,7 +92,7 @@ PRESETS: dict[str, dict[str, int]] = {
         "l": 0x00000000,                          # a bell does not wobble
         "a": 0x00110000, "b": 0xFFFF0000, "c": 0x00000000,
         "v": 0x00019999,                          # 1.6
-        "e": (6 << 16) | 1,                       # strike now, decay ~230 ms
+        "e": (6 << 16) | 8192,                    # strike in 8 samples, decay ~230 ms
         "s": (2 << 16) | 0,                       # sustain 0: it dies away
         "m": 0x02000000,                          # detune widest: two partials beat
     },

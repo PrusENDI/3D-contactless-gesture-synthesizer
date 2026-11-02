@@ -49,6 +49,11 @@ ZH = {
     "loop.overdub": "边听边录（放已录轨）",
     "loop.countdown": "第 %d 轨 %d 秒后开窗",
     "loop.armed": "第 %d 轨已就绪",
+    "loop.rec_countdown": "准备第 %d 轨…",
+    "loop.recording": "● 正在录第 %d 轨     tick %d/32     剩 %.1f s",
+    "loop.label_recording": "● 录音中  轨 %d   %d/32 tick",
+    "loop.label_done": "✔ 轨 %d 已采下",
+    "loop.label_failed": "✘ 这一条没收下",
     "loop.committing": "提交中…",
     "loop.publishing": "发布中…",
     # score guide

@@ -1,5 +1,6 @@
 """The LOOP page's three buttons drive the state machine that was proven on the board."""
 
+import time
 import unittest
 from types import SimpleNamespace
 
@@ -95,6 +96,40 @@ class ArmTest(unittest.TestCase):
         message = model.capture_contour()
         self.assertEqual(model.contours, {})
         self.assertIn("retry", message.lower())
+
+
+class RecordFeedbackTest(unittest.TestCase):
+    """A take has to be visible while it runs: the worker cannot report its own progress."""
+
+    def test_arming_marks_the_take_as_running(self):
+        model, _ = model_with_flow()
+        model.arm_take(track=1)
+        self.assertEqual(model.record_state, "armed")
+        self.assertEqual(model.record_track, 1)
+
+    def test_progress_runs_from_zero_to_one_across_the_bar(self):
+        model, _ = model_with_flow()
+        model.arm_take(track=0)
+        model.record_started = time.monotonic()
+        self.assertLess(model.record_progress(), 0.05)
+        model.record_started = time.monotonic() - model.record_seconds
+        self.assertAlmostEqual(model.record_progress(), 1.0, places=2)
+        self.assertEqual(model.record_ticks(), 32)
+
+    def test_a_captured_take_says_so(self):
+        model, _ = model_with_flow()
+        model.arm_take(track=0)
+        model.wait_for_take(timeout_s=0.5)
+        model.capture_contour()
+        self.assertEqual(model.record_state, "captured")
+
+    def test_a_refused_take_says_so(self):
+        model, _ = model_with_flow()
+        model.arm_take(track=0)
+        model.flow.verdict = "retry"
+        model.wait_for_take(timeout_s=0.5)
+        model.capture_contour()
+        self.assertEqual(model.record_state, "failed")
 
 
 class CommitTest(unittest.TestCase):

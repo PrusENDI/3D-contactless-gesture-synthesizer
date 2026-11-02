@@ -51,6 +51,12 @@ class ConsoleModel:
         self.score = None
         self.hit = None
         self._io = 0
+        # What the LOOP page says while a take runs. The window paints this, not the
+        # worker: a worker blocked in a capture cannot report its own progress.
+        self.record_state = "idle"        # idle | countdown | armed | captured | failed
+        self.record_track = 0
+        self.record_started = 0.0
+        self.record_seconds = 4.0        # one bar at the forced 120 BPM
         self._readouts = None
         self._readouts_at = 0.0
         self.params: dict = {}
@@ -253,6 +259,17 @@ class ConsoleModel:
         self.message = "monitor stopped"
         return self.message
 
+    def prepare_overdub(self) -> str:
+        """Render the monitor early -- during the countdown, not on the downbeat.
+
+        Rendering a bar takes a few hundred milliseconds and the bar starts when
+        ``0x08=120`` lands, so rendering after the countdown would put the monitor
+        that far behind and make the "go" beep a lie.
+        """
+        if not self.contours:
+            return self.message
+        return self.start_overdub()
+
     def armed_take(self, track: int, overdub: bool = True) -> str:
         """Arm, monitor, capture, stop the monitor -- in that order, for a reason.
 
@@ -261,17 +278,17 @@ class ConsoleModel:
         is left is the playback start latency, tens of milliseconds; the bar
         lengths are both exactly 4.000 s, so there is no drift, only that offset.
         """
-        self.overdub_path = None
-        if overdub and self.contours:
+        if overdub and self.contours and not self.overdub_path:
             self.start_overdub()
         self.arm_take(track)
-        if self.overdub_path is not None:
+        if self.overdub_path:
             self.play_overdub()
         try:
             self.wait_for_take()
             return self.capture_contour()
         finally:
             self.stop_overdub()
+            self.overdub_path = None
 
     # -- three-frame morph ------------------------------------------------
 
@@ -329,6 +346,9 @@ class ConsoleModel:
         self.track = track
         self.flow.arm()
         self.phase.force_bar()
+        self.record_track = track
+        self.record_started = time.monotonic()
+        self.record_state = "armed"
         self.message = "armed track %d: the window opens at the next bar" % track
         return self.message
 
@@ -354,10 +374,12 @@ class ConsoleModel:
         contour = self.flow.contour()
         verdict = self.flow.accept_take(contour)
         if verdict != "ok":
+            self.record_state = "failed"
             self.message = "take refused (%s): nothing was stored or committed" % verdict
             return self.message
         self.contours[self.track] = list(contour)
         self.live_contour = None
+        self.record_state = "captured"
         self.hit = self.judge_take(contour)
         self.message = "track %d captured: %d/32 non-zero" % (
             self.track,
@@ -436,6 +458,16 @@ class ConsoleModel:
         if not self.phase.anchored:
             return None
         return int(self.phase.u() * score_mod.TICKS) % score_mod.TICKS
+
+    def record_progress(self) -> float:
+        """How much of the four-second window has gone by, 0..1."""
+        if self.record_state != "armed":
+            return 0.0
+        elapsed = time.monotonic() - self.record_started
+        return max(0.0, min(1.0, elapsed / self.record_seconds))
+
+    def record_ticks(self) -> int:
+        return int(round(self.record_progress() * 32))
 
     # -- parameters, modes and readouts ------------------------------------
 
@@ -853,7 +885,10 @@ class ConsoleWindow:
             strip, text=zh.t("loop.overdub"), variable=self.overdub_var, bootstyle="warning"
         )
         self.overdub_box.pack(side="left", padx=self.px(8))
-        self.loop_label = self.ttk.Label(strip, text=zh.t("loop.hint"), bootstyle="secondary")
+        self.loop_label = self.tk.Label(
+            strip, text=zh.t("loop.hint"), bg=self.palette.bg, fg=self.palette.dim,
+            font=(self.font_family, 11),
+        )
         self.loop_label.pack(side="left", padx=self.px(10))
 
         guide = self.ttk.Frame(parent)
@@ -939,6 +974,7 @@ class ConsoleWindow:
         self._run("capture", lambda: self.model.capture_preset("captured-%d" % int(time.time())))
 
     def _on_stop(self):
+        self.model.record_state = "idle"
         self._run("stop", self.model.stop)
 
     def _on_readback(self):
@@ -1077,9 +1113,30 @@ class ConsoleWindow:
         track = int(float(self.track_box.get()))
         self._countdown(3, track)
 
+    @staticmethod
+    def _beep(frequency: int, milliseconds: int = 70) -> None:
+        """A short tone off the UI thread: Beep blocks for its duration."""
+        def tone():
+            try:
+                import winsound
+
+                winsound.Beep(frequency, milliseconds)
+            except Exception:
+                pass
+
+        threading.Thread(target=tone, daemon=True).start()
+
     def _countdown(self, remaining: int, track: int) -> None:
         if remaining > 0:
-            self.loop_label.config(text=self.zh.t("loop.countdown", track, remaining))
+            self.model.record_state = "countdown"
+            self.model.record_track = track
+            self._beep(660, 60)
+            self.loop_label.config(
+                text=self.zh.t("loop.countdown", track, remaining), fg=self.palette.accent
+            )
+            if remaining == 3 and self.overdub_var.get() and self.model.contours:
+                # Render the mix now: on the downbeat there is only time to play it.
+                self._run("prepare", self.model.prepare_overdub)
             self.root.after(1000, lambda: self._countdown(remaining - 1, track))
             return
 
@@ -1088,15 +1145,18 @@ class ConsoleWindow:
         def action():
             return self.model.armed_take(track, overdub=monitor)
 
-        self.loop_label.config(text=self.zh.t("loop.armed", track))
+        self._beep(990, 120)
+        self.loop_label.config(text=self.zh.t("loop.armed", track), fg=self.palette.danger)
         self._run("arm", action)
 
     def _on_commit(self):
-        self.loop_label.config(text=self.zh.t("loop.committing"))
+        self.model.record_state = "idle"
+        self.loop_label.config(text=self.zh.t("loop.committing"), fg=self.palette.dim)
         self._run("commit", self.model.commit_take)
 
     def _on_publish(self):
-        self.loop_label.config(text=self.zh.t("loop.publishing"))
+        self.model.record_state = "idle"
+        self.loop_label.config(text=self.zh.t("loop.publishing"), fg=self.palette.dim)
         self._run("publish", self.model.publish_take)
 
     def _on_reference(self):
@@ -1134,6 +1194,10 @@ class ConsoleWindow:
                 if bool(self.arp_var.get()) != bool(arp):
                     self.arp_var.set(bool(arp))
                 continue
+            if label == "arm" and error is not None:
+                self.model.record_state = "failed"
+            if label == "arm" and error is None:
+                self._beep(1320, 140)
             if label == "poll":
                 if error is not None:
                     self.identity_label.config(text="link: %s" % error)
@@ -1182,6 +1246,42 @@ class ConsoleWindow:
                 self.bpm_label.config(text=self.zh.t("mode.bpm", snapshot["bpm"]))
         if snapshot.get("identity"):
             self.identity_label.config(text=self.zh.t("mode.identity", *snapshot["identity"]))
+
+    def _paint_record(self, canvas) -> None:
+        """A red bar and a big caption: a take must be visible, not inferred."""
+        state = self.model.record_state
+        if state not in ("countdown", "armed"):
+            return
+        width = canvas.winfo_width()
+        if state == "countdown":
+            colour = self.palette.accent
+            text = self.zh.t("loop.rec_countdown", self.model.record_track)
+        else:
+            colour = self.palette.danger
+            progress = self.model.record_progress()
+            left = max(0.0, self.model.record_seconds * (1.0 - progress))
+            text = self.zh.t(
+                "loop.recording", self.model.record_track, self.model.record_ticks(), left
+            )
+            canvas.create_rectangle(0, 0, width * progress, self.px(8), fill=colour, outline="")
+        canvas.create_text(
+            width / 2, self.px(30), text=text, fill=colour,
+            font=(self.font_family, 13, "bold"),
+        )
+
+    def _update_record_label(self) -> None:
+        state = self.model.record_state
+        if state == "armed":
+            self.loop_label.config(
+                text=self.zh.t("loop.label_recording", self.model.record_track, self.model.record_ticks()),
+                fg=self.palette.danger,
+            )
+        elif state == "captured":
+            self.loop_label.config(
+                text=self.zh.t("loop.label_done", self.model.record_track), fg=self.palette.accent
+            )
+        elif state == "failed":
+            self.loop_label.config(text=self.zh.t("loop.label_failed"), fg=self.palette.danger)
 
     def _empty_hint(self, tab: str):
         """A blank canvas looks broken; say what would fill it instead."""
@@ -1232,6 +1332,8 @@ class ConsoleWindow:
                         font=(self.font_family, 12),
                         justify="center",
                     )
+                self._paint_record(canvas)
+            self._update_record_label()
             self.status.config(text=self._status_text())
         except Exception as exc:  # a render error must not kill the loop
             self.status.config(text="draw error: %s" % exc)

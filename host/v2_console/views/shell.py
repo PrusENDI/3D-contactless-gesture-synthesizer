@@ -57,7 +57,7 @@ class ConsoleModel:
         self.record_state = "idle"        # idle | countdown | armed | captured | failed
         self.record_track = 0
         self.record_started = 0.0
-        self.record_seconds = 4.0        # one bar at the forced 120 BPM
+        self.record_seconds = 8.0        # measured: FULL lands 7.9 s after the arm
         self._readouts = None
         self._readouts_at = 0.0
         self.params: dict = {}
@@ -377,8 +377,13 @@ class ConsoleModel:
         self.message = "armed track %d: the window opens at the next bar" % track
         return self.message
 
-    def wait_for_take(self, timeout_s: float = 8.0) -> str:
-        """Block until the contour is full. Call from a worker thread, not the Tk loop."""
+    def wait_for_take(self, timeout_s: float = 12.0) -> str:
+        """Block until the contour is full. Call from a worker thread, not the Tk loop.
+
+        12 s, not 8: the board reports FULL about 7.9 s after the arm (measured on
+        four takes in one session, spread 0.07 s), so an 8 s deadline raced the
+        board and threw away good takes.
+        """
         if getattr(self, "flow", None) is None:
             raise RuntimeError("nothing is armed")
         from ..session import record_flow

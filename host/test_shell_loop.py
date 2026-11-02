@@ -132,6 +132,16 @@ class RecordFeedbackTest(unittest.TestCase):
         self.assertEqual(model.record_state, "failed")
 
 
+    def test_the_take_timeout_covers_the_board_really_taking_eight_seconds(self):
+        # Measured: FULL lands 7.9 s after the arm (four takes, spread 0.07 s). An
+        # 8 s deadline raced the board and threw away every fourth take.
+        import inspect
+
+        model, _ = model_with_flow()
+        default = inspect.signature(model.wait_for_take).parameters["timeout_s"].default
+        self.assertGreater(default, 8.5)
+
+
 class CommitTest(unittest.TestCase):
     def test_commit_then_publish_reports_the_event_count_and_reanchors(self):
         model, _ = model_with_flow()

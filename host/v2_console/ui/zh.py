@@ -76,6 +76,7 @@ ZH = {
     # status bar
     "status.none": "未连接",
     "status.mode": "模式 %s",
+    "status.mode_recording": "模式 录制（板子）",
     "status.loop": "循环已激活",
     "status.fault": "历史错误（复位才清）",
     "status.waiting": "等待手进入感应区",

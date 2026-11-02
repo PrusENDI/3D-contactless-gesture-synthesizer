@@ -248,7 +248,7 @@ class ConsoleModel:
             return self.message
         self.player.play(self.overdub_path)
         self.overdubbing = True
-        self.message = "monitor looping %d take(s)" % len(self.contours)
+        self.message = "monitor looping %d take(s) ON THE PC (not the board)" % len(self.contours)
         return self.message
 
     def stop_overdub(self) -> str:
@@ -1214,6 +1214,23 @@ class ConsoleWindow:
         zh = self.zh
         # While a worker owns the link this must not block: a stale line beats a freeze.
         status = self.model.cached_status(10.0 if self.model.io_busy() else 2.0)
+        if self.model.record_state == "armed":
+            # The poll is paused during a take, and the board is in RECORD now, so
+            # the cached mode is stale by design. Say what is actually happening.
+            parts = [zh.t("status.mode_recording")]
+            if status is not None and status.fault:
+                parts.append(zh.t("status.fault"))
+            if self.model.buffer.waiting():
+                parts.append(zh.t("status.waiting"))
+            else:
+                parts.append(zh.t("status.frames", len(self.model.buffer.trail(10 ** 6))))
+            readouts = self.model.last_readouts()
+            if readouts:
+                parts.append(zh.t("status.note", readouts.get("note", 0)))
+                parts.append(zh.t("status.z", readouts.get("z", 0)))
+            if self.model.message:
+                parts.append(self.model.message)
+            return "    ".join(parts)
         if status is None:
             return zh.t("status.none")
         parts = [zh.t("status.mode", zh.mode_name(status.mode))]

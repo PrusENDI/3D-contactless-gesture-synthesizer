@@ -34,5 +34,30 @@ class WaveTest(unittest.TestCase):
         self.assertGreater(points[1][1], 0.999)
 
 
+class FramesTest(unittest.TestCase):
+    """A/B/C on one canvas: the capture used to overwrite the frame before it."""
+
+    def frames(self):
+        return {0: [0] * 1024, 1: [8000] * 1024, 2: [-8000] * 1024}
+
+    def test_every_recorded_frame_is_drawn(self):
+        drawing = wave_painter.paint_wave([0] * 1024, frames=self.frames(), current=0)
+        self.assertEqual(len(paths(drawing)), 3)
+
+    def test_the_frame_on_screen_is_thicker(self):
+        drawing = wave_painter.paint_wave([0] * 1024, frames=self.frames(), current=1)
+        widths = {round(path.width, 1) for path in paths(drawing)}
+        self.assertEqual(widths, {1.0, 2.5})
+
+    def test_each_frame_is_lettered(self):
+        drawing = wave_painter.paint_wave([0] * 1024, frames=self.frames(), current=0)
+        letters = sorted(item.text for item in drawing.by_layer()["live"]
+                         if isinstance(item, primitives.Text))
+        self.assertEqual(letters, ["A", "B", "C"])
+
+    def test_no_frames_means_the_plain_table_view(self):
+        self.assertEqual(len(paths(wave_painter.paint_wave([0] * 1024))), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

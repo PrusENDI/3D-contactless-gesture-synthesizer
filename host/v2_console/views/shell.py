@@ -35,6 +35,7 @@ class ConsoleModel:
         self.table_diff = None
         self.frames: dict = {}
         self.uploaded_frames: dict = {}
+        self.displayed_frame = None
         self.trajectory: list = []
         self.contours: dict = {}
         self.live_contour = None
@@ -159,6 +160,7 @@ class ConsoleModel:
             raise RuntimeError("uploading needs IDLE; stop the loop first")
         result = self.session.upload_table(samples, table=table, voice_shift=voice_shift)
         self.table = list(samples)
+        self.displayed_frame = None
         self.table_diff = None
         self.message = "uploaded %d samples (v%d, %.1f s)" % (
             len(samples),
@@ -340,6 +342,7 @@ class ConsoleModel:
             raise RuntimeError("all three frames are recorded; clear one or re-record it")
         table = table_from_trajectory(points)
         self.frames[target] = table
+        self.displayed_frame = target
         self.table = table
         self.trajectory = list(points)
         self.message = "frame %s recorded from %d trajectory points" % ("ABC"[target], len(points))
@@ -650,7 +653,12 @@ class ConsoleModel:
         if tab == "live":
             return live_painter.paint_live(self.buffer)
         if tab == "wave":
-            return wave_painter.paint_wave(self.table, diff=self.table_diff)
+            return wave_painter.paint_wave(
+                self.table,
+                diff=self.table_diff,
+                frames=self.frames,
+                current=self.displayed_frame,
+            )
         if tab == "loop":
             return loop_painter.paint_loop(
                 self.contours,
@@ -992,6 +1000,9 @@ class ConsoleWindow:
         self.period.pack(side="left")
         self._button(strip, zh.t("wave.upload"), self._on_upload_frames, side="left", bootstyle="primary")
         self._button(strip, zh.t("wave.bin"), self._on_upload, side="left", bootstyle="secondary-outline")
+        self._button(strip, zh.t("wave.export"), self._on_export, side="left", bootstyle="secondary-outline")
+        self.frames_label = self.ttk.Label(strip, text=zh.t("wave.frames_none"), bootstyle="warning")
+        self.frames_label.pack(side="left", padx=self.px(6))
         self.progress = self.ttk.Progressbar(
             strip, maximum=1024, length=self.px(170), bootstyle="warning"
         )
@@ -1060,6 +1071,25 @@ class ConsoleWindow:
         self._capture_until = time.monotonic() + 4.0
         self.model.message = "capturing 4 s: move your hand over the sensor"
         self.root.after(4000, self._finish_capture)
+
+    def _on_export(self):
+        """Write the recorded frames as .bin so 上传 .bin… has something to open."""
+        from pathlib import Path
+
+        if not self.model.frames:
+            self.model.message = "no frame to export: capture one first"
+        else:
+            folder = Path("artifacts") / "console"
+            folder.mkdir(parents=True, exist_ok=True)
+            written = []
+            for table, samples in sorted(self.model.frames.items()):
+                path = folder / ("frame-%s.bin" % "ABC"[table])
+                path.write_bytes(
+                    b"".join(int(value).to_bytes(2, "little", signed=True) for value in samples)
+                )
+                written.append(path.name)
+            self.model.message = "wrote %s into artifacts\\console" % ", ".join(written)
+        self.preset_label.config(text=self.model.message)
 
     def _finish_capture(self):
         frames = self.model.buffer.since(self._capture_mark)
@@ -1435,6 +1465,13 @@ class ConsoleWindow:
                 self._slow_at = now
             self._run("poll", lambda wanted=slow: self.model.poll_board(wanted))
         self._refresh_value_labels()
+        if self.model.frames:
+            names = "".join("ABC"[table] for table in sorted(self.model.frames))
+            text = self.zh.t("wave.frames", names)
+        else:
+            text = self.zh.t("wave.frames_none")
+        if self.frames_label.cget("text") != text:
+            self.frames_label.config(text=text)
         hit = self.model.hit
         if hit is None:
             if self.hit_label.cget("text"):

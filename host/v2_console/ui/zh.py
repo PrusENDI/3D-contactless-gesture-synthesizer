@@ -70,6 +70,9 @@ ZH = {
     "wave.period": "LFO 周期（秒）",
     "wave.upload": "上传三帧",
     "wave.bin": "上传 .bin…",
+    "wave.export": "导出 .bin",
+    "wave.frames": "已录 %s",
+    "wave.frames_none": "未录",
     "wave.progress": "帧 %s  %d/%d",
     # empty states, drawn in the middle of a canvas that has nothing to show
     "empty.live": "等待手进入感应区",

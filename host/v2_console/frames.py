@@ -9,12 +9,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .link import VERSION, crc16
+from .crc import crc16
 
 FRAME_LEN = 22
 # Replies and telemetry start with 0x5A; a command starts with 0xA5. Mixing the
 # two constants silently drops every valid frame, so they live in different names.
 TLM_SOF = 0x5A
+VERSION = 0x02
 TLM_ACK = 0x80
 TLM_NACK = 0x81
 TLM_SNAPSHOT = 0x01

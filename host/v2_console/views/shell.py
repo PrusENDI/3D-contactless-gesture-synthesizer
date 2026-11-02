@@ -42,6 +42,8 @@ class ConsoleModel:
         self._status = None
         self._status_at = 0.0
         self.player = reference.Player()
+        self.overdubbing = False
+        self.overdub_path = None
         self.flow = None
         self.flow_factory = None
         self.track = 0
@@ -161,6 +163,88 @@ class ConsoleModel:
         self.player.stop()
         self.message = "reference stopped"
         return self.message
+
+    # -- overdub monitor: the host plays what the board cannot ---------------
+
+    def default_env(self) -> dict:
+        """The envelope the board plays a loop with, for the host's monitor."""
+        from ..params import PARAMS
+
+        return {
+            "attack_step": PARAMS[0x94].default & 0xFFFF,
+            "decay_step": (PARAMS[0x94].default >> 16) & 0xFFFF,
+            "sustain_level": PARAMS[0x98].default & 0xFFFF,
+            "release_step": (PARAMS[0x98].default >> 16) & 0xFFFF,
+        }
+
+    def overdub_segments(self) -> list:
+        """The finished takes as one part; empty before the first one lands."""
+        return reference.mix_contours(self.contours)
+
+    def start_overdub(self, env=None, path: str = "overdub.wav") -> str:
+        """Render the finished takes into one looping bar, ready to play.
+
+        The board cannot monitor an overdub: ``voice_rst_n`` is held in reset
+        outside LIVE/PLAY, so RECORD is silent by construction. The host has the
+        takes as contours, and a contour is enough to re-synthesize the take, so
+        the mix is rendered here and looped by the backend.
+
+        Rendering a bar of Python takes a few hundred ms, so this runs *before*
+        ``0x08=120`` forces the bar; :meth:`play_overdub` then only starts it.
+        """
+        segments = self.overdub_segments()
+        if not segments:
+            raise RuntimeError("no recorded take yet: the first one plays along with nothing")
+        table = self.table or reference.sine_table()
+        payload = reference.render_wav(
+            segments,
+            table=table,
+            voice_shift=2,
+            env=env or self.default_env(),
+            extra_shift=reference.headroom(len(self.contours)),
+        )
+        with open(path, "wb") as handle:
+            handle.write(payload)
+        self.overdub_path = path
+        self.message = "monitor ready: %d take(s)" % len(self.contours)
+        return self.message
+
+    def play_overdub(self) -> str:
+        """Start the bar prepared by :meth:`start_overdub`; nothing prepared, nothing plays."""
+        if not getattr(self, "overdub_path", None):
+            return self.message
+        self.player.play(self.overdub_path)
+        self.overdubbing = True
+        self.message = "monitor looping %d take(s)" % len(self.contours)
+        return self.message
+
+    def stop_overdub(self) -> str:
+        if not getattr(self, "overdubbing", False):
+            return self.message
+        self.player.stop()
+        self.overdubbing = False
+        self.message = "monitor stopped"
+        return self.message
+
+    def armed_take(self, track: int, overdub: bool = True) -> str:
+        """Arm, monitor, capture, stop the monitor -- in that order, for a reason.
+
+        The mix has to be rendered before ``arm_take`` writes ``0x08=120`` (which
+        restarts the bar), or the monitor starts a fraction of a beat late. What
+        is left is the playback start latency, tens of milliseconds; the bar
+        lengths are both exactly 4.000 s, so there is no drift, only that offset.
+        """
+        self.overdub_path = None
+        if overdub and self.contours:
+            self.start_overdub()
+        self.arm_take(track)
+        if self.overdub_path is not None:
+            self.play_overdub()
+        try:
+            self.wait_for_take()
+            return self.capture_contour()
+        finally:
+            self.stop_overdub()
 
     # -- three-frame morph ------------------------------------------------
 
@@ -695,6 +779,11 @@ class ConsoleWindow:
         self._button(strip, zh.t("loop.commit"), self._on_commit, side="left", bootstyle="primary")
         self._button(strip, zh.t("loop.publish"), self._on_publish, side="left", bootstyle="primary")
         self._button(strip, zh.t("loop.stop"), self._on_stop, side="left", bootstyle="danger-outline")
+        self.overdub_var = self.tk.BooleanVar(value=True)
+        self.overdub_box = self.ttk.Checkbutton(
+            strip, text=zh.t("loop.overdub"), variable=self.overdub_var, bootstyle="warning"
+        )
+        self.overdub_box.pack(side="left", padx=self.px(8))
         self.loop_label = self.ttk.Label(strip, text=zh.t("loop.hint"), bootstyle="secondary")
         self.loop_label.pack(side="left", padx=self.px(10))
 
@@ -922,10 +1011,10 @@ class ConsoleWindow:
             self.root.after(1000, lambda: self._countdown(remaining - 1, track))
             return
 
+        monitor = bool(self.overdub_var.get())
+
         def action():
-            self.model.arm_take(track)
-            self.model.wait_for_take()
-            return self.model.capture_contour()
+            return self.model.armed_take(track, overdub=monitor)
 
         self.loop_label.config(text=self.zh.t("loop.armed", track))
         self._run("arm", action)
@@ -939,20 +1028,12 @@ class ConsoleWindow:
         self._run("publish", self.model.publish_take)
 
     def _on_reference(self):
-        from ..params import PARAMS
-
-        env = {
-            "attack_step": PARAMS[0x94].default & 0xFFFF,
-            "decay_step": (PARAMS[0x94].default >> 16) & 0xFFFF,
-            "sustain_level": PARAMS[0x98].default & 0xFFFF,
-            "release_step": (PARAMS[0x98].default >> 16) & 0xFFFF,
-        }
-        contours = [c for c in self.model.contours.values()]
-        if not contours:
+        if not self.model.contours:
             self.model.message = "record a take before playing a reference"
             return
-        segments = reference.segments_from_contour(contours[0])
-        table = self.model.table
+        segments = reference.mix_contours(self.model.contours)
+        table = self.model.table or reference.sine_table()
+        env = self.model.default_env()
         self._run("reference", lambda: self.model.play_reference(segments, table, 2, env))
 
     def _on_reference_stop(self):

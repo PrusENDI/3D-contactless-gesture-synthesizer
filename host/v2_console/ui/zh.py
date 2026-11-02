@@ -46,6 +46,7 @@ ZH = {
     "loop.publish": "发布",
     "loop.stop": "停止",
     "loop.hint": "盲录：其他轨听不到",
+    "loop.overdub": "边听边录（放已录轨）",
     "loop.countdown": "第 %d 轨 %d 秒后开窗",
     "loop.armed": "第 %d 轨已就绪",
     "loop.committing": "提交中…",

@@ -82,10 +82,14 @@ def _envelope(env: dict, samples_in: int, total: int) -> float:
     return max(0.0, level)
 
 
-def render_wav(segments, table, voice_shift: int, env: dict) -> bytes:
-    """One bar of int16 mono audio, ready for winsound's SND_LOOP."""
+def render_wav(segments, table, voice_shift: int, env: dict, extra_shift: int = 0) -> bytes:
+    """One bar of int16 mono audio, ready for winsound's SND_LOOP.
+
+    ``extra_shift`` is the headroom for a mix: four takes summed at the one-take
+    scale clip, and a clipped monitor is worse than a quiet one.
+    """
     total = int(SAMPLE_RATE * BAR_SECONDS)
-    scale = 1.0 / (1 << max(0, min(15, voice_shift)))
+    scale = 1.0 / (1 << max(0, min(15, voice_shift + extra_shift)))
     out = [0] * total
 
     for segment in segments:
@@ -114,6 +118,35 @@ def render_wav(segments, table, voice_shift: int, env: dict) -> bytes:
             b"".join(max(-32768, min(32767, value)).to_bytes(2, "little", signed=True) for value in out)
         )
     return buffer.getvalue()
+
+
+def sine_table(size: int = 1024) -> list:
+    """The board's reset table is a sine; a monitor without an upload still needs one."""
+    import math
+
+    return [int(32767 * math.sin(2.0 * math.pi * index / size)) for index in range(size)]
+
+
+def headroom(takes: int) -> int:
+    """Extra right shift so N summed takes keep 16 bits of headroom."""
+    shift = 0
+    while (1 << shift) < max(1, takes):
+        shift += 1
+    return shift
+
+
+def mix_contours(contours) -> list:
+    """Every recorded take as one part. ``render_wav`` sums them into one bar.
+
+    This is the whole trick behind the host-side overdub: the board holds the
+    takes as contours, and a contour is enough to re-synthesize that take, so the
+    host can play track 0 and 1 while the board records track 2 blind.
+    """
+    pairs = sorted(contours.items()) if hasattr(contours, "items") else list(enumerate(contours))
+    segments: list = []
+    for _track, contour in pairs:
+        segments.extend(segments_from_contour(contour))
+    return segments
 
 
 class _SilentBackend:

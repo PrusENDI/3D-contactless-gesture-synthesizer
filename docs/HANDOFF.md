@@ -25,7 +25,7 @@
 
 入口 `python host/console.py --port COM4`；设计 `docs/superpowers/specs/2026-11-02-console-design.md`
 与 `2026-11-02-loop-canvas-assisted-recording-design.md`，计划 `docs/superpowers/plans/2026-11-02-console-v2.md`，
-过程 `docs/progress-2026-11-02.md`。**220 条 unittest 全绿**（`python -m unittest discover -s host -p "test_*.py"`）。
+过程 `docs/progress-2026-11-02.md`。**236 条 unittest 全绿**（`python -m unittest discover -s host -p "test_*.py"`）。
 
 板上验过的：身份/模式、`warm` 九条读回全等、正弦表上传+读回 1024/1024、手绘一帧（797 点轨迹 → 1024 点表、
 只传该帧 17.8 s）、morph 20 s 扫描、LOOP 的 Arm/Commit/Publish（32/32 覆盖、2 事件、`voices=1`）、
@@ -64,6 +64,18 @@ LIVE 光标 214 帧/2.5 s。滑杆的写-读回路只在模拟端口上测过，
 4. 1 bit 字段（`enable/retrig/unipolar`）是 Checkbutton 不是滑杆；数值列显示的是**板子读回值**，clamp 一眼可见。
 5. 空画布会画中间提示（"等待手进入感应区"/"还没有波表"/"还没有轨道"），否则看着像坏了。
    截图脚本 `artifacts/tabs_shot.py` → `artifacts/ui/tab-*.png`（`artifacts/` 被忽略）。
+
+**PC 侧 overdub（2026-11-02 晚）**：LOOP 页勾上"边听边录（放已录轨）"，对准一小节时主机把**已录的每条轨**
+混成一个 4 s WAV 循环播，板子照旧盲录。板内做不到不是懒：`voice_rst_n` 只在 LIVE/PLAY 放开，
+`loop_probe_run = mode_play`，RECORD 时音频 mux 落到被 reset 的引擎（`fx_quiet`），是结构性的静音。
+
+1. **顺序是全部**：`start_overdub()`（渲染，Python 走 192k 采样要几百 ms）必须在 `arm_take()` 写 `0x08=120`
+   之**前**完成，`play_overdub()` 只负责起播。反过来做，监听会晚四分之一拍。
+2. **误差是常数不是漂移**：两边小节都正好 4.000 s（`SAMPLE_RATE * BAR_SECONDS`），差的只是起播延迟，
+   约 **±20–50 ms**（命令往返 17.6 ms + PlaySound 起播）。当伴奏听不出来，当节拍器会有 flam。
+3. **混音要留头**：`headroom(轨数)` 给 1→0、2→1、3/4→2 档右移，否则四条轨叠起来就削顶。
+4. **没上传波表也能听**：回落到 `reference.sine_table()`（板子复位表就是正弦）。
+5. "试听参考"按钮也改成放**全部**轨的混音（原来只放 `contours[0]`）。
 
 **指引页（LOOP 页的谱表，2026-11-02 晚）**：`host/scores/*.json` 是谱，`host/v2_console/score.py` 是模型
 （无 Tk），LOOP 页顶部下拉选谱，画布把**正在录的那一轨**每个 tick 的目标档填亮，录完按 32 点算命中率。
@@ -185,11 +197,8 @@ P2a 位流 sha256：`915e87cd6367b23ba953e3ba6dd37640ab3b00eb8132a1e865a1dc3b59f
    （+1~2 LUT，0 DSP/BSRAM）；非 arp 与 PLAY 未改，`tb_live_arp_step` 钉住 726→23，
    以及非 arp 600 样点 dump 逐字节不变。
 7. **上位机还差的**（按分镜优先级）：滑杆的板上逐项验证、每轨预设绑定、A/B 对比、
-   N-tone 测试按钮与频谱（频谱要 GAO 或新加音频通路，属 RTL）。指引页已做（§0.5 末）。
-   **PC 侧的 overdub**（把已录轨混成一个 4 s WAV 循环播，边听边录下一轨）零件已在
-   `host/v2_console/audio/reference.py`：`render_wav` 本来就是累加、`SND_LOOP` 循环、`Player`
-   的注释就写着"小节被强写时重起"；缺的是**多轨混合 + arm 起播 + commit 停**这三行胶水，
-   相位误差约 ±20–50 ms（不是样本级，当伴奏可以，当节拍器会有 flam）。
+   N-tone 测试按钮与频谱（频谱要 GAO 或新加音频通路，属 RTL）。指引页与 PC 侧 overdub 已做（§0.5），
+   **overdub 还没在板上真录一遍**（要先在台架上听：听得出起播晚了就加一个固定的渲染偏移来补）。
 6. **worst 25 里的 `u_voice` 是诊断偏差，不是 P2b 回归**：25 条里 20 条终点在 `u_v2/u_voice`
    （11 条 VCA/混音 `n9320_s0 → mixed_sample_*`、9 条 `mode_reg → revoice_target_a_pending_*`），
    起点都不是 `voice_cfg` 的七个字段，且这两条锥早于 P2a（`5337ac0` / `cafb93d`）。

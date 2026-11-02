@@ -354,6 +354,16 @@ class ConsoleModel:
                 return index
         return None
 
+    def clear_frames(self) -> str:
+        """Forget the recorded morph frames so A/B/C can be redone from scratch."""
+        had = "".join("ABC"[table] for table in sorted(self.frames)) or "none"
+        self.frames = {}
+        self.uploaded_frames = {}
+        self.displayed_frame = None
+        self.table = []
+        self.message = "cleared frames (%s)" % had
+        return self.message
+
     def upload_frames(self, shift: int, morph: bool, period_s: float, on_progress=None) -> str:
         """Upload only the frames that changed, then switch the morph on."""
         if not self.frames:
@@ -978,7 +988,18 @@ class ConsoleWindow:
         self._hint(parent, "hint.wave")
         strip = self.ttk.Frame(parent)
         strip.pack(fill="x", pady=(0, self.px(4)))
+        # Which slot the next capture lands in. "自动" is the old behaviour (first
+        # empty frame); naming a slot is the only way to record a frame twice --
+        # before this, a full A/B/C could not be redone at all.
+        self.ttk.Label(strip, text=zh.t("wave.slot"), bootstyle="secondary").pack(side="left")
+        self.slot_box = self.ttk.Combobox(
+            strip, values=[zh.t("wave.auto"), "A", "B", "C"],
+            state="readonly", width=5, bootstyle="secondary",
+        )
+        self.slot_box.set(zh.t("wave.auto"))
+        self.slot_box.pack(side="left", padx=self.px(6))
         self._button(strip, zh.t("wave.capture"), self._on_capture_frame, side="left", bootstyle="warning")
+        self._button(strip, zh.t("wave.clear"), self._on_clear_frames, side="left", bootstyle="danger-outline")
         self.ttk.Label(strip, text=zh.t("wave.gain"), bootstyle="secondary").pack(
             side="left", padx=(self.px(12), self.px(4))
         )
@@ -1067,10 +1088,16 @@ class ConsoleWindow:
         self._run("upload", action)
 
     def _on_capture_frame(self):
+        choice = self.slot_box.get()
+        self._capture_slot = None if choice == self.zh.t("wave.auto") else "ABC".index(choice)
         self._capture_mark = self.model.buffer.mark()
         self._capture_until = time.monotonic() + 4.0
         self.model.message = "capturing 4 s: move your hand over the sensor"
         self.root.after(4000, self._finish_capture)
+
+    def _on_clear_frames(self):
+        self.model.clear_frames()
+        self.preset_label.config(text=self.model.message)
 
     def _on_export(self):
         """Write the recorded frames as .bin so 上传 .bin… has something to open."""
@@ -1102,7 +1129,8 @@ class ConsoleWindow:
             )
             self.loop_label.config(text=self.model.message, fg=self.palette.danger)
             return
-        self._run("capture-frame", lambda: self.model.capture_frame(points))
+        slot = getattr(self, "_capture_slot", None)
+        self._run("capture-frame", lambda: self.model.capture_frame(points, index=slot))
 
     def _on_upload_frames(self):
         shift = int(float(self.gain.get()))

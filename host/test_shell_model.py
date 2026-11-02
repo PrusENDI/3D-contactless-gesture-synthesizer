@@ -151,5 +151,36 @@ class FrameTest(unittest.TestCase):
             ConsoleModel(FakeSession()).upload_frames(shift=2, morph=True, period_s=20.0)
 
 
+class FrameSlotTest(unittest.TestCase):
+    """A full A/B/C used to be a dead end: no slot to record into, no way to clear."""
+
+    TRAJECTORY = [(1000 + 12 * i, 2000 + 9 * i) for i in range(64)]
+
+    def full(self):
+        model = ConsoleModel(FakeSession())
+        model.frames = {0: [1] * 1024, 1: [2] * 1024, 2: [3] * 1024}
+        return model
+
+    def test_a_named_slot_is_overwritten(self):
+        model = self.full()
+        model.capture_frame(self.TRAJECTORY, index=1)
+        self.assertEqual(model.displayed_frame, 1)
+        self.assertNotEqual(model.frames[1], [2] * 1024)
+        self.assertEqual(model.frames[0], [1] * 1024)
+
+    def test_clearing_makes_room_for_three_new_frames(self):
+        model = self.full()
+        model.uploaded_frames = dict(model.frames)
+        model.clear_frames()
+        self.assertEqual(model.frames, {})
+        self.assertEqual(model.uploaded_frames, {})
+        self.assertEqual(model._next_frame_slot(), 0)
+
+    def test_without_a_slot_a_fourth_frame_is_refused(self):
+        model = self.full()
+        with self.assertRaises(RuntimeError):
+            model.capture_frame(self.TRAJECTORY)
+
+
 if __name__ == "__main__":
     unittest.main()

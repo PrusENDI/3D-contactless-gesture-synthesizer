@@ -19,7 +19,7 @@ ZH = {
     "hint.live": "手在感应区移动：左右 → 速度，前后 → 音高，靠近 → 起音。没有手时不出数据，这是正常的。",
     "hint.tone": "拖动即写入。板子是 clamp 不是拒绝，写进去的值被截断时右侧显示的是板子读回的值。",
     "hint.loop": "盲录：听不到别的轨。选一张谱，画布会把这一轨每个 tick 的目标档填亮；录完给出命中率。",
-    "hint.wave": "捕获 4 秒轨迹成一帧表，三帧即 A/B/C；上传后由 LFO 在三个表之间做 morph。",
+    "hint.wave": "选“写入”指定这一帧存进 A/B/C（自动 = 第一个空位）。捕获 4 秒轨迹成一帧表；三帧齐全后上传才会打开 morph。",
     # sidebar
     "side.presets": "预设",
     "side.apply": "应用预设",
@@ -65,6 +65,9 @@ ZH = {
     "score.wrong": "错 tick %s",
     # wave strip
     "wave.capture": "捕获一帧（4 秒）",
+    "wave.slot": "写入",
+    "wave.auto": "自动",
+    "wave.clear": "清空帧",
     "wave.capturing": "● 捕获中 %d 帧    剩 %.1f s",
     "wave.gain": "增益移位",
     "wave.period": "LFO 周期（秒）",

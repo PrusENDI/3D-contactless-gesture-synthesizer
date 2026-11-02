@@ -88,6 +88,13 @@ class GuideTest(unittest.TestCase):
 
 
 class PhaseTest(unittest.TestCase):
+    def test_an_unanchored_bar_is_not_at_tick_zero(self):
+        anchor = phase.PhaseAnchor()
+        self.assertFalse(anchor.anchored)
+        self.assertEqual(anchor.u(now=100.0), 0.0)
+        anchor.force_bar(now=100.0)
+        self.assertTrue(anchor.anchored)
+
     def test_a_bar_is_four_seconds_at_bpm_120(self):
         anchor = phase.PhaseAnchor()
         anchor.force_bar(now=100.0)

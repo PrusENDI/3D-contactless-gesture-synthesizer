@@ -303,9 +303,12 @@ class ConsoleModel:
             return None
         return score_mod.judge(contour, targets)
 
-    def guide_tick(self) -> int:
+    def guide_tick(self):
+        """The tick the bar is on, or None before a bar has been forced."""
         from .. import score as score_mod
 
+        if not self.phase.anchored:
+            return None
         return int(self.phase.u() * score_mod.TICKS) % score_mod.TICKS
 
     # -- parameters, modes and readouts ------------------------------------

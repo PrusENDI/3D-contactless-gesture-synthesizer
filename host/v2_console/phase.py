@@ -25,6 +25,11 @@ class PhaseAnchor:
         """Call right after writing 0x08=120: that write restarts the bar at tick 0."""
         self._t0 = self._clock() if now is None else now
 
+    @property
+    def anchored(self) -> bool:
+        """False until a bar has actually been forced: u() is 0 for a reason, not a tick."""
+        return self._t0 is not None
+
     def reanchor(self, now: float | None = None) -> None:
         """Call when the board reports the publish (0xF8 page 1 bit 6 falling)."""
         self.force_bar(now)

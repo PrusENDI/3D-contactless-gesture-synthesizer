@@ -323,7 +323,7 @@ class ConsoleModel:
             high = low + 1
             word = (high << 16) | low
         self.session.write(0x30, word)
-        self.message = "rule: %s" % ("step arpeggio" if on else "per-frame tracking")
+        self.message = "rule: %s" % ("step pulse (one note per tick, pitch from Y)" if on else "per-frame tracking")
         return self.message
 
     def arp_on(self) -> bool:
@@ -464,7 +464,7 @@ class ConsoleWindow:
         self._button(mode_row, "PLAY", lambda: self._on_mode(4), side="left")
         self._button(mode_row, "WT_PLAY", lambda: self._on_mode(6), side="left")
         self.arp = tk.Checkbutton(
-            mode_row, text="step arpeggio", command=self._on_arp,
+            mode_row, text="step pulse (Y per tick)", command=self._on_arp,
             bg="#101014", fg="#cccccc", selectcolor="#202024", activebackground="#101014",
         )
         self.arp.pack(side="left", padx=8)

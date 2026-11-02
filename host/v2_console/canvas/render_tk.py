@@ -19,6 +19,8 @@ COLORS = {
     "track1": "#9bd97a",
     "track2": "#d7a1f9",
     "track3": "#f9d77e",
+    "guide": "#263c4d",
+    "guide_now": "#3e6b8c",
     "dot": "#555555",
     "text": "#888888",
 }

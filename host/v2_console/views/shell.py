@@ -46,6 +46,8 @@ class ConsoleModel:
         self.flow_factory = None
         self.track = 0
         self.commit_count = 0
+        self.score = None
+        self.hit = None
         self._readouts = None
         self._readouts_at = 0.0
         self.params: dict = {}
@@ -243,10 +245,13 @@ class ConsoleModel:
             return self.message
         self.contours[self.track] = list(contour)
         self.live_contour = None
+        self.hit = self.judge_take(contour)
         self.message = "track %d captured: %d/32 non-zero" % (
             self.track,
             sum(1 for value in contour if value),
         )
+        if self.hit is not None:
+            self.message += ", %s on the score" % self.hit.fraction()
         return self.message
 
     def commit_take(self) -> str:
@@ -264,6 +269,44 @@ class ConsoleModel:
         self.phase.reanchor()
         self.message = "published track %d: mode is PLAY now" % self.track
         return self.message
+
+    # -- score guide --------------------------------------------------------
+
+    def load_score(self, path) -> str:
+        """Read a score from disk; the LOOP page then draws it under the take."""
+        from .. import score as score_mod
+
+        self.score = score_mod.load(path)
+        self.hit = None
+        self.message = "score %s: %d track(s), %d ticks" % (
+            self.score.name,
+            len(self.score.tracks),
+            self.score.ticks,
+        )
+        return self.message
+
+    def score_targets(self):
+        """The armed track's note per tick, or None when this track has no part."""
+        if self.score is None:
+            return None
+        try:
+            return self.score.targets(self.track)
+        except KeyError:
+            return None
+
+    def judge_take(self, contour):
+        """How many ticks landed in the note the score asked for; None without a score."""
+        from .. import score as score_mod
+
+        targets = self.score_targets()
+        if targets is None:
+            return None
+        return score_mod.judge(contour, targets)
+
+    def guide_tick(self) -> int:
+        from .. import score as score_mod
+
+        return int(self.phase.u() * score_mod.TICKS) % score_mod.TICKS
 
     # -- parameters, modes and readouts ------------------------------------
 
@@ -369,7 +412,12 @@ class ConsoleModel:
             return wave_painter.paint_wave(self.table, diff=self.table_diff)
         if tab == "loop":
             return loop_painter.paint_loop(
-                self.contours, live=self.live_contour, playhead_u=self.phase.u()
+                self.contours,
+                live=self.live_contour,
+                playhead_u=self.phase.u(),
+                score=self.score,
+                guide_track=self.track,
+                tick=self.guide_tick(),
             )
         drawing = primitives.Drawing()
         drawing.add(primitives.Grid(4, 4, layer=primitives.STATIC))
@@ -647,6 +695,23 @@ class ConsoleWindow:
         self.loop_label = self.ttk.Label(strip, text=zh.t("loop.hint"), bootstyle="secondary")
         self.loop_label.pack(side="left", padx=self.px(10))
 
+        guide = self.ttk.Frame(parent)
+        guide.pack(fill="x", pady=(0, self.px(4)))
+        from .. import score as score_mod
+
+        self.ttk.Label(guide, text=zh.t("score.label"), bootstyle="warning").pack(side="left")
+        self.score_box = self.ttk.Combobox(
+            guide,
+            values=[path.stem for path in score_mod.available()],
+            state="readonly",
+            width=20,
+            bootstyle="secondary",
+        )
+        self.score_box.pack(side="left", padx=self.px(6))
+        self.score_box.bind("<<ComboboxSelected>>", self._on_score)
+        self.hit_label = self.ttk.Label(guide, text="", bootstyle="warning")
+        self.hit_label.pack(side="left", padx=self.px(10))
+
     def _build_wave_controls(self, parent) -> None:
         zh = self.zh
         self._hint(parent, "hint.wave")
@@ -835,6 +900,15 @@ class ConsoleWindow:
         wanted = bool(self.arp_var.get())
         self._run("rule", lambda: self.model.set_arp(wanted))
 
+    def _on_score(self, _event=None) -> None:
+        from .. import score as score_mod
+
+        name = self.score_box.get()
+        if not name:
+            return
+        path = score_mod.SCORE_DIR / (name + ".json")
+        self._run("score", lambda: self.model.load_score(path))
+
     def _on_arm(self):
         track = int(float(self.track_box.get()))
         self._countdown(3, track)
@@ -970,6 +1044,16 @@ class ConsoleWindow:
             except Exception as exc:
                 self.identity_label.config(text="link: %s" % exc)
         self._refresh_value_labels()
+        hit = self.model.hit
+        if hit is None:
+            if self.hit_label.cget("text"):
+                self.hit_label.config(text="")
+        else:
+            text = self.zh.t("score.hit", hit.fraction())
+            if hit.wrong:
+                text += "    " + self.zh.t("score.wrong", " ".join(str(tick) for tick in hit.wrong[:10]))
+            if self.hit_label.cget("text") != text:
+                self.hit_label.config(text=text)
         canvas = self.canvases.get(self._current)
         try:
             if canvas is not None:

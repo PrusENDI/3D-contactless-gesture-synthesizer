@@ -25,7 +25,7 @@
 
 入口 `python host/console.py --port COM4`；设计 `docs/superpowers/specs/2026-11-02-console-design.md`
 与 `2026-11-02-loop-canvas-assisted-recording-design.md`，计划 `docs/superpowers/plans/2026-11-02-console-v2.md`，
-过程 `docs/progress-2026-11-02.md`。**194 条 unittest 全绿**（`python -m unittest discover -s host -p "test_*.py"`）。
+过程 `docs/progress-2026-11-02.md`。**220 条 unittest 全绿**（`python -m unittest discover -s host -p "test_*.py"`）。
 
 板上验过的：身份/模式、`warm` 九条读回全等、正弦表上传+读回 1024/1024、手绘一帧（797 点轨迹 → 1024 点表、
 只传该帧 17.8 s）、morph 20 s 扫描、LOOP 的 Arm/Commit/Publish（32/32 覆盖、2 事件、`voices=1`）、
@@ -64,6 +64,19 @@ LIVE 光标 214 帧/2.5 s。滑杆的写-读回路只在模拟端口上测过，
 4. 1 bit 字段（`enable/retrig/unipolar`）是 Checkbutton 不是滑杆；数值列显示的是**板子读回值**，clamp 一眼可见。
 5. 空画布会画中间提示（"等待手进入感应区"/"还没有波表"/"还没有轨道"），否则看着像坏了。
    截图脚本 `artifacts/tabs_shot.py` → `artifacts/ui/tab-*.png`（`artifacts/` 被忽略）。
+
+**指引页（LOOP 页的谱表，2026-11-02 晚）**：`host/scores/*.json` 是谱，`host/v2_console/score.py` 是模型
+（无 Tk），LOOP 页顶部下拉选谱，画布把**正在录的那一轨**每个 tick 的目标档填亮，录完按 32 点算命中率。
+格式与加谱方法见 `host/scores/README.md`。
+
+1. **谱只能在硬件给的 8 个音里写**：`rtl/v2_note_increment_rom.sv` 只有 55/57/60/62/64/67/69/72；写别的音
+   `score.parse` 直接报错并列出这 8 个。
+2. **档位是硬件的 y 区间，不是八等分**：`v2_live_rule_engine.sv:96-103` 的阈值（3855/13493/…/59753）除以 64
+   就是轮廓域（`v2_loop_contour_capture.sv:57` 存的是 `y[15:6]`，0..1023）的边界。G3 只有 60 宽、A3 有 151 宽，
+   画成等分会让你对着一个"看着对、听着错"的位置练。
+3. **命中率里，没手 = 错**：轮廓 0 表示那一 tick 没有手，提交后是休止，所以算 miss 不算跳过。
+4. **bpm 只接受 120**：`record_flow.arm` 强写 `0x08=120` 并读回校验，谱写别的速度就和画出来的小节错位。
+5. 谱的 `notes` 是 `[起始 tick, MIDI 音号]`，长度由下一个起点或 32 决定；连续同音会并成一个 hold。
 
 ## 1. 开工前必须读（按顺序，约 15 分钟）
 
@@ -172,7 +185,11 @@ P2a 位流 sha256：`915e87cd6367b23ba953e3ba6dd37640ab3b00eb8132a1e865a1dc3b59f
    （+1~2 LUT，0 DSP/BSRAM）；非 arp 与 PLAY 未改，`tb_live_arp_step` 钉住 726→23，
    以及非 arp 600 样点 dump 逐字节不变。
 7. **上位机还差的**（按分镜优先级）：滑杆的板上逐项验证、每轨预设绑定、A/B 对比、
-   N-tone 测试按钮与频谱（频谱要 GAO 或新加音频通路，属 RTL）。
+   N-tone 测试按钮与频谱（频谱要 GAO 或新加音频通路，属 RTL）。指引页已做（§0.5 末）。
+   **PC 侧的 overdub**（把已录轨混成一个 4 s WAV 循环播，边听边录下一轨）零件已在
+   `host/v2_console/audio/reference.py`：`render_wav` 本来就是累加、`SND_LOOP` 循环、`Player`
+   的注释就写着"小节被强写时重起"；缺的是**多轨混合 + arm 起播 + commit 停**这三行胶水，
+   相位误差约 ±20–50 ms（不是样本级，当伴奏可以，当节拍器会有 flam）。
 6. **worst 25 里的 `u_voice` 是诊断偏差，不是 P2b 回归**：25 条里 20 条终点在 `u_v2/u_voice`
    （11 条 VCA/混音 `n9320_s0 → mixed_sample_*`、9 条 `mode_reg → revoice_target_a_pending_*`），
    起点都不是 `voice_cfg` 的七个字段，且这两条锥早于 P2a（`5337ac0` / `cafb93d`）。

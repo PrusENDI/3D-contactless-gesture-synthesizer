@@ -51,6 +51,7 @@ class Text:
 class Grid:
     n_u: int
     n_v: int
+    color_key: str = "grid"
     layer: str = STATIC
 
 

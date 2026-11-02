@@ -67,8 +67,13 @@ function Cmd([int]$Op, [int]$Addr, [uint32]$Data, [string]$What) {
   throw ("{0}: no clean reply after 8 attempts" -f $What)
 }
 
+# Write, read back, and only then let the operator listen: the log then proves the
+# register held the written value while the audio was running.
 function WriteAndStep([int]$addr, [uint32]$data, [string]$label, [string]$expect, [int]$ms) {
   [void](Cmd 0x02 $addr $data $label)
+  $rb = Cmd 0x01 $addr 0 ($label + ' readback')
+  Write-Host ("          readback 0x{0:X8} (wrote 0x{1:X8})" -f $rb, $data)
+  if ($rb -ne $data) { throw ("{0}: wrote 0x{1:X8} but read 0x{2:X8}" -f $label, $data, $rb) }
   Step $label $expect $ms
 }
 

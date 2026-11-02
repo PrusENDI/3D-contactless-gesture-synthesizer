@@ -123,6 +123,17 @@ class RecordFeedbackTest(unittest.TestCase):
         model.arm_take(track=0)
         self.assertAlmostEqual(model.record_offset, 4.0, places=3)
 
+    def test_a_refused_take_records_how_many_ticks_had_a_hand(self):
+        # 28/32 was the real failure: the hand left for the last four ticks, and the
+        # only feedback was one grey line.
+        model, _ = model_with_flow()
+        model.arm_take(track=0)
+        model.flow.contour_result = [100] * 28 + [0] * 4
+        model.flow.verdict = "retry"
+        model.wait_for_take(timeout_s=0.5)
+        model.capture_contour()
+        self.assertEqual(model.take_coverage, 28)
+
     def test_a_captured_take_says_so(self):
         model, _ = model_with_flow()
         model.arm_take(track=0)

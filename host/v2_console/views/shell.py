@@ -63,6 +63,8 @@ class ConsoleModel:
         # take (spread 0.07 s) = 4 s of waiting + a 4 s window.
         self.record_offset = 4.0
         self.record_seconds = 4.0
+        self.take_coverage = 0           # ticks the hand was in the field for
+        self.take_failed_at = 0.0
         self._readouts = None
         self._readouts_at = 0.0
         self.params: dict = {}
@@ -415,8 +417,12 @@ class ConsoleModel:
         """Read the 32 contour points and gate them on coverage before anything is committed."""
         contour = self.flow.contour()
         verdict = self.flow.accept_take(contour)
+        self.take_coverage = sum(1 for value in contour if value)
         if verdict != "ok":
+            # A refused take used to be one small grey line, and the next take then
+            # had no monitor because the contour was never stored.
             self.record_state = "failed"
+            self.take_failed_at = time.monotonic()
             self.message = "take refused (%s): nothing was stored or committed" % verdict
             return self.message
         self.contours[self.track] = list(contour)
@@ -1239,8 +1245,10 @@ class ConsoleWindow:
                 continue
             if label == "arm" and error is not None:
                 self.model.record_state = "failed"
+                self.model.take_failed_at = time.monotonic()
+                self._beep(330, 300)
             if label == "arm" and error is None:
-                self._beep(1320, 140)
+                self._beep(1320, 140) if self.model.record_state == "captured" else self._beep(330, 300)
             if label == "poll":
                 if error is not None:
                     self.identity_label.config(text="link: %s" % error)
@@ -1312,9 +1320,16 @@ class ConsoleWindow:
     def _paint_record(self, canvas) -> None:
         """A red bar and a big caption: a take must be visible, not inferred."""
         state = self.model.record_state
+        width = canvas.winfo_width()
+        if state == "failed" and time.monotonic() - self.model.take_failed_at < 3.0:
+            canvas.create_text(
+                width / 2, self.px(30),
+                text=self.zh.t("loop.rec_failed", self.model.take_coverage),
+                fill=self.palette.danger, font=(self.font_family, 13, "bold"),
+            )
+            return
         if state not in ("countdown", "waiting", "armed"):
             return
-        width = canvas.winfo_width()
         if state == "countdown":
             colour = self.palette.accent
             text = self.zh.t("loop.rec_countdown", self.model.record_track)

@@ -51,11 +51,12 @@ ZH = {
     "loop.armed": "第 %d 轨已就绪",
     "loop.rec_countdown": "准备第 %d 轨…",
     "loop.rec_waiting": "第 %d 轨已武装，等板子开窗（约 4 秒）…",
+    "loop.rec_failed": "✘ 这条没收下：只有 %d/32 个 tick 有手（需要 30）",
     "loop.label_waiting": "⏳ 轨 %d 已武装，等开窗…",
     "loop.recording": "● 正在录第 %d 轨     tick %d/32     剩 %.1f s",
     "loop.label_recording": "● 录音中  轨 %d   %d/32 tick",
     "loop.label_done": "✔ 轨 %d 已采下　→ 下一步：点【提交】",
-    "loop.label_failed": "✘ 这一条没收下",
+    "loop.label_failed": "✘ 这一条没收下（手离开了太久）",
     "loop.committing": "提交中…",
     "loop.publishing": "切换播放…",
     # score guide

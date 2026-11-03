@@ -3,6 +3,7 @@
   "source_repo": "C:\\weizijian\\documents\\gowin fpga\\mgc3130_uart\\.worktrees\\v2-integration",
   "source_rev": "50acf2e",
   "expected_top": "v2_board_top",
+  "expected_tops": ["v2_board_top", "v2_demo_top"],
   "files": [
     {
       "path": "rtl/v2_contract_pkg.sv",

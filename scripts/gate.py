@@ -154,11 +154,21 @@ def main() -> int:
             g.fail("%s is a package listed after a module; packages must come first" % rel)
 
     # ------------------------------------------------------- top identification --
+    # More than one synthesis top is legitimate: the instrument (`v2_board_top`)
+    # and the standalone DDS demo (`v2_demo_top`).  The list lives in
+    # MANIFEST.json; every name in it must be a real, uninstantiated module, and
+    # nothing else may be a root -- that is what keeps a dead module from hiding
+    # behind the second top.
     manifest_path = os.path.join(PROJECT, "MANIFEST.json")
-    expected_top = None
+    expected_tops: list[str] = []
     if os.path.isfile(manifest_path):
         import json
-        expected_top = json.load(open(manifest_path, encoding="utf-8")).get("expected_top")
+        manifest = json.load(open(manifest_path, encoding="utf-8"))
+        declared = manifest.get("expected_tops")
+        if declared:
+            expected_tops = [str(name) for name in declared]
+        elif manifest.get("expected_top"):
+            expected_tops = [str(manifest["expected_top"])]
 
     def refs_to(name: str) -> int:
         pattern = re.compile(r"\b%s\b" % re.escape(name))
@@ -166,15 +176,25 @@ def main() -> int:
 
     roots = [n for n in modules if refs_to(n) <= 0]
     roots.sort()
-    if expected_top:
-        if expected_top not in modules:
-            g.fail("declared top '%s' is not defined anywhere" % expected_top)
-        elif expected_top not in roots:
-            g.fail("declared top '%s' is instantiated by something else" % expected_top)
-        extra = [r for r in roots if r != expected_top]
+    if expected_tops:
+        for name in expected_tops:
+            if name not in modules:
+                g.fail("declared top '%s' is not defined anywhere" % name)
+            elif name not in roots:
+                g.fail("declared top '%s' is instantiated by something else" % name)
+        extra = [r for r in roots if r not in expected_tops]
         if extra:
-            g.fail("additional uninstantiated module(s) besides the top: %s "
+            g.fail("additional uninstantiated module(s) besides the declared tops: %s "
                    "(second top candidate)" % ", ".join(extra))
+        # The demo top must stay reachable only through its own build.  If the
+        # production hierarchy ever names it, "the production netlist is
+        # unchanged" stops being true (design section 5.1).
+        for rel in sorted(sources):
+            if rel.startswith("rtl/v2_demo"):
+                continue
+            if "v2_demo_" in sources[rel]:
+                g.fail("%s references v2_demo_*; the demo top must not be part of "
+                       "the production hierarchy" % rel)
 
     # unreferenced packages
     all_text = "\n".join(sources.values())
@@ -185,7 +205,7 @@ def main() -> int:
         del uses
 
     g.note("modules: %d, packages: %d, files: %d" % (len(modules), len(packages), len(entries)))
-    g.note("top: %s" % (expected_top or "(undeclared)"))
+    g.note("top: %s" % (", ".join(expected_tops) if expected_tops else "(undeclared)"))
     g.note("uninstantiated: %s" % (", ".join(roots) if roots else "none"))
 
     # --------------------------------------------------------------- compiler --

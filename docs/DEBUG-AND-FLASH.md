@@ -248,3 +248,23 @@ host/wavetable_from_capture.py  采集曲线 → 波表
 ```
 
 控制面全集（CSR 表、工作流、GUI 约束）见 `docs/host-tools-and-gui-controls.md`。
+
+## 10. 演示位流（DDS 32 音 + OLED）
+
+第二个综合 top，与乐器无关，专门给赛题「测试模式」那一条用。
+
+```powershell
+python scripts/synth.py --top v2_demo_top --run-id demo_play      --min-fmax 80   # 放音
+python scripts/synth.py --top v2_demo_top --run-id demo_probe --gao gao/demo_tones.rao --min-fmax 80  # 抓谱
+python scripts/gao_capture.py --rao gao/demo_tones.rao --out artifacts/gao/demo32.csv
+python host/spectrum.py --csv artifacts/gao/demo32.csv --column sample_latched --expect 32
+```
+
+- 上电即响，不需要 UART / 主机；屏显示 `N=xx` 与 32 根阶梯柱，画面是组合逻辑（0 BSRAM）。
+- 序列：1 路 4 s → 8 路 4 s → 32 路 20 s，段间 0.5 s 真静音，循环 29.5 s。
+- 放音位流 `BSRAM 0 / DSP 0`；抓谱位流多了 3 块 BSRAM，全在 GAO 采样器里。
+- 探针：`sample_clock=u_i2s/i2s_lrck`、`sample_latched[15:0]`、`demo_tone_count[5:0]`；
+  触发 `demo_muted==0`（电平）。
+- 坑：`.rao` 里不能写位选触发、不能带含 `<...>` 的 XML 注释，都会让 `run syn` 报
+  `PJ0005 Unable to generate RTL GAO source`。
+

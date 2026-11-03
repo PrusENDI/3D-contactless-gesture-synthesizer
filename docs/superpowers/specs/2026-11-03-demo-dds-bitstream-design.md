@@ -83,6 +83,13 @@ v2_demo_top            端口与 v2_board_top 完全相同（复用同一份 CST
 **跨域**：`tone_count` 在 80 MHz 域，writer 与刷新调度在 50 MHz 域（生产就是这么接的，
 `v2_board_top` 用 `clk_50m`）。6 位准静态值走两级同步器 + 边沿检测，**不做握手**。
 
+**GAO 探针的三条实测约束**（都踩过，`gao/demo_tones.rao` 已按此写）：
+
+1. `sample_clock` 用 `u_i2s/i2s_lrck`（48 kHz），不能用系统时钟——2048 点只覆盖 1 个音频样点；
+2. 触发不能写位选（`demo_tone_count[5]`），会报 `PJ0005 Unable to generate RTL GAO source`；
+   用 `demo_muted == 0` 的电平触发，抓哪一段由操作时机决定，计数列写在同一个 CSV 里作证；
+3. `.rao` 里不能带含 `<...>` 字样的 XML 注释，同样 `PJ0005`（注释已删）。
+
 **资源预算**：字模 ~120 LUT、柱状图/地址译码 ~60 LUT、刷新调度 ~25 LUT + 20 寄存器、
 writer 现有 ~190 LUT；0 BSRAM、0 DSP。演示位流总面积远低于器件（v2_test_mode 才 2544 LUT）。
 

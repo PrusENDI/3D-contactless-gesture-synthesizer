@@ -23,6 +23,10 @@ from ..views import live_painter, loop_painter, wave_painter
 
 TABS = ("live", "tone", "loop", "wave")
 
+# THRESHOLDS[26:25]: the arp walk pattern.  The order is the register encoding,
+# so the combobox index is the value that goes on the wire.
+ARP_PATTERNS = ("follow", "up", "updown", "random")
+
 
 class ConsoleModel:
     """Everything the window shows, with no Tk in it."""
@@ -634,8 +638,29 @@ class ConsoleModel:
         self.message = "rule: %s" % ("step pulse (one note per tick, pitch from Y)" if on else "per-frame tracking")
         return self.message
 
+    def set_arp_pattern(self, index: int) -> str:
+        """THRESHOLDS[26:25]: 0 follows Y, 1 walks up, 2 up-down, 3 random.
+
+        Only the two pattern bits move; the enable bit and the Y thresholds are
+        read back and written again.  ``[25:24]`` was rejected on the RTL side
+        because bit 24 is the host padding that keeps low < high.
+        """
+        index &= 3
+        word = self.session.read(0x30)
+        word = (word & ~(3 << 25)) | (index << 25)
+        low, high = word & 0xFFFF, (word >> 16) & 0xFFFF
+        if low >= high:                       # the board refuses low >= high
+            high = low + 1
+            word = (high << 16) | low
+        self.session.write(0x30, word)
+        self.message = "arp walk: %s" % ARP_PATTERNS[index]
+        return self.message
+
     def arp_on(self) -> bool:
         return bool((self.session.read(0x30) >> 23) & 1)
+
+    def arp_pattern(self) -> int:
+        return (self.session.read(0x30) >> 25) & 3
 
     def bpm(self) -> int:
         return self.session.read(0x08) & 0xFFFF
@@ -888,6 +913,19 @@ class ConsoleWindow:
             row, text=zh.t("mode.arp"), variable=self.arp_var, command=self._on_arp, bootstyle="warning"
         )
         self.arp.pack(side="left", padx=self.px(10))
+        # The walk pattern only matters while the step arp is on, but it is a
+        # separate register field, so it stays enabled: switching it while the
+        # arp is off is how a pattern is pre-selected.
+        self.pattern_var = self.tk.StringVar(value=zh.t("arp.follow"))
+        self.pattern_box = self.ttk.Combobox(
+            row,
+            textvariable=self.pattern_var,
+            values=[zh.t("arp." + name) for name in ARP_PATTERNS],
+            state="readonly",
+            width=8,
+        )
+        self.pattern_box.pack(side="left", padx=self.px(2))
+        self.pattern_box.bind("<<ComboboxSelected>>", self._on_arp_pattern)
         self.bpm_label = self.ttk.Label(row, text="", bootstyle="secondary")
         self.bpm_label.pack(side="left", padx=self.px(6))
         self._button(
@@ -1208,7 +1246,7 @@ class ConsoleWindow:
     def _on_read_params(self):
         def action():
             words = self.model.read_params()
-            self._results.put(("params", (words, self.model.arp_on()), None))
+            self._results.put(("params", (words, self.model.arp_on(), self.model.arp_pattern()), None))
             return "read %d registers" % len(words)
 
         self._run("read-params", action)
@@ -1257,6 +1295,15 @@ class ConsoleWindow:
     def _on_arp(self):
         wanted = bool(self.arp_var.get())
         self._run("rule", lambda: self.model.set_arp(wanted))
+
+    def _on_arp_pattern(self, _event=None):
+        try:
+            index = [self.zh.t("arp." + name) for name in ARP_PATTERNS].index(
+                self.pattern_var.get()
+            )
+        except ValueError:
+            return
+        self._run("rule", lambda: self.model.set_arp_pattern(index))
 
     def _on_score(self, _event=None) -> None:
         from .. import score as score_mod
@@ -1348,10 +1395,11 @@ class ConsoleWindow:
                 self.progress_label.config(text=self.zh.t("wave.progress", "ABC"[table], done, total))
                 continue
             if label == "params":
-                words, arp = value
+                words, arp, pattern = value
                 self._sync_sliders(words)
                 if bool(self.arp_var.get()) != bool(arp):
                     self.arp_var.set(bool(arp))
+                self.pattern_var.set(self.zh.t("arp." + ARP_PATTERNS[pattern & 3]))
                 continue
             if label == "arm" and error is not None:
                 self.model.record_state = "failed"

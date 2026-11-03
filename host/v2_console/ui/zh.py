@@ -27,6 +27,11 @@ ZH = {
     "mode.play": "循环播放",
     "mode.wt": "波表试听",
     "mode.arp": "步进脉冲",
+    # arp walk patterns (THRESHOLDS[26:25])
+    "arp.follow": "跟随高度",
+    "arp.up": "上行",
+    "arp.updown": "上下",
+    "arp.random": "随机",
     "mode.read_params": "读取参数",
     "mode.ref_play": "试听参考",
     "mode.ref_stop": "停止参考",

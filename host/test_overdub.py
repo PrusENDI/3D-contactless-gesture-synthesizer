@@ -16,7 +16,12 @@ from host.v2_console.audio import reference
 from host.v2_console.views.shell import ConsoleModel
 
 SCORE = score_mod.load(score_mod.SCORE_DIR / "c-am-vamp-4s.json")
-LEVEL = {55: 30, 57: 135, 60: 286, 62: 421, 64: 557, 67: 707, 69: 858, 72: 978}
+# y level per note: the centre of that note's y interval, the same table the
+# Potts solver fits against (host/v2_potts_reference.LEVELS).  64/69/72 are the
+# old degrees the score still names; the map no longer commits them, so they
+# alias the nearest degree of G natural minor (64->62, 69->65, 72->67).
+LEVEL = {55: 30, 57: 135, 58: 286, 60: 421, 62: 557, 63: 707, 65: 858, 67: 978,
+         64: 557, 69: 858, 72: 978}
 TABLE = [int(8191 * math.sin(2.0 * math.pi * index / 1024)) for index in range(1024)]
 ENV = {"attack_step": 4096, "decay_step": 256, "sustain_level": 49152, "release_step": 1024}
 

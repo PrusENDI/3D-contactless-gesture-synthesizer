@@ -20,13 +20,18 @@ BAR_SECONDS = 4.0
 BAR_TICKS = 32
 TICKS_PER_SECOND = BAR_TICKS / BAR_SECONDS
 
-# rtl/v2_note_increment_rom.sv, the only eight notes that are not silent.
+# rtl/v2_note_increment_rom.sv.  The eight LIVE/Potts degrees are G natural
+# minor (55 57 58 60 62 63 65 67); 64/69/72 stay in the ROM so an old WT_PLAY
+# test note still has a pitch, and they stay here because a score may name one.
 ROM_INCREMENT = {
-    55: 17537476,
+    55: 17537579,
     57: 19685267,
+    58: 20855814,
     60: 23409859,
     62: 26276679,
+    63: 27839171,
     64: 29494575,
+    65: 31248413,
     67: 35075158,
     69: 39370534,
     72: 46819719,

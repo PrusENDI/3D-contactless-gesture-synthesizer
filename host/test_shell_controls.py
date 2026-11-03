@@ -100,6 +100,18 @@ class ModeTest(unittest.TestCase):
         self.assertLess(word & 0xFFFF, (word >> 16) & 0xFFFF)
         self.assertEqual(model.arp_on(), True)
 
+    def test_arp_pattern_writes_bits_26_25_and_keeps_the_other_fields(self):
+        session = FakeSession()
+        session.regs[0x30] = (0x0180 << 16) | 0x0000          # arp on, pattern 0
+        model = ConsoleModel(session)
+        for index in (1, 2, 3, 0):
+            model.set_arp_pattern(index)
+            word = session.regs[0x30]
+            self.assertEqual((word >> 25) & 3, index)
+            self.assertTrue((word >> 23) & 1)                 # enable survives
+            self.assertLess(word & 0xFFFF, (word >> 16) & 0xFFFF)
+            self.assertEqual(model.arp_pattern(), index)
+
     def test_bpm_is_reported_read_only(self):
         session = FakeSession()
         session.regs[0x08] = 47

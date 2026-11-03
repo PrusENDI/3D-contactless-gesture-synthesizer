@@ -41,12 +41,12 @@ LIVE 光标 214 帧/2.5 s。滑杆的写-读回路只在模拟端口上测过，
 4. **seq 撞车**：新进程第一条命令若与板子缓存帧同 seq（内容不同）会收 `err=5`；`Link` 现在换新 seq 重试。
 5. **一个 Link 只能有一个线程用**：已加可重入锁；窗口的读数轮询在 Tk 线程、按钮动作在工作线程。
 
-**已修（2026-11-02 晚）**：`THRESHOLDS[23]` 的 "step pulse" 每 tick 的 `NOTE_ON` 原先把 LIVE 包络
-`hit_sticky` 清零（`top:739/749`），一个 `sample_ce` 内 45872→0 再按 `ENV_ATT=96` 重起音，所以每一步一声敲击。
-**不是相位问题**：`u_wt_playback` 的 phase 只被 `rst_n` 复位，实测跨边界每拍 +`0x010B_99C4` 连续；
-`u_voice` 的相位复位在 LIVE 不进 I2S 的 mux。实测边界最大 |Δsample| **726**（arp 关时 28）；
-现在 arp 模式不再清零包络（`live_env_hit` 多一个 `!thresholds_reg[23]`），实测 **23**，
-换音高是 legato；非 arp 的 600 样点 dump 逐字节不变。见 `progress-2026-11-02.md`。
+**已修（2026-11-03）**：LIVE 的音频改走 32 声部引擎 + `u_fx_lite`，不再用 `u_wt_playback × wt_env`
+（那一整块 LIVE 包络已删，`wt_env_prod` 的 DSP 乘法预计还回 1 片）。`0x94/0x98/0x9C` 与
+`0x84/0x88/0x8C` 现在都到 LIVE；`0x40/0x44/0x90` 本来就在 mux 之后、一直生效。
+顺带修了 `REVOICE` 只能同音高重调的问题（旧 LIVE 的音高由 `u_wt_playback` 单独走，把引擎里的空操作盖住了）。
+arp 仍用 OFF+ON：实测 |Δsample| 726 → 23 → **9**。证据、bench（`tb/tb_live_engine`）与预期面积见
+`progress-2026-11-02.md` 的「LIVE 改走 32 声部引擎」。**还没有重新构建/烧板**，板上仍是旧路由。
 
 **界面（第二轮，2026-11-02 晚）**：ttkbootstrap 2.2.6 深色主题 `darkly` + 全中文。新增
 `host/v2_console/ui/`（`zh.py` 文案与单位汉化，`theme.py` 字体/间距/DPI）。**多了一个依赖：
@@ -147,7 +147,10 @@ LIVE 光标 214 帧/2.5 s。滑杆的写-读回路只在模拟端口上测过，
    （正弦三次式每拍一级流水、输出寄存）、`rtl/mgc3130_v2_top.sv` 里的音频链
    （`i2s_sample_raw` → LFO/`ci_total` → `u_filter` → 音量 → `i2s_sample`）。
 
-## 2. 第一件事：带手做 P2b 听感验收（唯一剩下的缺口）
+## 2. 第一件事：构建 + 带手做 P2b 听感验收（唯一剩下的缺口）
+
+**LIVE 路由在 2026-11-03 改了**（引擎 + FX，见 §0.5），所以听感验收必须先**重新构建、烧板**；
+板上现在那块 P2b 位流还是旧路由，直接听听到的不是这份 RTL。
 
 构建门与寄存器面都过了：`p2b_no_patch` 是 CLS 10750、Fmax 62.925 MHz、worst −3.392 ns，
 `gate: OK`，已烧在板上（`0xB0=0x5A5A0003`）。`0x94/0x98/0x9C` 的板上写读回、
@@ -239,9 +242,9 @@ P2a 位流 sha256：`915e87cd6367b23ba953e3ba6dd37640ab3b00eb8132a1e865a1dc3b59f
 5. **80 MHz 时序欠账**：worst −3.392 ns、1335 个 setup 违约端点、Fmax 62.9 MHz；
    板子仍按 80 MHz 跑。这是 P1 起就有的历史欠账，本轮比 P2a 好 0.6 ns，但**没有真正 closure**。
    要 closure 只能继续流水化/换结构，不要删功能。
-6. **LIVE 的 "step pulse" 已不敲击（2026-11-02 晚，见 §0.5）**：arp 模式不再清零包络
-   （+1~2 LUT，0 DSP/BSRAM）；非 arp 与 PLAY 未改，`tb_live_arp_step` 钉住 726→23，
-   以及非 arp 600 样点 dump 逐字节不变。
+6. **LIVE 路由已改（2026-11-03，见 §0.5）**：LIVE = 引擎 `voice_sample` → `u_fx_lite` → `>>>2` → I2S，
+   `wt_env` 已删（预期 −1 DSP、−150~250 LUT/CLS，未构建）；arp 仍用 OFF+ON，实测 |Δsample| 726→23→9；
+   REVOICE 现在能跨音高重调（`last_active_slot` + `note[]` 回写）。下一步：构建 → 烧板 → 带手听感。
 7. **上位机还差的**（按分镜优先级）：滑杆的板上逐项验证、每轨预设绑定、A/B 对比、
    N-tone 测试按钮与频谱（频谱要 GAO 或新加音频通路，属 RTL）。指引页与 PC 侧 overdub 已做（§0.5），
    **overdub 还没在板上真录一遍**（要先在台架上听：听得出起播晚了就加一个固定的渲染偏移来补）。

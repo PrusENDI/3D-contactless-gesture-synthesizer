@@ -1,19 +1,21 @@
 # 独立 DDS 演示位流：任务级计划（2026-11-03）
 
-> 分支：`feat/demo-dds-bitstream`（从 `9b17dd3` 拉出，含设计 `2b394d5`）。
+> 分支：`feat/demo-dds-oled`，独立 worktree `mgc3130_demo`（从 `feat/demo-dds-bitstream` @ `c878314` 拉出，
+> 那份已含 OLED 的既有实现与设计 `2b394d5`；master 不受影响）。
 > 设计：`docs/superpowers/specs/2026-11-03-demo-dds-bitstream-design.md`。
 > 每个任务：先红后绿、跑指定命令、**单独提交**。构建只跑一次（见 T9），不要每步构建。
 
 ## 0. 开工前置（不占任务号）
 
-- 工作区当前有 16 个与本特性无关的改动（OLED、potts、`mgc3130_v2_top.sv` 等）。
-  **不要在别人的改动上跑编译门**：要么等它们提交，要么另开 worktree：
-  `git worktree add ../demo-dds feat/demo-dds-bitstream`。
+- 工作全部在 worktree `C:/weizijian/documents/gowin fpga/mgc3130_demo` 里做，
+  主工作区 `mgc3130_clean` 里那 16 个别人的改动不碰、也不在上面跑门。
 - 本特性只碰：`filelist.f`、`MANIFEST.json`、`scripts/gate.py`、`scripts/synth.py`、
-  `scripts/synth_report.py`、`host/test_synth_report.py`、新增 `rtl/v2_demo_*`、新增 `tb/tb_demo_*`、
-  新增 `tb/tb_test_mode.sv`、新增 `host/spectrum.py` + `host/test_spectrum.py`、
-  新增 `gao/demo_tones.rao`、新增 `docs/demo-dds-evidence.md`、`docs/DEBUG-AND-FLASH.md`、进度文档。
-- 不碰：`rtl/mgc3130_v2_top.sv`、`rtl/v2_board_top.sv`、`rtl/v2_test_mode.sv`、`v2_contract_pkg.sv`、`constr/`。
+  `scripts/synth_report.py`、`host/test_synth_report.py`、新增 `rtl/v2_demo_*`、新增 `rtl/v2_oled_tones.sv`、
+  新增 `tb/tb_demo_*`、新增 `tb/tb_oled_tones.sv`、新增 `tb/tb_test_mode.sv`、
+  新增 `host/spectrum.py` + `host/test_spectrum.py`、新增 `gao/demo_tones.rao`、
+  新增 `docs/demo-dds-evidence.md`、`docs/DEBUG-AND-FLASH.md`、进度文档。
+- 不碰：`rtl/mgc3130_v2_top.sv`、`rtl/v2_board_top.sv`、`rtl/v2_test_mode.sv`、`rtl/v2_oled_static.sv`、
+  `rtl/v2_oled_image.sv`、`v2_contract_pkg.sv`、`constr/`。
 
 ## T1 gate 认识第二个 top
 
@@ -63,17 +65,36 @@
 2. 实现；**绿**：`python scripts/sim_unit.py --tb tb_demo_seq` → `UNIT tb_demo_seq: PASS`。
 3. 提交。
 
-## T4 演示 top + 静音闸门 + 它的 tb
+## T3b OLED 画面（组合式，0 BSRAM）
+
+新 `rtl/v2_oled_tones.sv`：`img_addr[9:0]`（`{page[2:0], col[6:0]}`）+ `tone_count[5:0]` →
+`img_data[7:0]`，**纯组合**。
+
+1. 画面：第 0–15 行大号 `N=xx`（13 个 8×16 字模：0-9、`N`、`=`、空格，放 `case` 函数即 LUT）；
+   第 16–63 行 32 根阶梯柱，第 k 根高 k 像素、`k ≤ tone_count` 时点亮（列 `col[6:2]` 是槽号，
+   `col[1:0] < 3` 才是柱宽）。
+2. **红**：`tb/tb_oled_tones.sv` 断言
+   ①`tone_count=32` 时点亮的柱数 = 32、`tone_count=8` 时 = 8；
+   ②第 k 根柱的像素高度 = k（逐列扫 `col=4k..4k+2` 统计亮位）；
+   ③`N=32` 时 "3" 与 "2" 的字模字节与 `host` 侧参考（手写的 13×16 表）逐字节相同；
+   ④`tone_count=0` 时屏幕只剩 `N= 0`，柱全灭。
+   跑 → 编译失败 = 红。
+3. 实现；**绿**：`sim_unit --tb tb_oled_tones` PASS。提交。
+
+## T4 演示 top：静音闸门 + 显示路径 + 它的 tb
 
 `rtl/v2_demo_top.sv` 填实：照抄 `mgc3130_v2_top.sv:62-77` 的时钟/复位/调度器，
 接 `v2_demo_sequencer` + `v2_test_mode` + 静音闸门 + `i2s_pcm5102a_tx`；
+再按设计 §4.3 接显示路径：`v2_oled_tones`（组合画面）→ `v2_oled_static`（现成 writer，`clk_50m`），
+`tone_count` 两级同步器进 50 MHz 域，`done` 后等 N 变化 → 拉低 writer 的 `rst_n` 几拍 → 放开重发整帧；
 未用端口 `uart_tx=1`、`mgc_*=1'bz`。
 
 1. **红**：`tb/tb_demo_top.sv`（80 MHz，`#6.25`；短参数）断言：
    - 静音段 `u_i2s/sample_latched` 保持**连续 0**（不是保持上一个样点）；
    - 有声段 `sample_latched` 非 0，且 `demo_tone_count` 与段对应；
    - `pcm5102a_lrck` 频率 ≈ 48 kHz（分频参数对不对）；
-   - 端口表与 `v2_board_top` 逐字相同（对比两文件的 port 声明即可，脚本 grep）。
+   - 端口表与 `v2_board_top` 逐字相同（对比两文件的 port 声明即可，脚本 grep）；
+   - 换 N 之后 writer 的 `rst_n` 被拉低过（重发整帧），并且 SPI 上出现完整的 8×131 字节序列。
 2. 实现；**绿**：`sim_unit --tb tb_demo_top` PASS。
 3. 提交。
 
@@ -126,13 +147,14 @@ python scripts/synth.py --top v2_demo_top --run-id demo1 --gao gao/demo_tones.ra
 记录进 `impl/v2_demo_top_demo1/synth_summary.json` 与进度文档：
 
 - `top = v2_demo_top`、`bitstream_sha256`；
-- **BSRAM 必须 0**（>0 说明音频被推断成存储，推翻 V3）；
+- **BSRAM 必须 0**（音频与显示都算：>0 说明某处被推断成存储，推翻 V3；字模进 LUT 才是对的）；
 - DSP 0、Logic/Reg/CLS 实际数、fmax、worst slack；
 - 若 `--min-fmax` 红：那是真问题（这么小的设计不该跑不到 80 MHz），先查，不调低门。
 
 ## T10 板上（要手，一次做完）
 
 1. 烧 `impl/v2_demo_top_demo1/impl/pnr/ao_0.fs`（GAO 构建）→ 上电即响，不接 USB。
+1b. 屏：上电后显示 `N= 1` 与 1 根柱；走到 N=32 段时 32 根柱全亮（每次换 N 黑 ~110 ms 再画）。
 2. `gao_capture.py --rao gao/demo_tones.rao --out artifacts/gao/demo32.csv` →
    `python host/spectrum.py --csv artifacts/gao/demo32.csv --expect 32`。
 3. 等序列走回 N=1 段，再抓一次 `demo1.csv` → `--expect 1`。

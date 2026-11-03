@@ -12,7 +12,7 @@
 | --- | --- | --- |
 | V1 | 多路、不同频率，且路数能当场改变 | N 依次为 1 / 8 / 32，每路频率 `220.000·k Hz`（k=1..N），**无主机参与** |
 | V2 | 频谱上数得出 N 个独立谱峰 | **GAO 一路**：2048 点 @48 kHz（42.7 ms、23.4 Hz 分辨率）FFT，峰数 = N、位置落在 `220·k Hz ±1 bin`；模拟录音不进验收（用户 2026-11-03 选 C，见 §10） |
-| V3 | RTL 可佐证纯硬件实时合成、无预录 | 位流里 **0 BSRAM、0 DSP、无 UART 实例**；每个样点由「相位累加器 + 单周期 256 点表 + 加法」当场算出；并有一个录音做不到的实验：N 自己变，峰数跟着变 |
+| V3 | RTL 可佐证纯硬件实时合成、无预录 | 位流里 **0 BSRAM、0 DSP、无 UART 实例**；每个样点由「相位累加器 + 单周期 256 点表 + 加法」当场算出；OLED 的字模与柱状图也是**组合算出来**的（§4.3）；并有一个录音做不到的实验：N 自己变，峰数跟着变 |
 
 ## 2. 为什么是独立位流，而不是生产位流加一个开关
 
@@ -49,14 +49,42 @@
 
 ```
 v2_demo_top            端口与 v2_board_top 完全相同（复用同一份 CST 与烧录脚本）
-├── v2_clock_gen       50 MHz → 80 MHz（PLLA，现成）
-├── v2_reset_sync      PLL 锁定后才释放复位（现成）
-├── v2_sample_scheduler 80 MHz → 48 kHz sample_ce（现成）
-├── v2_demo_sequencer  （新）按帧计数：写 0xA0 的 N 字、拉静音、切段
-├── v2_test_mode #(MAX_TONES=32) （现成，零改动）32 路相位累加器 + 256 点单周期正弦表
-├── 静音闸门            （新，两个门级逻辑）mute 时输出 0，并按 sample_ce 打一次 valid
-└── i2s_pcm5102a_tx    CLK_HZ=80_000_000 / SAMPLE_HZ=48_000 / ACC_WIDTH=24（现成）
+├── 音频路径（80 MHz 域）
+│   ├── v2_clock_gen       50 MHz → 80 MHz（PLLA，现成）
+│   ├── v2_reset_sync      PLL 锁定后才释放复位（现成）
+│   ├── v2_sample_scheduler 80 MHz → 48 kHz sample_ce（现成）
+│   ├── v2_demo_sequencer  （新）按帧计数：写 0xA0 的 N 字、拉静音、切段
+│   ├── v2_test_mode #(MAX_TONES=32) （现成，零改动）32 路相位累加器 + 256 点单周期正弦表
+│   ├── 静音闸门            （新，两个门级逻辑）mute 时输出 0，并按 sample_ce 打一次 valid
+│   └── i2s_pcm5102a_tx    CLK_HZ=80_000_000 / SAMPLE_HZ=48_000 / ACC_WIDTH=24（现成）
+└── 显示路径（50 MHz 域，与音频无数据通路，只同步 6 位 tone_count）
+    ├── v2_oled_tones      （新）组合式画面：大号 "N=xx" + 32 根阶梯柱，0 BSRAM
+    ├── v2_oled_static     （现成，零改动）SSD1306 初始化 + 刷整帧
+    └── 刷新调度           （新，约 20 行）done 后等 N 变化，用复位脉冲重发整帧
 ```
+
+### 4.3 OLED 显示（2026-11-03 追加，用户要求）
+
+**显示什么**：第 0–15 行大号 `N=xx`（右对齐，1/8/32 三态）；第 16–63 行 **32 根阶梯柱**，
+第 k 根高 k 像素、`k ≤ N` 时点亮。屏上同时给出「几路」和「32 个不同频率」两件事，
+和频谱上的 N 个峰一一对应。
+
+**怎么做到 0 BSRAM**：生产那套是「`v2_oled_image`（1 块 BSRAM 存图）+ 写一次」。
+演示位流反过来——**画面是组合算出来的**：`img_addr = {page, col}` 与 `tone_count` 直接
+产生该字节（大号字模 13 个字符 × 16 字节 = 208 字节放在 LUT 里；柱状图是行/列比较）。
+所以整个演示位流 **0 BSRAM**，连显示都没有存储；这条让 V3 的说法更硬（见 gate §7）。
+
+**怎么刷新**：`v2_oled_static` 是一次性的（`ST_DONE` 之后永不再动，`v2_oled_static.sv:240-247`），
+而它不能改——它是生产 RTL。演示 top 用**复位脉冲重发**：`done` 之后等 `tone_count` 变化，
+把 writer 的 `rst_n` 拉低几拍再放开，它重新走「面板复位 100 µs → 唤醒 100 ms → 初始化 → 刷整帧 8.6 ms」。
+代价是每次换 N 屏会黑 ~110 ms（一轮 29.5 s 只发生 3 次），换来 writer 零改动、无复制。
+`WAKE_CYCLES` 保持 100 ms：上电那次是屏手册要求，重复初始化时多等无害。
+
+**跨域**：`tone_count` 在 80 MHz 域，writer 与刷新调度在 50 MHz 域（生产就是这么接的，
+`v2_board_top` 用 `clk_50m`）。6 位准静态值走两级同步器 + 边沿检测，**不做握手**。
+
+**资源预算**：字模 ~120 LUT、柱状图/地址译码 ~60 LUT、刷新调度 ~25 LUT + 20 寄存器、
+writer 现有 ~190 LUT；0 BSRAM、0 DSP。演示位流总面积远低于器件（v2_test_mode 才 2544 LUT）。
 
 **演示位流的音频通路有两个元件，不是一个**（评审第 1 条逼出来的）：
 
@@ -108,7 +136,8 @@ v2_demo_top            端口与 v2_board_top 完全相同（复用同一份 CST
 | 文件 | 改动 | 理由 |
 | --- | --- | --- |
 | `rtl/v2_demo_sequencer.sv` | 新增 | 自走 N 序列 + 静音控制 |
-| `rtl/v2_demo_top.sv` | 新增 | 第二 top（含静音闸门） |
+| `rtl/v2_demo_top.sv` | 新增 | 第二 top（含静音闸门与刷新调度） |
+| `rtl/v2_oled_tones.sv` | 新增 | 组合式画面：大号 `N=xx` + 32 根阶梯柱，0 BSRAM（§4.3） |
 | `filelist.f` | 加两行（序列器在前、top 在后） | 编译顺序 |
 | `MANIFEST.json` | 加 `expected_tops: ["v2_board_top", "v2_demo_top"]`，保留 `expected_top` | gate 读列表；保留旧键让 `bootstrap.py` 重跑时至少能起一个明确的失败 |
 | `scripts/gate.py` | 按 `expected_tops` 校验多个 root；其他 root 仍 FAIL | 现在只允许一个 root（`gate.py:174-177`） |
@@ -122,7 +151,7 @@ v2_demo_top            端口与 v2_board_top 完全相同（复用同一份 CST
 | `docs/DEBUG-AND-FLASH.md` | 补一节「演示位流」 | 构建/烧录/验收命令 |
 
 生产侧不动的部分：`mgc3130_v2_top.sv`、`v2_board_top.sv`、`v2_contract_pkg.sv`、
-`v2_test_mode.sv`、所有约束文件。
+`v2_test_mode.sv`、`v2_oled_static.sv`、`v2_oled_image.sv`、所有约束文件。
 
 ### 5.1 「生产位流不变」怎么算数（评审第 2 条）
 
@@ -158,9 +187,10 @@ DFT 断言必红。`v2_test_mode.sv:353-355` 里「2083 clocks at 100 MHz」是*
 1. 先红后绿：`tb_test_mode` 在没有 DDS 输出时红，接上后绿；`tb_demo_top` 同理。
 2. `python scripts/gate.py --compile` → `0 error(s), 0 warning(s)`。
 3. `python scripts/sim.py` → PASS，失败集不超出基线（4 条已知）。
-4. `python scripts/sim_unit.py --tb tb_test_mode`、`--tb tb_demo_top` → PASS。
+4. `python scripts/sim_unit.py --tb tb_test_mode`、`--tb tb_demo_top`、`--tb tb_oled_tones` → PASS。
 5. `python scripts/synth.py --top v2_demo_top --run-id <id> --min-fmax 80` → SYNTH PASS；
-   **BSRAM 必须是 0**，否则先查清楚是不是被推断成存储（那会推翻 V3 的说法）；
+   **BSRAM 必须是 0**，包括显示：字模必须在 LUT 里（推断成 BSRAM 就说明画面被存起来了，
+   既推翻 V3 也说明 composer 写成了 ROM）；DSP 也必须是 0；
    fmax ≥ 80 MHz 由新加的 `--min-fmax` 真正判定，不再是一条没人执行的评审意见。
 6. 板上：烧 → 上电即响 → 同一次上电里抓 N=32（32 峰）与 N=1（1 峰）两次 →
    回烧生产位流并确认 `0xB0=0x5A5A0003`、`0xA0` 读 0。
@@ -180,6 +210,10 @@ DFT 断言必红。`v2_test_mode.sv:353-355` 里「2083 clocks at 100 MHz」是*
 | 写 `N=32` 时 `ser_term` 会在发布那一拍读 `phase[32]`（数组是 `[0:31]`） | 无害（发布拍不用 `ser_term`），但新 tb 会刷越界告警；tb 里注明，不顺手改既有 RTL |
 | `v2_test_mode` 历史上没有 tb，第一次写 tb 可能暴露既有 bug | 这正是先红后绿的意义；发现 bug 单独记，不在本设计里改 |
 | 工作区现在有未提交的 `rtl/mgc3130_v2_top.sv`（`mode_rw_q` 实验） | 本特性不碰它；任何生产基线都按「工作区当前状态」记，不能用 HEAD 冒充 |
+| 每次换 N 屏黑 ~110 ms（复位脉冲重发整帧） | 一轮只发生 3 次；若现场观感差，再改成可重发 writer（复制 `v2_oled_static` 改状态机），那是另一个任务 |
+| 字模若被推断成 BSRAM，`0 BSRAM` 的说法就破了 | 字模写成 `case` 函数（组合），构建门硬查 BSRAM=0；变成 1 就查是不是写了 `mem[]` |
+| 50 MHz 与 80 MHz 两个域，`tone_count` 跨域 | 两级同步器 + 边沿检测；该值 4 s 才变一次，不做握手 |
+| 屏初始化序列与实物不符（SH1106 / 列偏移） | 沿用生产已验过的 `v2_oled_static` 初始化表，不改；只在板上确认"能显示" |
 
 ## 9. 留给构建者的（我的决定，不再问）
 
@@ -208,4 +242,5 @@ DFT 断言必红。`v2_test_mode.sv:353-355` 里「2083 clocks at 100 MHz」是*
 | 5 | `v2_test_mode` 注释写 100 MHz，实际 80 MHz；tb 跑 100 MHz 会让音高变 275·k；`.rao` 采样时钟选错只覆盖 1 个样点 | tb 固定 80 MHz、`.rao` 固定 `pcm5102a_lrck`，过期注释标注不改（§6） |
 | 附 | `--min-fmax` 今天没有任何执行点 | `synth.py` 新增 `--min-fmax`，演示位流按 80 MHz 判（§7.5） |
 | 6 | 这台电脑能不能录线路输出：`N6506MV` 3.5mm 是 combo 耳麦口，Windows 只有麦克风采集端点、无线路输入 | 用户选 C：模拟录音不进验收；V2 只报 GAO 数字域，开篇写明（§10） |
+| 7 | 用户追加：测试模式要加 OLED 显示（2026-11-03） | §4.3：复用生产 writer（零改动）+ 组合式画面（0 BSRAM）+ 复位脉冲刷新；新增 `v2_oled_tones` 与 `tb_oled_tones` |
 | 附 | `board_program.ps1` 不在本仓库 | 文档给出真实路径（§4） |

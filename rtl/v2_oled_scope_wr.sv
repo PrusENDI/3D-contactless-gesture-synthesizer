@@ -68,8 +68,11 @@ module v2_oled_scope_wr #(
         endcase
     endfunction
 
-    typedef enum logic [2:0] {S_IDLE, S_RESET, S_WAKE, S_NEXT, S_LOAD, S_DECAY,
-                              S_SHIFT, S_GAP} state_t;
+    // S_LOAD waits the one cycle the synchronous RAM needs; the byte is
+    // captured in S_LATCH.  Latching in S_LOAD (as this module first did) sends
+    // the previous address's byte on the wire.
+    typedef enum logic [3:0] {S_IDLE, S_RESET, S_WAKE, S_NEXT, S_LOAD, S_LATCH,
+                              S_DECAY, S_SHIFT, S_GAP} state_t;
     state_t      state_q;
     logic [23:0] delay_q;
     logic [4:0]  init_q;
@@ -190,6 +193,10 @@ module v2_oled_scope_wr #(
                 // the next cycle: the read and the decay write must not share a
                 // cycle, or the block RAM becomes a rejected write mode.
                 S_LOAD: begin
+                    state_q  <= S_LATCH;
+                end
+
+                S_LATCH: begin
                     shift_q  <= TEST_STRIPES ? {8{data_col[0]}} : fb_rdata;
                     mosi_q   <= TEST_STRIPES ? data_col[0] : fb_rdata[7];
                     state_q  <= S_DECAY;

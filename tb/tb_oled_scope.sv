@@ -1,6 +1,11 @@
 `timescale 1ns/1ps
 // Scope picture: the plotter must map audio to the right pixel, the framebuffer
-// must keep it, and the refresh stream must fade it away.
+// must keep it there without disturbing any other byte, and the refresh stream
+// must fade it away.
+//
+// The second half of the mapping test is the important one: a plotter that
+// reads its byte one cycle late ORs a foreign byte into the target pixel, which
+// on real hardware looks like vertical stripes.
 module tb_oled_scope;
   logic clk = 1'b0, rst_n = 1'b0;
   logic sample_valid = 1'b0;
@@ -41,20 +46,25 @@ module tb_oled_scope;
   );
 
   integer frames = 0;
-  integer i;
-  // {row[5:3], x[6:0]} for x=64, row=31 (sample 0 sits in the middle).
-  localparam integer ADDR = 3 * 128 + 64;
+  integer i, stray;
+  // sample 0           -> x=64, row=31 -> {3,64}   mask 0x80
+  // sample 16000       -> x=64, row=16 -> {2,64}   mask 0x01
+  localparam integer ADDR_A = 3 * 128 + 64;
+  localparam integer ADDR_B = 2 * 128 + 64;
 
   always @(posedge clk) if (frame) frames = frames + 1;
 
-  task automatic feed(input integer count);
+  // On silicon the block RAM powers up zero; simulation leaves it X, and an X
+  // ORed into a pixel would hide exactly the bug this bench is looking for.
+  initial for (i = 0; i < 1024; i = i + 1) u_fb.mem[i] = 8'h00;
+
+  task automatic plot_one(input logic signed [15:0] value);
     begin
-      for (i = 0; i < count; i = i + 1) begin
-        sample_valid <= 1'b1;
-        @(posedge clk);
-        sample_valid <= 1'b0;
-        repeat (3) @(posedge clk);
-      end
+      sample       <= value;
+      sample_valid <= 1'b1;
+      @(posedge clk);
+      sample_valid <= 1'b0;
+      repeat (12) @(posedge clk);
     end
   endtask
 
@@ -63,21 +73,28 @@ module tb_oled_scope;
     rst_n <= 1'b1;
     repeat (8) @(posedge clk);
 
-    // ---- a DC sample of 0 plots the middle-left pixel: x=64, row=31 -------
-    feed(40);
-    if (dbg_x !== 7'd64) $fatal(1, "FAIL x = %0d, want 64", dbg_x);
-    if (dbg_y !== 6'd31) $fatal(1, "FAIL row = %0d, want 31", dbg_y);
-    repeat (4) @(posedge clk);
-    if (u_fb.mem[ADDR][7] !== 1'b1)
-      $fatal(1, "FAIL pixel not set, byte %02h", u_fb.mem[ADDR]);
+    // ---- two different points, before the first refresh frame --------------
+    plot_one(16'sd0);
+    plot_one(16'sd16000);
+    if (u_fb.mem[ADDR_A] !== 8'h80)
+      $fatal(1, "FAIL A = %02h, want 80", u_fb.mem[ADDR_A]);
+    if (u_fb.mem[ADDR_B] !== 8'h01)
+      $fatal(1, "FAIL B = %02h, want 01 (a late read would OR A's byte here)",
+             u_fb.mem[ADDR_B]);
 
-    // ---- stop plotting: the refresh stream fades the byte to zero ---------
+    stray = 0;
+    for (i = 0; i < 1024; i = i + 1)
+      if (i != ADDR_A && i != ADDR_B && u_fb.mem[i] !== 8'h00) stray = stray + 1;
+    if (stray != 0) $fatal(1, "FAIL %0d bytes were written outside the two points", stray);
+
+    // ---- stop plotting: the refresh stream fades both bytes to zero -------
     while (frames < 12) @(posedge clk);
-    if (u_fb.mem[ADDR] !== 8'h00)
-      $fatal(1, "FAIL byte %02h did not decay", u_fb.mem[ADDR]);
-    if (frames < 2) $fatal(1, "FAIL only %0d frames", frames);
+    if (u_fb.mem[ADDR_A] !== 8'h00 || u_fb.mem[ADDR_B] !== 8'h00)
+      $fatal(1, "FAIL bytes %02h/%02h did not decay",
+             u_fb.mem[ADDR_A], u_fb.mem[ADDR_B]);
 
-    $display("PASS x=%0d row=%0d, pixel set then faded, %0d frames", dbg_x, dbg_y, frames);
+    $display("PASS x=%0d row=%0d, two isolated pixels, %0d frames, then decay",
+             dbg_x, dbg_y, frames);
     $finish;
   end
 endmodule

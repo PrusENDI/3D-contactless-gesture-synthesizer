@@ -50,7 +50,11 @@ module v2_oled_scope_plot #(
     assign dbg_x = x_px;
     assign dbg_y = row;
 
-    typedef enum logic [1:0] {P_IDLE, P_READ, P_WRITE} state_t;
+    // The block RAM is synchronous: the address set in P_IDLE is only read at
+    // the end of P_WAIT, so its data is on fb_rdata during P_READ.  Skipping
+    // P_WAIT reads the previous address and ORs a foreign byte into the target
+    // pixel -- which is exactly the vertical-stripe mosaic seen on the board.
+    typedef enum logic [2:0] {P_IDLE, P_WAIT, P_READ, P_WRITE} state_t;
     state_t     state_q;
     logic [9:0] addr_q;
     logic [7:0] mask_q;
@@ -89,8 +93,12 @@ module v2_oled_scope_plot #(
                         addr_q  <= addr_now;
                         mask_q  <= mask_now;
                         fb_addr <= addr_now;
-                        state_q <= P_READ;
+                        state_q <= P_WAIT;
                     end
+                end
+                // One cycle for the RAM to return mem[addr_q].
+                P_WAIT: begin
+                    state_q <= P_READ;
                 end
                 // fb_rdata is valid now: set the bit and write it back.
                 P_READ: begin

@@ -8,7 +8,8 @@ from host.v2_console import score
 
 SCORE_DIR = Path(__file__).resolve().parent / "scores"
 # The midpoints host/v2_potts_reference.py fits to, which are the band centres.
-LEVEL = {55: 30, 57: 135, 60: 286, 62: 421, 64: 557, 67: 707, 69: 858, 72: 978}
+# G natural minor: 55 57 58 60 62 63 65 67.
+LEVEL = {55: 30, 57: 135, 58: 286, 60: 421, 62: 557, 63: 707, 65: 858, 67: 978}
 
 
 def contour_of(target):
@@ -23,8 +24,8 @@ class BandTest(unittest.TestCase):
         self.assertEqual(score.note_of(59), 55)
         self.assertEqual(score.note_of(60), 57)
         self.assertEqual(score.note_of(210), 57)
-        self.assertEqual(score.note_of(211), 60)
-        self.assertEqual(score.note_of(1023), 72)
+        self.assertEqual(score.note_of(211), 58)
+        self.assertEqual(score.note_of(1023), 67)
 
     def test_every_note_maps_back_from_its_own_band(self):
         for note in score.NOTES:
@@ -64,8 +65,8 @@ class LoadTest(unittest.TestCase):
 
     def test_the_two_chords_are_the_ones_in_the_score(self):
         bar = {index: {self.score.targets(index)[start] for start in (0, 16)} for index in range(4)}
-        self.assertEqual(bar, {0: {55, 57}, 1: {60}, 2: {64}, 3: {67, 69}})
-        self.assertEqual([self.score.targets(3)[8], self.score.targets(3)[24]], [72, 72])
+        self.assertEqual(bar, {0: {55, 57}, 1: {60}, 2: {58, 60}, 3: {65}})
+        self.assertEqual([self.score.targets(3)[8], self.score.targets(3)[24]], [67, 67])
 
     def test_wrong_tick_count_is_named(self):
         document = {"schema": 1, "name": "x", "bpm": 120, "ticks": 16,
@@ -133,7 +134,7 @@ class JudgeTest(unittest.TestCase):
 
     def test_one_wrong_height_names_that_tick(self):
         contour = contour_of(self.target)
-        contour[5] = LEVEL[72]
+        contour[5] = LEVEL[67]
         report = score.judge(contour, self.target)
         self.assertEqual(report.ok, 31)
         self.assertEqual(report.wrong, (5,))
@@ -157,8 +158,8 @@ class ShippedScoreTest(unittest.TestCase):
         self.assertEqual([entry["notes"] for entry in document["tracks"]],
                          [[[0, 55], [8, 55], [16, 57], [24, 57]],
                           [[0, 60], [8, 60], [16, 60], [24, 60]],
-                          [[0, 64], [8, 67], [16, 64], [24, 69]],
-                          [[0, 67], [8, 72], [16, 69], [24, 72]]])
+                          [[0, 58], [8, 62], [16, 60], [24, 62]],
+                          [[0, 65], [8, 67], [16, 65], [24, 67]]])
 
 
 if __name__ == "__main__":

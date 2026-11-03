@@ -21,8 +21,10 @@
   `voice_sample`）。这条提交就是板上 `live_dbg` 的源码，此前只在工作区。
 - **听感状态：新的 arp 还没听**。板上跑的是 `minor_arp`，用户尚未用耳朵验收音阶与四种走位；
   不要引用任何"听起来如何"的结论。
-- **下一次的第一件事**：OLED 静态图（计划已写、只差执行方式）或把 `host/scores/c-am-vamp-4s.json`
-  里旧音阶的三个音（64/69/72）改调；见 §6。
+- **谱已改调**（用户选"改成 G 小调音级"）：`host/scores/c-am-vamp-4s.json` 的 upper/top 两轨
+  原来点着 64/69/72，现在是 `58 62 60 62` / `65 67 65 67`；`score.py` 的 `NOTES/NAME_OF/_EDGES/TOP_NOTE`
+  与 `host/scores/README.md` 的表格同步。bass/pedal 本来就在音阶里，没动。266 条 host 测试全绿。
+- **下一次的第一件事**：用户这轮明确说"先不开始 OLED"——先听琶音，再定下一件（OLED 计划随时可开工）；见 §6。
 
 ## 0.5 上位机控制台（2026-11-02 建成，`host/v2_console/`）
 

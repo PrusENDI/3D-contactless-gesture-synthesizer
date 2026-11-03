@@ -16,13 +16,13 @@ from pathlib import Path
 
 TICKS = 32
 BAR_BPM = 120                 # record_flow.arm forces it; the bar has no other length
-NOTES = (55, 57, 60, 62, 64, 67, 69, 72)
-NAME_OF = {55: "G3", 57: "A3", 60: "C4", 62: "D4", 64: "E4", 67: "G4", 69: "A4", 72: "C5"}
+NOTES = (55, 57, 58, 60, 62, 63, 65, 67)
+NAME_OF = {55: "G3", 57: "A3", 58: "Bb3", 60: "C4", 62: "D4", 63: "Eb4", 65: "F4", 67: "G4"}
 SCHEMA = 1
 
-# (edge, note selected below that edge): y < 3855 -> G3, ... y >= 59753 -> C5.
-_EDGES = ((60, 55), (211, 57), (361, 60), (482, 62), (632, 64), (783, 67), (934, 69))
-TOP_NOTE = 72
+# (edge, note selected below that edge): y < 3855 -> G3, ... y >= 59753 -> G4.
+_EDGES = ((60, 55), (211, 57), (361, 58), (482, 60), (632, 62), (783, 63), (934, 65))
+TOP_NOTE = 67
 CONTOUR_MAX = 1023
 
 

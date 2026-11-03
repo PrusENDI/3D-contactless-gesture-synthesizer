@@ -6,7 +6,7 @@ from host.v2_console import phase, score as score_mod
 from host.v2_console.canvas import primitives
 from host.v2_console.views import loop_painter
 
-BAND_LABELS = ["G3", "A3", "C4", "D4", "E4", "G4", "A4", "C5"]
+BAND_LABELS = ["G3", "A3", "Bb3", "C4", "D4", "Eb4", "F4", "G4"]
 SCORE_DIR = score_mod.SCORE_DIR
 
 
@@ -76,7 +76,7 @@ class GuideTest(unittest.TestCase):
         drawing = self.guide(track=2, tick=8)
         now = self.cells(drawing, "guide_now")
         self.assertEqual(len(now), 1)
-        low, high = score_mod.band_of(67)          # track 2 wants G4 from tick 8
+        low, high = score_mod.band_of(62)          # track 2 wants D4 from tick 8
         self.assertAlmostEqual(now[0].v0, low / score_mod.CONTOUR_MAX, places=6)
         self.assertAlmostEqual(now[0].u0, 8 / 31.0, places=6)
 

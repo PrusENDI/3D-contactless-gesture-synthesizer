@@ -36,7 +36,9 @@ if ($Shift -lt 0) {
 }
 
 if (-not $SkipUpload) {
-  $select = [int]([math]::Pow(2, 4) * $Shift)          # WT_SELECT[7:4] is the voice gain shift
+  # WT_SELECT[1:0] is the table, [7:4] the voice gain shift.  Forgetting the
+  # table bits uploads to table 1 and then plays table 0, which is silence.
+  $select = ($table -band 0x3) -bor ([int]$Shift -shl 4)
   $out = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'board_wt_upload.ps1') `
            -Port $Port -Bin $frame -Table $table -Version 1 -PostSelect $select 2>&1
   if (-not (($out -join "`n") -match 'RESULT: PASS')) { Write-Host ($out -join "`n"); exit 2 }

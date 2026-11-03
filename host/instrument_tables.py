@@ -92,7 +92,7 @@ PRESETS: dict[str, dict[str, int]] = {
         "l": 0x00000000,                          # a bell does not wobble
         "a": 0x00110000, "b": 0xFFFF0000, "c": 0x00000000,
         "v": 0x00019999,                          # 1.6
-        "e": (6 << 16) | 1,                       # strike now, decay ~230 ms
+        "e": (6 << 16) | 8192,                    # strike in 8 samples, decay ~230 ms
         "s": (2 << 16) | 0,                       # sustain 0: it dies away
         "m": 0x02000000,                          # detune widest: two partials beat
     },
@@ -112,7 +112,7 @@ NOTES = {
     "clarinet": "odd harmonics 1,3,5,7; res 90 for the hollow ring, attack 14 ms",
     "strings": "1/n^0.7 to the 16th; attack 114 ms swell, release 340 ms, detune widest",
     "brass": "harmonics 1-9 with a strong 2nd and 3rd; res 120, attack 34 ms",
-    "cowbell": "3rd and 5th carry the bell; res 150, attack 1 sample, decay 230 ms, sustain 0",
+    "cowbell": "3rd and 5th carry the bell; res 150, attack 8 samples, decay 230 ms, sustain 0",
 }
 
 

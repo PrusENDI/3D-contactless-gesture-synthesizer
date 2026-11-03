@@ -5,7 +5,13 @@
 
 ## 0. 30 秒现状
 
-- 仓库：`C:\weizijian\documents\gowin fpga\mgc3130_clean`，HEAD 见 `git log -1`，工作区干净。
+- 仓库：`C:\weizijian\documents\gowin fpga\mgc3130_clean`，HEAD 见 `git log -1`；工作区可能有
+  在途改动，先看 `git status --short`（本轮的 docs/score 改动不在 `1fc8df4` 里）。
+- **本轮（`minor_arp`，2026-11-03）**：音阶改 G 自然小调（55 57 58 60 62 63 65 67），
+  arp 固定 125 ms/步、四模式（`0x30[26:25]`）。提交 `1fc8df4`；构建
+  `impl/v2_board_top_minor_arp`：CLS 10745、DSP 28/28、BSRAM 34、Fmax 68.272 MHz、
+  worst −2.147 ns、`gate: OK`，sha `4141c59d…`。**未烧板**；该构建含工作区未提交的
+  `mode_rw_q` 路由改动，sha 不等同于 `1fc8df4` 的纯 RTL。
 - **板上是 P2b，构建门已过**：`impl/v2_board_top_p2b_no_patch`（sha256 `471fa9ba…`，`0xB0=0x5A5A0003`），
   CLS **10750/11520**、DSP 28/28、BSRAM **34/56**、Fmax **62.925 MHz**、worst **−3.392 ns**
   （`gate: OK`），比 P2a（10894 / 38 / 60.58 MHz / −4.007）全面更好。
@@ -130,14 +136,32 @@ arp 仍用 OFF+ON：实测 |Δsample| 726 → 23 → **9**。证据、bench（`t
 （无 Tk），LOOP 页顶部下拉选谱，画布把**正在录的那一轨**每个 tick 的目标档填亮，录完按 32 点算命中率。
 格式与加谱方法见 `host/scores/README.md`。
 
-1. **谱只能在硬件给的 8 个音里写**：`rtl/v2_note_increment_rom.sv` 只有 55/57/60/62/64/67/69/72；写别的音
-   `score.parse` 直接报错并列出这 8 个。
-2. **档位是硬件的 y 区间，不是八等分**：`v2_live_rule_engine.sv:96-103` 的阈值（3855/13493/…/59753）除以 64
+1. **谱只能在硬件给的 8 个音里写**：`rtl/v2_note_increment_rom.sv` 现在是 G 自然小调
+   55/57/58/60/62/63/65/67（旧的 64/69/72 保留给 `WT_PLAY`）。**但 `host/v2_console/score.py`
+   和 `host/scores/*` 还列着旧 8 个音，本轮没改**（见 §0.6）。
+2. **档位是硬件的 y 区间，不是八等分**：`v2_live_rule_engine.sv` 的 `map_note` 阈值（3855/13493/…/59753）除以 64
    就是轮廓域（`v2_loop_contour_capture.sv:57` 存的是 `y[15:6]`，0..1023）的边界。G3 只有 60 宽、A3 有 151 宽，
    画成等分会让你对着一个"看着对、听着错"的位置练。
 3. **命中率里，没手 = 错**：轮廓 0 表示那一 tick 没有手，提交后是休止，所以算 miss 不算跳过。
 4. **bpm 只接受 120**：`record_flow.arm` 强写 `0x08=120` 并读回校验，谱写别的速度就和画出来的小节错位。
 5. 谱的 `notes` 是 `[起始 tick, MIDI 音号]`，长度由下一个起点或 32 决定；连续同音会并成一个 hold。
+
+## 0.6 音阶与琶音（2026-11-03）
+
+- **音阶 = G 自然小调**：`55 57 58 60 62 63 65 67` = G3 A3 Bb3 C4 D4 Eb4 F4 G4。
+  y 的七个边界**没动**（3855/13493/23130/30840/40478/50115/59753），所以 Potts 的 `LEVELS`
+  （30/135/286/421/557/707/858/978）也没动。**改音阶必须同时改五处**：
+  `v2_note_increment_rom`、`v2_live_rule_engine` 的 `map_note`+`note_boundary`、
+  `v2_potts_commit_fsm` 的 `midi_note`、`host/v2_potts_reference.NOTES`、所有断言音号的 bench。
+  漏一处就静音：ROM 的 `default: increment = 0`。
+- **arp 步进固定 125 ms**：`v2_live_rule_engine` 里 12,500,000 个 100 MHz 时钟的计数器
+  （`ARP_STEP_CYCLES`），arp 模式不再读 `tick_pulse`/BPM；`tick_pulse` 端口保留但无人使用。
+  bench 要单步就 `force dut.u_live.arp_step_pulse`（不要再去 pulse `dut.tick_pulse`）。
+- **pattern = `0x30[26:25]`**：0 follow / 1 向上 / 2 上下 / 3 随机。**不要用 `[25:24]`**：
+  bit24 是现有主机写（`0x0100_00NN` 逐帧 / `0x0180_00NN` 琶音）用来满足
+  `data[15:0] < data[31:16]` 的填充位，占了就会把现有琶音字悄悄变成 pattern 1。
+  pattern 只在 arp 模式生效；非 arp 路径不读它。
+- 证据在 `docs/progress-2026-11-02.md` 的「G natural minor 八音 + 四模式琶音」。
 
 ## 1. 开工前必须读（按顺序，约 15 分钟）
 
@@ -219,9 +243,16 @@ arp 仍用 OFF+ON：实测 |Δsample| 726 → 23 → **9**。证据、bench（`t
 P2b 位流 sha256：`471fa9ba4b2878c0d83b0867447012fcfc70714d9d234276823a554537a0e48a`
 （旧的 `51564858…` 是 `p2b_voice_params`，已作废）。
 P2a 位流 sha256：`915e87cd6367b23ba953e3ba6dd37640ab3b00eb8132a1e865a1dc3b59ff908f`。
+`minor_arp` 构建（2026-11-03，**未上板**，含未提交的 `mode_rw_q` 改动）：CLS 10745、DSP 28/28、
+BSRAM 34、Logic 17447 / Register 9359、Fmax **68.272 MHz**、worst **−2.147 ns**、
+setup 1253 / TNS −1262.641 ns，sha256 `4141c59d2e83aceb0ab6e9fed1ef3f56a9016cd163eea5ee61641ab25b940d55`。
 
 ## 6. 未决事项
 
+0a. **音阶/琶音已改（`minor_arp`，提交 `1fc8df4`，未烧板）**：下一步是烧
+   `impl/v2_board_top_minor_arp`，带手听 G 自然小调与四种 arp（`0x30[26:25]`）。
+   注意这份位流含未提交的 `mode_rw_q` 改动。`host/v2_console/score.py`、`host/scores/README.md`
+   与 `host/scores/c-am-vamp-4s.json` **仍是旧八音**（含 64/69/72），改谱是产品决定，未做。
 0. **上位机脚本问题清单在 `docs/host-tools-and-gui-controls.md` §9**（十条，含清场前提、`0x84 level≥2` 相加削顶成直流、
    COM4 独占、PowerShell 三个解析坑、加轨的 CSR 序列）。**改 `board_stage2_loop.ps1` 主流程前必须先测**——
    本轮加 `-SkipClear` 把控制流弄坏，已回退。

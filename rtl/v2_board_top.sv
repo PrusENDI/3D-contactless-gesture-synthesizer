@@ -24,14 +24,49 @@ module v2_board_top (
     output wire oled_res_n,
     output wire oled_blk
 );
-    // Idle levels until the writer is instantiated: clock low, data low,
-    // command mode, chip selected-off, reset released, backlight on.
-    assign oled_sck   = 1'b0;
-    assign oled_mosi  = 1'b0;
-    assign oled_dc    = 1'b0;
-    assign oled_cs_n  = 1'b1;
-    assign oled_res_n = 1'b1;
-    assign oled_blk   = 1'b1;
+    // The panel writer has no reset button on the board and needs none: the
+    // FPGA comes out of configuration with every register at 0, so a counter
+    // that stops after 256 clocks is a power-on reset.  It runs on the 50 MHz
+    // oscillator, not on the audio PLL, so it cannot touch the audio cone.
+    logic [7:0] oled_por_q = 8'd0;
+    wire        oled_rst_n = &oled_por_q;
+    always_ff @(posedge clk_50m) begin
+        if (!(&oled_por_q)) oled_por_q <= oled_por_q + 8'd1;
+    end
+
+    logic [9:0] oled_addr;
+    logic [7:0] oled_data;
+    logic       oled_busy;
+    logic       oled_done;
+
+    // 1024 bytes of frame in one BSRAM; see host/oled_image.py.
+    v2_oled_image u_oled_image (
+        .clk(clk_50m),
+        .addr(oled_addr),
+        .data(oled_data)
+    );
+
+    // 50 MHz / 50 = 1 MHz SPI.  start is a level: the writer sequences its own
+    // reset pulse, the panel wake-up delay and the init table.
+    v2_oled_static #(
+        .SPI_DIV(50),
+        .RESET_CYCLES(5000),        // 100 us with res_n low
+        .WAKE_CYCLES(5_000_000)     // 100 ms before the first command
+    ) u_oled (
+        .clk(clk_50m),
+        .rst_n(oled_rst_n),
+        .start(1'b1),
+        .img_data(oled_data),
+        .img_addr(oled_addr),
+        .sck(oled_sck),
+        .mosi(oled_mosi),
+        .dc(oled_dc),
+        .cs_n(oled_cs_n),
+        .res_n(oled_res_n),
+        .blk(oled_blk),
+        .busy(oled_busy),
+        .done(oled_done)
+    );
 
     mgc3130_v2_top #(
         .USE_MGC_READER(1),

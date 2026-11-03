@@ -14,8 +14,25 @@ module v2_board_top (
     output wire uart_tx,
     output wire pcm5102a_bck,
     output wire pcm5102a_lrck,
-    output wire pcm5102a_din
+    output wire pcm5102a_din,
+    // 0.96" 128x64 SSD1306 on the J3 header, 7-pin SPI (see the OLED spec).
+    // D0/D1 are silkscreened SCL/SDA but DC and CS make it SPI, not I2C.
+    output wire oled_sck,
+    output wire oled_mosi,
+    output wire oled_dc,
+    output wire oled_cs_n,
+    output wire oled_res_n,
+    output wire oled_blk
 );
+    // Idle levels until the writer is instantiated: clock low, data low,
+    // command mode, chip selected-off, reset released, backlight on.
+    assign oled_sck   = 1'b0;
+    assign oled_mosi  = 1'b0;
+    assign oled_dc    = 1'b0;
+    assign oled_cs_n  = 1'b1;
+    assign oled_res_n = 1'b1;
+    assign oled_blk   = 1'b1;
+
     mgc3130_v2_top #(
         .USE_MGC_READER(1),
         .USE_GOWIN_RAM(1),

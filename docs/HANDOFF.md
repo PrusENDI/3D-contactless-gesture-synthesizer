@@ -266,3 +266,35 @@ git status --short          # 必须为空
 
 板上是否还是 P2b 位流：读 `0xB0`（等于 `0x5A5A0003`；不等于就按 §4 重烧 `p2b_no_patch`，
 sha256 `471fa9ba…`）。
+
+---
+
+## 0.9 现状快照（2026-11-03 16:15，压缩上下文前写）
+
+**仓库**：HEAD 见 `git log -1`（本轮最后是 OLED 计划 `f35f9b5` 之后的小提交）。
+**工作区有别人/别的任务的未提交改动**：`minor_arp` 那一单（G 自然小调 + 125 ms 步进 + 四种走位）
+改了 `v2_live_rule_engine.sv`、`v2_note_increment_rom.sv`、`v2_potts_commit_fsm.sv`、多个 tb 与
+`host/v2_potts_reference.py`，新增 `tb/tb_live_arp_walk.sv`。**先让它落地并核对下面两条命门**：
+① 八个新音（55 57 58 60 62 63 65 67）的增量非 0 且频率 ±1 Hz；② 步进间隔实测 125 ms ±1 采样。
+
+**板上位流**：`impl/v2_board_top_live_dbg`（sha `fd815c27`，`gate: OK`，CLS 10824、Fmax 62.7、
+worst −3.447）。这一版已包含：LIVE 走 32 声部引擎 + `u_fx_lite`、`wt_source_sel` 在 LIVE 也读波表、
+扇出寄存 `mode_rw_q`、以及两个调试页（`0x34` 选 3 = `{source_sel, live_active, voice_sample}`）。
+
+**已知账（按优先级）**
+1. **LIVE 音色"像锯片"**：仿真证明表在通路上（`tb_live_engine`：正弦 8 次过零 vs 纯 5 次 40 次），
+   所以更可能是**配方太刺**（牛铃表 3/5 次主导 + res 150）。下一步先做"纯正弦表"判别测试。
+2. **构建变慢**：一次 P&R 8–9 分钟。任何一轮的多个改动必须合并进**同一次构建**，其余用
+   `gate.py --compile` + 仿真验证。
+3. `live_engine2` 那次 worst −4.178 已记录；`live_dbg` 回到 −3.447（加调试页反而更好，属布局运气）。
+4. DSP 仍 28/28（删掉 `wt_env_prod` 后预期 27，实际被别的乘法占走）。
+5. `OLED-BLK`（J10）极性未确认；黑屏时第一件事是反相试。
+
+**OLED 静态图**：设计 `docs/superpowers/specs/2026-11-03-oled-static-design.md`（0.96" 128×64 SSD1306、
+7 针 SPI，引脚 J7/K7/L8/L7/K10/J10），计划 `docs/superpowers/plans/2026-11-03-oled-static.md`
+（六个任务，**只有 Task 4 跑一次 P&R**，验收线 CLS ≤ 基线+150、worst ≥ −3.6、DSP 28/28、BSRAM +1）。
+引脚与现行 10 个脚、配置 flash（IOT56/58/31）都不冲突。
+
+**另外两个待办（未定优先级）**
+- 预设只写九个寄存器、**不换波表**；把 `.bin` 路径写进预设并"按需自动上传"（约 60 行主机改动）能让换乐器一键完成。
+- 上位机每次打开 COM4 都会让板子复位（连接瞬间 `STATUS=0x200`），脚本测试必须在同一进程内先设状态再读，否则误判。

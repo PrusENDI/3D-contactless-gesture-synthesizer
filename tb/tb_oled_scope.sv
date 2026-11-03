@@ -31,7 +31,8 @@ module tb_oled_scope;
   );
 
   v2_oled_scope_wr #(
-      .SPI_DIV(4), .RESET_CYCLES(20), .WAKE_CYCLES(200), .FRAME_GAP(1000)
+      .SPI_DIV(4), .RESET_CYCLES(20), .WAKE_CYCLES(200), .FRAME_GAP(1000),
+      .DECAY_FRAMES(1)
   ) u_wr (
       .clk(clk), .rst_n(rst_n), .start(1'b1),
       .fb_rdata(b_rdata), .fb_addr(b_addr), .fb_wdata(b_wdata), .fb_we(b_we),

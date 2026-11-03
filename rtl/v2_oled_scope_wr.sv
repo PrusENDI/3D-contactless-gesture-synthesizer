@@ -12,7 +12,14 @@ module v2_oled_scope_wr #(
     parameter integer SPI_DIV    = 80,
     parameter integer RESET_CYCLES = 8000,      // 100 us at 80 MHz
     parameter integer WAKE_CYCLES  = 8_000_000, // 100 ms
-    parameter integer FRAME_GAP    = 2_000_000  // ~25 ms at 80 MHz
+    parameter integer FRAME_GAP    = 2_000_000, // ~25 ms at 80 MHz
+    // A byte is halved once every DECAY_FRAMES frames: 16 frames at 30 fps is
+    // about half a second of persistence.
+    parameter integer DECAY_FRAMES = 16,
+    // 1 = send 1-px vertical stripes instead of the framebuffer.  A bring-up
+    // pattern: if the stripes are clean, SPI, addressing and init are right and
+    // the picture logic is what needs looking at.
+    parameter integer TEST_STRIPES = 0
 ) (
     input  logic       clk,
     input  logic       rst_n,
@@ -72,7 +79,11 @@ module v2_oled_scope_wr #(
     logic [15:0] half_q;
     logic [3:0]  bit_q;
     logic [7:0]  shift_q;
+    logic [7:0]  decay_cnt_q;
     logic        sck_q, mosi_q, dc_q, cs_n_q, res_n_q, frame_q;
+
+    // Persistence: only one frame in DECAY_FRAMES halves the bytes.
+    wire decay_due = (decay_cnt_q == 8'd0);
 
     wire [6:0] data_col = step_q[6:0] - 7'd3;
 
@@ -116,6 +127,7 @@ module v2_oled_scope_wr #(
             half_q  <= 16'd0;
             bit_q   <= 4'd0;
             shift_q <= 8'd0;
+            decay_cnt_q <= 8'd0;
             sck_q   <= 1'b0;
             mosi_q  <= 1'b0;
             dc_q    <= 1'b0;
@@ -178,14 +190,14 @@ module v2_oled_scope_wr #(
                 // the next cycle: the read and the decay write must not share a
                 // cycle, or the block RAM becomes a rejected write mode.
                 S_LOAD: begin
-                    shift_q  <= fb_rdata;
-                    mosi_q   <= fb_rdata[7];
+                    shift_q  <= TEST_STRIPES ? {8{data_col[0]}} : fb_rdata;
+                    mosi_q   <= TEST_STRIPES ? data_col[0] : fb_rdata[7];
                     state_q  <= S_DECAY;
                 end
 
                 S_DECAY: begin
                     fb_wdata <= {1'b0, shift_q[7:1]};
-                    fb_we    <= 1'b1;
+                    fb_we    <= (!TEST_STRIPES && decay_due) ? 1'b1 : 1'b0;
                     state_q  <= S_SHIFT;
                 end
 
@@ -213,6 +225,8 @@ module v2_oled_scope_wr #(
                                     state_q <= S_NEXT;
                                 end else if (page_q == 3'd7) begin
                                     frame_q <= 1'b1;
+                                    decay_cnt_q <= (decay_cnt_q >= 8'(DECAY_FRAMES - 1))
+                                                   ? 8'd0 : decay_cnt_q + 8'd1;
                                     page_q <= 3'd0;
                                     step_q <= 8'd0;
                                     gap_q  <= 17'd0;

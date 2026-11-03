@@ -22,7 +22,12 @@ module v2_demo_top #(
     parameter integer SPI_DIV           = 80,        // 80 MHz / 80 = 1 MHz
     parameter integer OLED_RESET_CYCLES = 8000,      // 100 us
     parameter integer OLED_WAKE_CYCLES  = 8_000_000, // 100 ms
-    parameter integer FRAME_GAP         = 2_000_000  // ~25 ms: about 30 fps
+    parameter integer FRAME_GAP         = 2_000_000, // ~25 ms: about 30 fps
+    // Bring-up only: 1 sends vertical stripes instead of the framebuffer.
+    parameter integer SELFTEST_STRIPES  = 0,
+    // Points per audio frame (1 = every sample) and frames per decay step.
+    parameter integer PLOT_DECIM        = 1,
+    parameter integer DECAY_FRAMES      = 16
 ) (
     input  wire clk_50m,
     inout  wire mgc_sda,
@@ -116,7 +121,7 @@ module v2_demo_top #(
         .b_addr(fb_b_addr), .b_wdata(fb_b_wdata), .b_we(fb_b_we), .b_rdata(fb_b_rdata)
     );
 
-    v2_oled_scope_plot u_plot (
+    v2_oled_scope_plot #(.DECIM(PLOT_DECIM)) u_plot (
         .clk(clk_sys), .rst_n(rst_sys_n),
         .sample_valid(test_sample_valid), .sample(test_sample), .muted(seq_muted),
         .fb_addr(fb_a_addr), .fb_wdata(fb_a_wdata), .fb_we(fb_a_we),
@@ -127,7 +132,9 @@ module v2_demo_top #(
 
     v2_oled_scope_wr #(
         .SPI_DIV(SPI_DIV), .RESET_CYCLES(OLED_RESET_CYCLES),
-        .WAKE_CYCLES(OLED_WAKE_CYCLES), .FRAME_GAP(FRAME_GAP)
+        .WAKE_CYCLES(OLED_WAKE_CYCLES), .FRAME_GAP(FRAME_GAP),
+        .DECAY_FRAMES(DECAY_FRAMES),
+        .TEST_STRIPES(SELFTEST_STRIPES)
     ) u_wr (
         .clk(clk_sys), .rst_n(rst_sys_n), .start(1'b1),
         .fb_rdata(fb_b_rdata), .fb_addr(fb_b_addr), .fb_wdata(fb_b_wdata), .fb_we(fb_b_we),

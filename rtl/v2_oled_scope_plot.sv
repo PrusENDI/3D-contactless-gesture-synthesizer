@@ -8,7 +8,9 @@
 // One point every DECIM frames (48 kHz / 16 = 3 k points/s) is enough to draw a
 // smooth curve and keeps the read-modify-write well inside one refresh frame.
 module v2_oled_scope_plot #(
-    parameter integer DECIM = 16,
+    // One point per audio frame: the whole closed curve is retraced every
+    // 1/220 s = 218 samples, so a sparser plot is aliased noise, not a curve.
+    parameter integer DECIM = 1,
     // Delay in samples; 55 is a quarter period at 220 Hz.
     parameter integer DELAY = 55
 ) (

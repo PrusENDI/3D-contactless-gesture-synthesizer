@@ -1,18 +1,18 @@
-# Switch the board to one of the harmonic-recipe instruments.
+# Switch the board to one instrument: one table plus the nine preset words.
 #
-#   powershell -NoProfile -ExecutionPolicy Bypass -File scripts/board_instrument.ps1 -Instrument flute -Live
+#   powershell -NoProfile -ExecutionPolicy Bypass -File scripts/board_instrument.ps1 -Instrument akwf-cello -Live
 #
 # Two things have to change together, which is why this is one command: the table
 # (the timbre) and the nine preset words (the shaping around it). Applying only the
 # words is what made the old presets sound alike - they were all the same table.
 #
-# The body frame is uploaded as table 0. The three-frame morph set is written to
-# artifacts/wt/instruments/<name>/ if you later want the brightness to move.
+# The body frame (frame1.bin) is uploaded to the table the preset names, and the
+# morph set stays in artifacts/wt/instruments/<name>/ for later.
 param(
-  [Parameter(Mandatory = $true)][ValidateSet('flute', 'clarinet', 'strings', 'brass', 'cowbell')][string]$Instrument,
+  [Parameter(Mandatory = $true)][string]$Instrument,
   [string]$Port = 'COM4',
   [int]$Baud = 1000000,
-  [int]$Shift = 2,
+  [int]$Shift = -1,
   [switch]$Live,
   [switch]$SkipUpload
 )
@@ -21,15 +21,26 @@ $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 $frame = Join-Path $repo ("artifacts/wt/instruments/{0}/frame1.bin" -f $Instrument)
 $preset = Join-Path $repo ("host/presets/{0}.json" -f $Instrument)
-if (-not (Test-Path $frame)) { Write-Host ("FATAL: {0} is missing; run python host/instrument_tables.py" -f $frame); exit 1 }
+if (-not (Test-Path $frame)) { Write-Host ("FATAL: {0} is missing; run python host/instrument_tables.py or host/akwf_tables.py" -f $frame); exit 1 }
 if (-not (Test-Path $preset)) { Write-Host ("FATAL: {0} is missing" -f $preset); exit 1 }
+
+# The preset file decides the table slot and the gain shift; -Shift overrides.
+$doc = Get-Content $preset -Raw | ConvertFrom-Json
+$table = 0
+if ($null -ne $doc.wavetable -and $null -ne $doc.wavetable.table) { $table = [int]$doc.wavetable.table }
+if ($Shift -lt 0) {
+  $Shift = 2
+  if ($null -ne $doc.wavetable -and $null -ne $doc.wavetable.voice_shift) {
+    $Shift = [int]$doc.wavetable.voice_shift
+  }
+}
 
 if (-not $SkipUpload) {
   $select = [int]([math]::Pow(2, 4) * $Shift)          # WT_SELECT[7:4] is the voice gain shift
   $out = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'board_wt_upload.ps1') `
-           -Port $Port -Bin $frame -Table 0 -Version 1 -PostSelect $select 2>&1
+           -Port $Port -Bin $frame -Table $table -Version 1 -PostSelect $select 2>&1
   if (-not (($out -join "`n") -match 'RESULT: PASS')) { Write-Host ($out -join "`n"); exit 2 }
-  Write-Host ("table: {0} -> table 0, voice shift {1}" -f (Split-Path -Leaf (Split-Path -Parent $frame)), $Shift)
+  Write-Host ("table: {0} -> table {1}, voice shift {2}" -f $Instrument, $table, $Shift)
 }
 
 function Get-Crc16([byte[]]$b) {
@@ -74,7 +85,6 @@ function Cmd([int]$Op, [int]$Addr, [uint32]$Data, [string]$What) {
   throw ("{0}: no clean reply after 8 attempts" -f $What)
 }
 
-$doc = Get-Content $preset -Raw | ConvertFrom-Json
 try {
   $sp.Open(); Start-Sleep -Milliseconds 60
   $id = Cmd 0x01 0xB0 0 'read 0xB0'

@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "name": "akwf-cello",
+  "notes": "AKWF_cello_0013, one cycle, band-limited to 34/22/12 harmonics",
+  "created": "2026-11-03",
+  "source": "AKWF (Adventure Kid, CC0) via DatanoiseTV/AKWF_WaveForms_1024",
+  "wavetable": {
+    "table": 1,
+    "voice_shift": 2,
+    "morph": false
+  },
+  "words": {
+    "0x40": 0,
+    "0x44": 0,
+    "0x84": 1376256,
+    "0x88": 4294901760,
+    "0x8C": 0,
+    "0x90": 98304,
+    "0x94": 786452,
+    "0x98": 383385,
+    "0x9C": 33554432
+  }
+}

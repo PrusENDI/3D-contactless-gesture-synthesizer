@@ -24,7 +24,17 @@
 - **谱已改调**（用户选"改成 G 小调音级"）：`host/scores/c-am-vamp-4s.json` 的 upper/top 两轨
   原来点着 64/69/72，现在是 `58 62 60 62` / `65 67 65 67`；`score.py` 的 `NOTES/NAME_OF/_EDGES/TOP_NOTE`
   与 `host/scores/README.md` 的表格同步。bass/pedal 本来就在音阶里，没动。266 条 host 测试全绿。
-- **下一次的第一件事**：用户这轮明确说"先不开始 OLED"——先听琶音，再定下一件（OLED 计划随时可开工）；见 §6。
+- **OLED 静态图：Task 0–3 已提交（`6417273`/`9b17dd3`/`544802b`），Task 4 的 P&R 还没跑**。
+  `tb_oled_static` PASS（49 条命令 + 1024 数据字节逐字节核对、`res_n` 低 4110 ns、写完不再翻转），
+  `sim.py` 仍是 SIM: PASS。引脚 J7/K7/L8/L7/K10/J10 已进 `.cst`，但**引脚合法性只有 P&R 能证实**。
+  用户这轮说"不要烧录"，所以 Task 5 没做。
+- **波表换成正版 AKWF（CC0）**：`host/akwf_tables.py` + 六个 `akwf-*` 预设
+  （eorgan/epiano/flute/violin/cello/oboe），预设指向 **body 帧**（`table: 1`）。旧预设都指向
+  bright 帧，这本身就是"难听"的一半原因。来源/许可/换波方法见 `docs/wavetable-sources.md`。
+  `scripts/board_instrument.ps1 -Instrument akwf-cello -Live` 一条命令换音色（上传 18 s）。
+  **没有在板上听过**（COM4 被控制台占着）。
+- **下一次的第一件事**：先让用户听 `akwf-*`（`-Live`）；要改音色就换族内第 N 条
+  （`--top` / `--index`）。之后再决定 OLED 的 P&R 什么时候跑。
 
 ## 0.5 上位机控制台（2026-11-02 建成，`host/v2_console/`）
 

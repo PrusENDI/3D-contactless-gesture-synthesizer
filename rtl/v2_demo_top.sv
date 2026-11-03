@@ -1,15 +1,17 @@
-// Demo bitstream top: 32-tone DDS + an SSD1306 that shows which count is playing.
+// Demo bitstream top: 32-tone DDS + an SSD1306 showing the audio itself.
 //
 // This is a SECOND synthesis top, not the instrument.  It exists for one claim:
 // the audio leaving the DAC is computed every sample by hardware (phase
 // accumulators, a single-cycle sine table, an adder) and never played back from
-// memory.  See docs/superpowers/specs/2026-11-03-demo-dds-bitstream-design.md.
+// memory.  The panel is a scope: x is the sample from 55 samples ago, y is the
+// current sample, so one tone draws a circle, a 2:1 pair a figure eight, and
+// thirty-two tones a cloud.  See
+// docs/superpowers/specs/2026-11-03-demo-dds-bitstream-design.md.
 //
-// Two clock domains, no data between them:
-//   * audio  80 MHz (PLL): scheduler, sequencer, DDS block, mute gate, I2S;
-//   * panel  50 MHz (the board oscillator, as in v2_board_top): the panel writer
-//     and the picture composer.  Only the 6-bit tone count crosses, through two
-//     flops; it changes once every few seconds, so no handshake is needed.
+// Single clock domain on purpose: the panel used to run on the 50 MHz board
+// oscillator in production (to stay out of the audio cone), but the scope needs
+// the audio samples, so everything here is on the 80 MHz system clock and the
+// SPI divider is 80 (1 MHz).
 //
 // The port list is copied verbatim from `v2_board_top`, so the same pin
 // constraints and the same programming script apply.
@@ -17,9 +19,10 @@ module v2_demo_top #(
     parameter integer TONE_FRAMES       = 192_000,   // 4 s at 48 kHz
     parameter integer HOLD32_FRAMES     = 960_000,   // 20 s
     parameter integer GAP_FRAMES        = 24_000,    // 0.5 s of true silence
-    parameter integer SPI_DIV           = 50,        // 50 MHz / 50 = 1 MHz
-    parameter integer OLED_RESET_CYCLES = 5000,      // 100 us
-    parameter integer OLED_WAKE_CYCLES  = 5_000_000  // 100 ms
+    parameter integer SPI_DIV           = 80,        // 80 MHz / 80 = 1 MHz
+    parameter integer OLED_RESET_CYCLES = 8000,      // 100 us
+    parameter integer OLED_WAKE_CYCLES  = 8_000_000, // 100 ms
+    parameter integer FRAME_GAP         = 2_000_000  // ~25 ms: about 30 fps
 ) (
     input  wire clk_50m,
     inout  wire mgc_sda,
@@ -100,68 +103,36 @@ module v2_demo_top #(
         .i2s_bck(pcm5102a_bck), .i2s_lrck(pcm5102a_lrck), .i2s_din(pcm5102a_din)
     );
 
-    // ------------------------------------------------------------- the panel --
-    // Its own power-on reset on the 50 MHz oscillator: configuration leaves every
-    // register at 0 and the counter stops, so no button is needed.
-    logic [7:0] oled_por_q = 8'd0;
-    wire        oled_por_n = &oled_por_q;
-    always_ff @(posedge clk_50m) begin
-        if (!oled_por_n) oled_por_q <= oled_por_q + 8'd1;
-    end
+    // ------------------------------------------------------------- the scope --
+    // 1 KB framebuffer in one BSRAM: port A is the plotter, port B the refresh
+    // stream.  The writer fades every byte it sends, so old points die out.
+    logic [9:0] fb_a_addr, fb_b_addr;
+    logic [7:0] fb_a_wdata, fb_a_rdata, fb_b_wdata, fb_b_rdata;
+    logic       fb_a_we, fb_b_we;
 
-    // The writer is one-shot by design (production never rewrites the panel), so
-    // the demo restarts it through its reset.  Cost: the panel blanks for about
-    // 100 ms + 8.6 ms, three times per 29.5 s cycle.
-    logic [5:0]  tc_meta_q, tc_sync_q, tc_seen_q;
-    logic [4:0]  hold_q;
-    logic        writer_rst_n_q, dirty_q, done_q1;
-    logic        oled_busy, oled_done;
-
-    always_ff @(posedge clk_50m or negedge oled_por_n) begin
-        if (!oled_por_n) begin
-            tc_meta_q      <= 6'd0;
-            tc_sync_q      <= 6'd0;
-            tc_seen_q      <= 6'd0;
-            hold_q         <= 5'd16;
-            writer_rst_n_q <= 1'b0;
-            dirty_q        <= 1'b0;
-            done_q1        <= 1'b0;
-        end else begin
-            tc_meta_q <= seq_tone_count;
-            tc_sync_q <= tc_meta_q;
-            done_q1   <= oled_done;
-
-            if (tc_sync_q != tc_seen_q) begin
-                tc_seen_q <= tc_sync_q;
-                dirty_q   <= 1'b1;
-            end
-
-            if (hold_q != 5'd0) begin
-                hold_q         <= hold_q - 5'd1;
-                writer_rst_n_q <= (hold_q == 5'd1);
-            end else if (done_q1 && dirty_q) begin
-                dirty_q        <= 1'b0;
-                hold_q         <= 5'd16;
-                writer_rst_n_q <= 1'b0;
-            end
-        end
-    end
-
-    logic [9:0] oled_addr;
-    logic [7:0] oled_data;
-
-    v2_oled_tones u_tones(
-        .img_addr(oled_addr), .tone_count(tc_sync_q), .img_data(oled_data)
+    v2_oled_scope_fb u_fb (
+        .clk(clk_sys),
+        .a_addr(fb_a_addr), .a_wdata(fb_a_wdata), .a_we(fb_a_we), .a_rdata(fb_a_rdata),
+        .b_addr(fb_b_addr), .b_wdata(fb_b_wdata), .b_we(fb_b_we), .b_rdata(fb_b_rdata)
     );
 
-    v2_oled_static #(
+    v2_oled_scope_plot u_plot (
+        .clk(clk_sys), .rst_n(rst_sys_n),
+        .sample_valid(test_sample_valid), .sample(test_sample), .muted(seq_muted),
+        .fb_addr(fb_a_addr), .fb_wdata(fb_a_wdata), .fb_we(fb_a_we),
+        .fb_rdata(fb_a_rdata), .dbg_x(), .dbg_y()
+    );
+
+    logic scope_frame;
+
+    v2_oled_scope_wr #(
         .SPI_DIV(SPI_DIV), .RESET_CYCLES(OLED_RESET_CYCLES),
-        .WAKE_CYCLES(OLED_WAKE_CYCLES)
-    ) u_oled (
-        .clk(clk_50m), .rst_n(oled_por_n & writer_rst_n_q), .start(1'b1),
-        .img_data(oled_data), .img_addr(oled_addr),
+        .WAKE_CYCLES(OLED_WAKE_CYCLES), .FRAME_GAP(FRAME_GAP)
+    ) u_wr (
+        .clk(clk_sys), .rst_n(rst_sys_n), .start(1'b1),
+        .fb_rdata(fb_b_rdata), .fb_addr(fb_b_addr), .fb_wdata(fb_b_wdata), .fb_we(fb_b_we),
         .sck(oled_sck), .mosi(oled_mosi), .dc(oled_dc), .cs_n(oled_cs_n),
-        .res_n(oled_res_n), .blk(oled_blk), .busy(oled_busy), .done(oled_done)
+        .res_n(oled_res_n), .blk(oled_blk), .frame(scope_frame)
     );
 
     // --------------------------------------------------------- unused pins --

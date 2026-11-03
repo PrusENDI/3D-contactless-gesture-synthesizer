@@ -17,7 +17,7 @@ module tb_demo_top;
 
   v2_demo_top #(
       .TONE_FRAMES(TONE), .HOLD32_FRAMES(HOLD), .GAP_FRAMES(GAP),
-      .SPI_DIV(4), .OLED_RESET_CYCLES(20), .OLED_WAKE_CYCLES(200)
+      .SPI_DIV(4), .OLED_RESET_CYCLES(20), .OLED_WAKE_CYCLES(200), .FRAME_GAP(1000)
   ) dut (
       .clk_50m(clk_50m), .mgc_sda(mgc_sda), .mgc_scl(mgc_scl),
       .mgc_ts(mgc_ts), .mgc_mclr(mgc_mclr), .uart_rx(1'b1), .uart_tx(uart_tx),
@@ -33,8 +33,7 @@ module tb_demo_top;
   integer muted_run = 0;       // consecutive muted frames seen so far
   integer tone_nonzero = 0;    // frames latched while playing that are not
   integer tone_frames = 0;
-  integer writer_starts = 0;
-  logic   res_n_q = 1'b0;
+  integer frames = 0;
 
   // Sample the transmitter's own latch on every LRCK rising edge: that is the
   // 16-bit word actually shifted out on the DAC pin.  The first muted frame of a
@@ -55,11 +54,8 @@ module tb_demo_top;
     end
   end
 
-  // The panel writer is restarted through its reset; count the starts.
-  always @(posedge clk_50m) begin
-    res_n_q <= oled_res_n;
-    if (oled_res_n && !res_n_q) writer_starts = writer_starts + 1;
-  end
+  // The scope redraws continuously; count the completed frames.
+  always @(posedge clk_50m) if (dut.scope_frame) frames = frames + 1;
 
   initial begin
     #2_000_000;   // 2 ms: two segments, two gaps, and at least one panel rewrite
@@ -68,10 +64,10 @@ module tb_demo_top;
     if (muted_zero < 4) $fatal(1, "FAIL %0d muted frames were zero", muted_zero);
     if (muted_nonzero != 0) $fatal(1, "FAIL %0d muted frames held a sample", muted_nonzero);
     if (tone_nonzero == 0) $fatal(1, "FAIL no sound inside a segment");
-    if (writer_starts < 2) $fatal(1, "FAIL panel written %0d time(s), want 2", writer_starts);
+    if (frames < 1) $fatal(1, "FAIL the scope never completed a frame");
 
-    $display("PASS %0d frames, %0d muted zeros, %0d tone frames (%0d nonzero), %0d panel writes",
-             lrck_edges, muted_zero, tone_frames, tone_nonzero, writer_starts);
+    $display("PASS %0d frames, %0d muted zeros, %0d tone frames (%0d nonzero), %0d scope frames",
+             lrck_edges, muted_zero, tone_frames, tone_nonzero, frames);
     $finish;
   end
 endmodule

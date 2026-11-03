@@ -33,8 +33,28 @@ IPLIST = os.path.join(PROJECT, "ip", "filelist_ip.f")
 
 GOWIN_ROOT = os.environ.get("GOWIN_ROOT", r"C:\Gowin\Gowin_V1.9.12.04_x64")
 DEVICE_XML = ('<Device name="GW5A-25A" pn="GW5A-LV25MG121NES">gw5a25a-000</Device>')
-TOP = "v2_board_top"
-PROJECT_NAME = "v2_board_top"
+DEFAULT_TOP = "v2_board_top"
+
+
+def expected_tops() -> list[str]:
+    """The synthesis tops this tree allows (MANIFEST.json).
+
+    Gowin names every report after the project and the project after the top, so
+    the top is also the run directory name and the .fs name.  Keeping the list in
+    the manifest means the gate, the build and the docs cannot disagree about
+    which tops exist.
+    """
+    path = os.path.join(PROJECT, "MANIFEST.json")
+    if not os.path.isfile(path):
+        return [DEFAULT_TOP]
+    import json
+    manifest = json.load(open(path, encoding="utf-8"))
+    declared = manifest.get("expected_tops")
+    if declared:
+        return [str(name) for name in declared]
+    if manifest.get("expected_top"):
+        return [str(manifest["expected_top"])]
+    return [DEFAULT_TOP]
 
 GPRJ_HEAD = ('<?xml version="1.0"?><!DOCTYPE gowin-fpga-project><Project>'
              '<Template>FPGA</Template><Version>5</Version>' + DEVICE_XML + '<FileList>')
@@ -85,10 +105,21 @@ def main() -> int:
                     help="build gate: CLS must stay at or below this (design doc section 6)")
     ap.add_argument("--min-slack", type=float, default=-3.5,
                     help="build gate: worst setup slack floor in ns (design doc section 6)")
+    ap.add_argument("--min-fmax", type=float, default=None,
+                    help="build gate: optional fmax floor in MHz (demo build: 80)")
+    ap.add_argument("--top", default=DEFAULT_TOP,
+                    help="synthesis top; must be one of MANIFEST.json expected_tops")
     ap.add_argument("--gao", default=None, help="GAO probe definition (.rao) to instrument the build")
     args = ap.parse_args()
 
+    tops = expected_tops()
+    if args.top not in tops:
+        print("XX  --top %s is not one of the declared tops: %s"
+              % (args.top, ", ".join(tops)))
+        return 1
+
     run_id = args.run_id
+    top = args.top
     if not re.match(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$", run_id):
         print("XX  run-id must match ^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
         return 1
@@ -105,19 +136,19 @@ def main() -> int:
         print("XX  constraints missing: %s" % ", ".join(extra))
         return 1
 
-    run_dir = os.path.join(PROJECT, "impl", "%s_%s" % (PROJECT_NAME, run_id))
+    run_dir = os.path.join(PROJECT, "impl", "%s_%s" % (top, run_id))
     if os.path.isdir(run_dir):
         print("XX  refusing to reuse %s" % run_dir)
         return 1
     os.makedirs(run_dir)
 
-    gprj = os.path.join(run_dir, PROJECT_NAME + ".gprj")
+    gprj = os.path.join(run_dir, top + ".gprj")
     build_gprj(entries, gprj, args.gao)
 
     tcl = os.path.join(run_dir, "synth.tcl")
     steps = [
         "open_project {%s}" % gprj.replace("\\", "/"),
-        "set_option -top_module %s" % TOP,
+        "set_option -top_module %s" % top,
         "set_option -verilog_std sysv2017",
         "# E2 is the board oscillator and is multiplexed with CPU/SSPI functions.",
         "set_option -use_sspi_as_gpio 1",
@@ -144,7 +175,7 @@ def main() -> int:
 
     print("run dir  : %s" % run_dir)
     print("sources  : %d" % len(entries))
-    print("top      : %s" % TOP)
+    print("top      : %s" % top)
     log_path = os.path.join(run_dir, "gw_sh.log")
     t0 = time.time()
     # gw_sh resolves its bundled Tcl and plugins relative to its own bin
@@ -178,13 +209,13 @@ def main() -> int:
     # PASS while being slower or fuller than the agreed thresholds.
     summary: dict[str, object] = {
         "run_id": run_id, "run_dir": os.path.relpath(run_dir, PROJECT),
-        "top": TOP, "sources": len(entries), "syn_only": args.syn_only,
+        "top": top, "sources": len(entries), "syn_only": args.syn_only,
         "wall_seconds": round(elapsed, 1), "exit_code": proc.returncode,
     }
     pnr_dir = os.path.join(run_dir, "impl", "pnr")
     syn_dir = os.path.join(run_dir, "impl", "gwsynthesis")
 
-    rpt = os.path.join(pnr_dir, PROJECT_NAME + ".rpt.txt")
+    rpt = os.path.join(pnr_dir, top + ".rpt.txt")
     if os.path.isfile(rpt):
         text = open(rpt, encoding="utf-8", errors="replace").read()
         summary["resources"] = extract(text, {
@@ -215,11 +246,11 @@ def main() -> int:
             "worst_slack_ns": report["worst_slack"],
             "worst_from": report["worst_from"],
         }
-        gate_problems = synth_report.gate_fail(report, args.max_cls, args.min_slack)
+        gate_problems = synth_report.gate_fail(report, args.max_cls, args.min_slack, args.min_fmax)
         summary["gate"] = {"max_cls": args.max_cls, "min_slack": args.min_slack,
-                           "problems": gate_problems}
+                           "min_fmax": args.min_fmax, "problems": gate_problems}
 
-    fs = os.path.join(pnr_dir, PROJECT_NAME + ".fs")
+    fs = os.path.join(pnr_dir, top + ".fs")
     if not os.path.isfile(fs):
         gao_fs = os.path.join(pnr_dir, "ao_0.fs")   # GAO-instrumented build
         if os.path.isfile(gao_fs):

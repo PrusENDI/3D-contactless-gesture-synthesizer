@@ -118,5 +118,56 @@ class Gate(unittest.TestCase):
         self.assertEqual(len(synth_report.gate_fail(bad, max_cls=11300, min_slack=-3.5)), 2)
 
 
+class GateOnFmax(unittest.TestCase):
+    """The demo bitstream gates on fmax; production keeps its old behaviour."""
+
+    PASS = {"cls": 900, "cls_max": 11520, "worst_slack": 1.0, "fmax": 120.0}
+
+    def test_a_low_fmax_fails_when_a_floor_is_set(self):
+        bad = dict(self.PASS, fmax=62.7)
+        problems = synth_report.gate_fail(bad, max_cls=11300, min_slack=-3.5, min_fmax=80.0)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("62.7", problems[0])
+
+    def test_no_floor_means_no_fmax_problem(self):
+        bad = dict(self.PASS, fmax=62.7)
+        self.assertEqual(synth_report.gate_fail(bad, max_cls=11300, min_slack=-3.5), [])
+
+    def test_unknown_fmax_fails_when_a_floor_is_set(self):
+        bad = {"cls": 900, "cls_max": 11520, "worst_slack": 1.0, "fmax": None}
+        problems = synth_report.gate_fail(bad, max_cls=11300, min_slack=-3.5, min_fmax=80.0)
+        self.assertEqual(len(problems), 1)
+
+
+class ReadRunFindsItsTop(unittest.TestCase):
+    """One run directory, one top, whatever it is called."""
+
+    def _write(self, tmp: str, top: str) -> None:
+        pnr = os.path.join(tmp, "impl", "pnr")
+        os.makedirs(pnr, exist_ok=True)
+        for suffix, body in ((".rpt.txt", ParseResources.RPT), (".tr", TR),
+                             (".timing_paths", PATHS)):
+            with open(os.path.join(pnr, top + suffix), "w", encoding="utf-8") as fh:
+                fh.write(body)
+
+    def test_discovers_the_demo_top(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            self._write(tmp, "v2_demo_top")
+            summary = synth_report.read_run(tmp)
+            self.assertEqual(summary["cls"], 10510)
+            self.assertAlmostEqual(summary["fmax"], 63.639)
+
+    def test_two_tops_must_be_disambiguated(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            self._write(tmp, "v2_demo_top")
+            self._write(tmp, "v2_board_top")
+            with self.assertRaises(ValueError):
+                synth_report.read_run(tmp)
+            summary = synth_report.read_run(tmp, top="v2_board_top")
+            self.assertEqual(summary["cls"], 10510)
+
+
 if __name__ == "__main__":
     unittest.main()

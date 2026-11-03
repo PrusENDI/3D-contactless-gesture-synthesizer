@@ -76,8 +76,14 @@ def parse_timing(tr_text: str, paths_text: str) -> dict[str, object]:
     }
 
 
-def gate_fail(summary: dict, max_cls: int, min_slack: float) -> list[str]:
-    """Empty list means the build may go on the board; each string is a reason not to."""
+def gate_fail(summary: dict, max_cls: int, min_slack: float,
+              min_fmax: float | None = None) -> list[str]:
+    """Empty list means the build may go on the board; each string is a reason not to.
+
+    `min_fmax` is opt-in: production keeps its historical CLS/slack gate, and the
+    demo bitstream (small enough that 80 MHz should be easy) asks for the fmax
+    floor explicitly.  A None floor means the criterion is not applied at all.
+    """
     problems: list[str] = []
     cls = summary.get("cls")
     if cls is None:
@@ -89,13 +95,40 @@ def gate_fail(summary: dict, max_cls: int, min_slack: float) -> list[str]:
         problems.append("worst slack unknown (timing report could not be read)")
     elif slack < min_slack:
         problems.append("worst slack %.3f ns under the %.3f ns floor" % (slack, min_slack))
+    if min_fmax is not None:
+        fmax = summary.get("fmax")
+        if fmax is None:
+            problems.append("fmax unknown (timing report could not be read)")
+        elif fmax < min_fmax:
+            problems.append("fmax %.3f MHz under the %.3f MHz floor" % (fmax, min_fmax))
     return problems
 
 
-def read_run(run_dir: str) -> dict:
+def find_top(pnr: str, top: str | None = None) -> str:
+    """Which top a run directory was built for.
+
+    Gowin names every report after the project, and `scripts/synth.py` names the
+    project after the top, so the single `*.rpt.txt` in `impl/pnr` is the answer.
+    Passing a name is still allowed and checks that it is really there.
+    """
+    if top is not None:
+        if not os.path.isfile(os.path.join(pnr, top + ".rpt.txt")):
+            raise ValueError("missing %s" % os.path.join(pnr, top + ".rpt.txt"))
+        return top
+    found = sorted(name[:-len(".rpt.txt")] for name in os.listdir(pnr)
+                   if name.endswith(".rpt.txt")) if os.path.isdir(pnr) else []
+    if not found:
+        raise ValueError("no *.rpt.txt in %s -- is this a place-and-route run?" % pnr)
+    if len(found) > 1:
+        raise ValueError("%s holds %d tops (%s); name one with --top"
+                         % (pnr, len(found), ", ".join(found)))
+    return found[0]
+
+
+def read_run(run_dir: str, top: str | None = None) -> dict:
     """Everything the gate needs, from one impl/<run> directory."""
     pnr = os.path.join(run_dir, "impl", "pnr")
-    top = "v2_board_top"
+    top = find_top(pnr, top)
 
     def text(name: str) -> str:
         path = os.path.join(pnr, name)
@@ -127,17 +160,21 @@ def main(argv: list[str]) -> int:
                     help="impl/<run> directory, e.g. impl/v2_board_top_vca_detune_mbox")
     ap.add_argument("--max-cls", type=int, default=11300)
     ap.add_argument("--min-slack", type=float, default=-3.5)
+    ap.add_argument("--min-fmax", type=float, default=None,
+                    help="optional fmax floor in MHz (the demo build uses 80)")
+    ap.add_argument("--top", default=None,
+                    help="top to read when the run directory holds more than one")
     ap.add_argument("--enforce", action="store_true",
                     help="exit 2 when the gate fails instead of only printing it")
     args = ap.parse_args(argv)
 
     run_dir = args.run_dir if os.path.isabs(args.run_dir) else os.path.join(PROJECT, args.run_dir)
     try:
-        summary = read_run(run_dir)
+        summary = read_run(run_dir, args.top)
     except ValueError as exc:
         print("XX  %s" % exc)
         return 1
-    problems = gate_fail(summary, args.max_cls, args.min_slack)
+    problems = gate_fail(summary, args.max_cls, args.min_slack, args.min_fmax)
     print_summary(summary, problems)
     return 2 if (problems and args.enforce) else 0
 

@@ -11,7 +11,7 @@
 | 编号 | 判据 | 怎么算过 |
 | --- | --- | --- |
 | V1 | 多路、不同频率，且路数能当场改变 | N 依次为 1 / 8 / 32，每路频率 `220.000·k Hz`（k=1..N），**无主机参与** |
-| V2 | 频谱上数得出 N 个独立谱峰 | 数字（GAO 2048 点）与模拟（PCM5102A 线路输出录音）两条路各自 FFT，峰数 = N、位置落在 `220·k Hz ±1 bin` |
+| V2 | 频谱上数得出 N 个独立谱峰 | **GAO 一路**：2048 点 @48 kHz（42.7 ms、23.4 Hz 分辨率）FFT，峰数 = N、位置落在 `220·k Hz ±1 bin`；模拟录音不进验收（用户 2026-11-03 选 C，见 §10） |
 | V3 | RTL 可佐证纯硬件实时合成、无预录 | 位流里 **0 BSRAM、0 DSP、无 UART 实例**；每个样点由「相位累加器 + 单周期 256 点表 + 加法」当场算出；并有一个录音做不到的实验：N 自己变，峰数跟着变 |
 
 ## 2. 为什么是独立位流，而不是生产位流加一个开关
@@ -29,7 +29,7 @@
 
 - 第二个可烧录位流 `v2_demo_top`，上电即输出测试音，不需要 UART、不需要 PC、不需要传感器。
 - 32 路不同频率，`220.000·k Hz`（k=1..32，上限 7040.000 Hz）。
-- N 自动循环 `1 → 8 → 32`，32 段保持 20 s，供频谱仪/手机录音取窗。
+- N 自动循环 `1 → 8 → 32`，32 段保持 20 s，GAO 取窗（42.7 ms）有充足余量。
 - 可复现的证据链：tb、GAO `.rao`、FFT 脚本、`synth_summary.json`（top + 资源 + sha256）、实测频谱。
 
 **非目标**
@@ -116,8 +116,8 @@ v2_demo_top            端口与 v2_board_top 完全相同（复用同一份 CST
 | `scripts/synth_report.py` | 从 run 目录里的 `*.rpt.txt` 自动发现 top，不再写死 | 现在写死 `top = "v2_board_top"` |
 | `tb/tb_test_mode.sv` | 新增 | 测试块至今没有 tb；V2 的第一道证据 |
 | `tb/tb_demo_top.sv` | 新增 | 证明序列、CSR 字与静音闸门 |
-| `host/spectrum.py` + `host/test_spectrum.py` | 新增 | FFT 数峰，标准库实现（不引入 numpy） |
-| `gao/demo_tones.rao` | 新增 | 探针：`mixed_sample[15:0]`、`demo_tone_count[5:0]`、`sample_valid`、`demo_muted` |
+| `host/spectrum.py` + `host/test_spectrum.py` | 新增 | 读 GAO CSV、FFT 数峰；标准库实现（不引入 numpy），不读 WAV |
+| `gao/demo_tones.rao` | 新增 | 探针：`u_i2s/sample_latched[15:0]`（真正串行出去的 16 位字）、`demo_tone_count[5:0]`、`demo_muted` |
 | `docs/demo-dds-evidence.md` | 新增 | 给评委看的 RTL 佐证 + 实测频谱 |
 | `docs/DEBUG-AND-FLASH.md` | 补一节「演示位流」 | 构建/烧录/验收命令 |
 
@@ -140,10 +140,9 @@ v2_demo_top            端口与 v2_board_top 完全相同（复用同一份 CST
 | 判据 | 证据 | 产出 |
 | --- | --- | --- |
 | V1 | 序列器上电即按 1→8→32 走；GAO 抓 `demo_tone_count` 三段 | `artifacts/gao/demo_seq.csv` |
-| V2（数字） | GAO 2048 点 @48 kHz（42.7 ms，23.4 Hz 分辨率）→ `host/spectrum.py --expect 32` | CSV + 峰表 |
-| V2（模拟） | PCM5102A 线路输出录音（人做，44.1/48 kHz 均可，脚本按实际 fs 算） | WAV + 峰表 |
+| V2 | GAO 2048 点 @48 kHz（42.7 ms，23.4 Hz 分辨率），探针是 `u_i2s/sample_latched`（I2S 真正串出去的字）→ `host/spectrum.py --expect 32` | CSV + 峰表 |
 | V3 | 构建报告 **0 BSRAM / 0 DSP**；`v2_demo_top` 里没有 UART、没有音频存储；相位增量是常量 | `synth_summary.json` + evidence 文档 |
-| V3（反证） | 现场看 N 从 32 跳到 1 再跳到 8，峰数跟着变——录音无法做到 | 视频/截图 |
+| V3（反证） | **同一次上电、不重烧**，在 N=1 与 N=32 两段各抓一次，两次的峰数是 1 和 32；录音做不到「同一个位流、同一秒的窗口里换 N」 | 两个 CSV + 两份峰表 |
 | 身份 | `synth_summary.json` 的 `top` + `bitstream_sha256`；行为上「上电即响」本身就是标志 | 记录 |
 
 **采样时钟口径（评审第 5 条）**：GAO 必须 `sample_clock="pcm5102a_lrck"`（48 kHz），
@@ -163,8 +162,10 @@ DFT 断言必红。`v2_test_mode.sv:353-355` 里「2083 clocks at 100 MHz」是*
 5. `python scripts/synth.py --top v2_demo_top --run-id <id> --min-fmax 80` → SYNTH PASS；
    **BSRAM 必须是 0**，否则先查清楚是不是被推断成存储（那会推翻 V3 的说法）；
    fmax ≥ 80 MHz 由新加的 `--min-fmax` 真正判定，不再是一条没人执行的评审意见。
-6. 板上：烧 → 上电即响 → GAO 32 峰 → 模拟录音 32 峰 → 回烧生产位流并确认
-   `0xB0=0x5A5A0003`、`0xA0` 读 0。
+6. 板上：烧 → 上电即响 → 同一次上电里抓 N=32（32 峰）与 N=1（1 峰）两次 →
+   回烧生产位流并确认 `0xB0=0x5A5A0003`、`0xA0` 读 0。
+   模拟录音**不进验收**：本机 3.5mm 是耳麦麦克风口、没有线路输入（§10），
+   evidence 文档第一页就要写明「V2 的证据是数字域，不是模拟域」。
 
 ## 8. 风险
 
@@ -174,7 +175,7 @@ DFT 断言必红。`v2_test_mode.sv:353-355` 里「2083 clocks at 100 MHz」是*
 | 端口表与 CST 不一致 → 综合报「port not found」 | 端口逐字照抄 `v2_board_top`，先跑 `gate.py --compile` 再综合 |
 | 每段切换相位清零，32 路同相起振 → 满幅台阶 | 段间真静音 0.5 s（闸门），且 N 字在静音段里写，起振瞬间不可闻 |
 | 2048 点 FFT 相邻峰只隔 9.4 bin，窗旁瓣可能把 1 个峰数成 3 个 | Hann 窗 + 局部极大值 + 相对门限，tb 与脚本用同一套判据 |
-| 声卡采样率与板子 48 kHz 不同源 → 峰位偏移 | 脚本按 WAV 头里的 fs 换算，容差按 bin；记录实际 fs |
+| 只有数字域一条腿（用户选 C） | 证据文档开篇写明「V2 是 GAO 抓 I2S 发送寄存器」，并给两次不同 N 的 CSV；不申报 SNR/THD/底噪 |
 | GAO 2048 点只覆盖 42.7 ms，触发点落错就抓到静音 | 触发用 `demo_tone_count==32` 且 `demo_muted==0` 的电平，`.rao` 里写明 |
 | 写 `N=32` 时 `ser_term` 会在发布那一拍读 `phase[32]`（数组是 `[0:31]`） | 无害（发布拍不用 `ser_term`），但新 tb 会刷越界告警；tb 里注明，不顺手改既有 RTL |
 | `v2_test_mode` 历史上没有 tb，第一次写 tb 可能暴露既有 bug | 这正是先红后绿的意义；发现 bug 单独记，不在本设计里改 |
@@ -184,13 +185,16 @@ DFT 断言必红。`v2_test_mode.sv:353-355` 里「2083 clocks at 100 MHz」是*
 
 - 序列器用 Moore 状态机 + 帧计数器，状态数 ≤ 8，单时钟域。
 - `tb_test_mode` 用实数 DFT（ModelSim 支持 `$cos`/`real`）在 4096 点上判峰，不做 FFT。
-- `host/spectrum.py` 用标准库 radix-2 FFT（2048/4096/8192 点），不引入 numpy。
+- `host/spectrum.py` 用标准库 radix-2 FFT（2048/4096/8192 点），只读 GAO CSV，不引入 numpy。
 - 证据文档按「判据 → 证据 → 命令 → 数字」写，附 RTL 行号。
 
-## 10. 开放项
+## 10. 开放项（已定）
 
-- **现场是否允许录 PCM5102A 线路输出**（手机或声卡）。允许 → V2 有数字 + 模拟两条腿；
-  不允许 → V2 只有 GAO 一条腿，evidence 文档第一页就要写明。
+- **模拟录音：不做**（用户 2026-11-03 选 C）。这台 ASUS Vivobook Pro 15 `N6506MV` 的 3.5mm 是
+  `1x 3.5mm Combo Audio Jack`（[ASUS 规格](https://www.asus.com/bn/laptops/for-home/vivobook/asus-vivobook-pro-15-oled-n6506/techspec/)），
+  Windows 里只有三个**采集**端点（Intel 麦克风阵列、Realtek「麦克风」、NICEHCK USB 的「麦克风」），
+  **没有线路输入**；直接接线路输出要 −37 dB 衰减 + 耳麦分线器 + 关降噪，且单声道、电平不可信。
+  所以 V2 只报数字域，模拟录音不进验收、不申报 SNR/THD。
 - 交互按「完全自动、零交互」做：现场看 N 变化最多等 25 s（1→8→32 一轮 29.5 s 里的前 8.5 s）。
 
 ## 11. 评审记录（2026-11-03，独立评审者）
@@ -199,8 +203,9 @@ DFT 断言必红。`v2_test_mode.sv:353-355` 里「2083 clocks at 100 MHz」是*
 | --- | --- | --- |
 | 1 | 写关断字后 `sample_valid` 一直低，I2S 保持上个样点 → 空隙是 DC 台阶，不是静音 | 加静音闸门（§4），通路从「一个 mux」改成「测试块 + 闸门两个元件」，tb 与文档同步 |
 | 2 | `filelist.f` 变更会进生产项目；生产门余量只有 0.05 ns | 明确不欠生产重构建（§5.1），并写清怎么证明生产网表不变 |
-| 3 | §10 的录音许可未答，直接决定 V2 的证据组 | 留在 §10，向用户提问 |
+| 3 | §10 的录音许可未答，直接决定 V2 的证据组 | 用户 2026-11-03 选 C：不做模拟录音（见第 6 行） |
 | 4 | CSR 字写错：`{24'd0,N,8'd1}` 是 38 位；`0x0` 不是关断（会置粘滞 fault） | 改成 `(N<<8)|1`、关断字 `0x0000_0001`、禁止写 `0x0`（§4.1） |
 | 5 | `v2_test_mode` 注释写 100 MHz，实际 80 MHz；tb 跑 100 MHz 会让音高变 275·k；`.rao` 采样时钟选错只覆盖 1 个样点 | tb 固定 80 MHz、`.rao` 固定 `pcm5102a_lrck`，过期注释标注不改（§6） |
 | 附 | `--min-fmax` 今天没有任何执行点 | `synth.py` 新增 `--min-fmax`，演示位流按 80 MHz 判（§7.5） |
+| 6 | 这台电脑能不能录线路输出：`N6506MV` 3.5mm 是 combo 耳麦口，Windows 只有麦克风采集端点、无线路输入 | 用户选 C：模拟录音不进验收；V2 只报 GAO 数字域，开篇写明（§10） |
 | 附 | `board_program.ps1` 不在本仓库 | 文档给出真实路径（§4） |

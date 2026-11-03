@@ -302,6 +302,18 @@ logic signed [31:0] cursor_last_z;
         else            mode_live_q <= mode_live;
     end
     wire bpm_sel_we = (mode_live ? bpm_auto_we : bpm_we_q) || (mode_live && !mode_live_q);
+
+    // Registered copy of "PLAY or LIVE".  The raw mode register now feeds the
+    // wavetable source select, the loader read mux, the buffer engine and the
+    // valid mux as well, and its fan-out made mode_reg itself the start of the
+    // slowest path in the design.  Those consumers are configuration, not
+    // per-sample data, so one cycle of delay is free and keeps the cone local.
+    logic mode_rw_q;
+    wire  wt_source_sel_in = mode_rw_q;   // what the voice engine is actually told
+    always_ff @(posedge clk_sys_100m or negedge rst_sys_n) begin
+        if (!rst_sys_n) mode_rw_q <= 1'b0;
+        else            mode_rw_q <= (mode_reg == PLAY) || (mode_reg == LIVE);
+    end
     wire mode_record = (mode_reg == RECORD);
     wire mode_play = (mode_reg == PLAY);
 wire mode_wt_play = (mode_reg == WT_PLAY);
@@ -622,7 +634,7 @@ logic [9:0] wt_read_index_sel;
         .active_voice_count(active_voice_count), .vibrato_phase(), .vibrato_delta_cents(),
         // PLAY and LIVE read the wavetable now; the on-board test modes keep
         // the saw.
-        .wt_source_sel(mode_play || mode_live),
+        .wt_source_sel(wt_source_sel_in),
         .wt_sample_a(wt_voice_sample_a), .wt_sample_b(wt_voice_sample_b),
         .wt_rd_slot(wt_voice_rd_slot), .wt_wr_slot(wt_voice_wr_slot),
         .wt_phase_we(wt_voice_phase_we),
@@ -730,6 +742,11 @@ logic [9:0] wt_read_index_sel;
                                      potts_purify_done_seen, potts_capture_full};
             5'd2: loop_probe_word = {7'd0, voice_dbg_busy, active_voice_count,
                                      voice_overflow, voice_steal_count};
+            // page 3: is the engine told to read the table, is a LIVE note live,
+            // and what does the engine actually mix?  This page separates "the saw
+            // source is still selected" from "the table read returns zero".
+            5'd3: loop_probe_word = {14'd0, wt_source_sel_in, live_active, voice_sample};
+
             default: loop_probe_word = 32'd0;
         endcase
     end
@@ -1083,12 +1100,12 @@ end
     // One table sweep per sample, after the scan that consumed the last one.
     // LIVE needs it too now: the engine reads the buffer, so the buffer has to
     // be filled in LIVE exactly as it is in PLAY.
-    wire wt_engine_start = (mode_play || mode_live) && voice_sample_valid;
+    wire wt_engine_start = mode_rw_q && voice_sample_valid;
 
-    assign wt_reader_table_a = (mode_play || mode_live) ? wt_engine_rd_table0 : wt_play_table_a;
-    assign wt_reader_table_b = (mode_play || mode_live) ? wt_engine_rd_table1 : wt_play_table_b;
-    assign wt_reader_index_a = (mode_play || mode_live) ? wt_engine_rd_index0 : wt_read_index_sel;
-    assign wt_reader_index_b = (mode_play || mode_live) ? wt_engine_rd_index1 : wt_read_index_sel;
+    assign wt_reader_table_a = mode_rw_q ? wt_engine_rd_table0 : wt_play_table_a;
+    assign wt_reader_table_b = mode_rw_q ? wt_engine_rd_table1 : wt_play_table_b;
+    assign wt_reader_index_a = mode_rw_q ? wt_engine_rd_index0 : wt_read_index_sel;
+    assign wt_reader_index_b = mode_rw_q ? wt_engine_rd_index1 : wt_read_index_sel;
 
     v2_wt_voice_bufs #(.VOICES(32)) u_wt_voice_bufs (
         .clk(clk_sys_100m), .rst_n(rst_sys_n),

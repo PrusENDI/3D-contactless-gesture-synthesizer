@@ -747,23 +747,9 @@ logic [9:0] wt_read_index_sel;
     // frame-level tracking path keeps its per-NOTE_ON reset bit for bit.
     wire live_note_hit = live_event_valid && (live_event_type == V2_EV_NOTE_ON);
     wire live_env_hit  = live_note_hit && !thresholds_reg[23];
-    logic hit_sticky, wt_env_gate, env_phase;
+    logic hit_sticky, wt_env_gate;
     logic [15:0] wt_env;
-    // The P2b envelope registers used to reach only u_voice, and u_voice is not on
-    // the I2S path in LIVE, so every LIVE preset shared one hardcoded envelope and
-    // they all sounded like the same horn.  The single-voice envelope now uses the
-    // same attack/decay/sustain words, so a preset can be percussive (sustain 0)
-    // or a bow swell.  The gate-release ramp below stays fixed: that is the "hand
-    // left" fade, not the musical release, and tying it to release_step would make
-    // the default release 1.3 ms and click on every lift.
-    wire [15:0] env_att_step = env_ad_reg[15:0];
-    wire [15:0] env_dec_step = env_ad_reg[31:16];
-    wire [15:0] env_sus_level = env_sr_reg[15:0];
-    logic [16:0] env_att_sum, env_dec_diff;   // 17 bits: saturate instead of wrap
-    always_comb begin
-        env_att_sum  = {1'b0, wt_env} + {1'b0, env_att_step};
-        env_dec_diff = {1'b0, wt_env} - {1'b0, env_dec_step};
-    end
+    localparam logic [15:0] ENV_ATT = 16'd96, ENV_DEC = 16'd8, ENV_SUS = 16'd45875;
     assign wt_env_gate = mode_live && live_gate;
     always_ff @(posedge clk_sys_100m or negedge rst_sys_n) begin
         if (!rst_sys_n) hit_sticky <= 1'b0;
@@ -771,32 +757,12 @@ logic [9:0] wt_read_index_sel;
         else if (sample_ce) hit_sticky <= 1'b0;
     end
     always_ff @(posedge clk_sys_100m or negedge rst_sys_n) begin
-        if (!rst_sys_n) begin
-            wt_env    <= 16'd0;
-            env_phase <= 1'b0;
-        end else if (sample_ce) begin
-            // Four phases, because the two-branch shape this replaced could not
-            // decay: any step down from full scale re-satisfied "not at the top"
-            // and attacked straight back up.  Attack climbs to FULL SCALE, decay
-            // falls to sustain, and a zero sustain (the cowbell) really does reach
-            // silence instead of sitting at zero forever.
-            if (hit_sticky) begin
-                wt_env   <= 16'd0;
-                env_phase <= 1'b0;
-            end else if (!wt_env_gate) begin
-                wt_env <= (wt_env > 16'd16) ? (wt_env - 16'd16) : 16'd0;
-            end else if (!env_phase) begin
-                if (env_att_sum > 17'h0FFFF) begin
-                    wt_env    <= 16'hFFFF;
-                    env_phase <= 1'b1;
-                end else begin
-                    wt_env <= env_att_sum[15:0];
-                    if (env_att_sum == 17'h0FFFF) env_phase <= 1'b1;
-                end
-            end else if (wt_env > env_sus_level) begin
-                wt_env <= (env_dec_step >= wt_env) ? env_sus_level :
-                          (env_dec_diff < {1'b0, env_sus_level}) ? env_sus_level : env_dec_diff[15:0];
-            end
+        if (!rst_sys_n) wt_env <= 16'd0;
+        else if (sample_ce) begin
+            if (hit_sticky)                     wt_env <= 16'd0;
+            else if (!wt_env_gate)              wt_env <= (wt_env > 16'd16) ? (wt_env - 16'd16) : 16'd0;
+            else if (wt_env < ENV_SUS)          wt_env <= wt_env + ENV_ATT;
+            else if (wt_env > ENV_SUS)          wt_env <= wt_env - ENV_DEC;
         end
     end
     // The LIVE envelope multiply is pinned to a DSP slice.  DSP is full, so the

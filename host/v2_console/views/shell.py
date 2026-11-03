@@ -155,10 +155,15 @@ class ConsoleModel:
         self.message = "captured preset %s" % preset.name
         return self.message
 
-    def upload(self, samples, table: int = 0, voice_shift: int = 2) -> str:
+    def upload(self, samples, table: int = 0, voice_shift: int = 2, on_progress=None) -> str:
+        """Upload one 1024-point table; ``on_progress(done, total)`` reports per sample."""
         if not self.can_write_table():
             raise RuntimeError("uploading needs IDLE; stop the loop first")
-        result = self.session.upload_table(samples, table=table, voice_shift=voice_shift)
+        if len(samples) != 1024:
+            raise RuntimeError("a wavetable is 1024 int16 samples, this file has %d" % len(samples))
+        result = self.session.upload_table(
+            samples, table=table, voice_shift=voice_shift, on_sample=on_progress
+        )
         self.table = list(samples)
         self.displayed_frame = None
         self.table_diff = None
@@ -1107,7 +1112,14 @@ class ConsoleWindow:
                 int.from_bytes(raw[index : index + 2], "little", signed=True)
                 for index in range(0, len(raw) - 1, 2)
             ]
-            return self.model.upload(samples)
+            # Same bar as 上传三帧: without a callback this upload ran 18 s in
+            # silence, which is why the .bin path looked frozen.
+            return self.model.upload(
+                samples,
+                on_progress=lambda done, total: self._results.put(
+                    ("progress", (0, done, total), None)
+                ),
+            )
 
         self._run("upload", action)
 

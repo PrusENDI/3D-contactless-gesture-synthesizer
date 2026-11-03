@@ -32,6 +32,7 @@ class FakeSession:
 
     def upload_table(self, samples, table=0, voice_shift=2, morph=False, verify=False, on_sample=None):
         self.uploads += 1
+        self.on_sample = on_sample
         return SimpleNamespace(ok=True, active_version=1, crc=0, attempts=1, elapsed_s=0.0, readback=None)
 
     def upload_frames(self, frames, shift=2, morph=True, period_s=20.0, uploaded=None, on_progress=None):
@@ -149,6 +150,22 @@ class FrameTest(unittest.TestCase):
     def test_upload_refuses_with_no_frames(self):
         with self.assertRaises(RuntimeError):
             ConsoleModel(FakeSession()).upload_frames(shift=2, morph=True, period_s=20.0)
+
+
+class UploadProgressTest(unittest.TestCase):
+    """上传 .bin… ran 18 s with a motionless bar: no on_sample was passed."""
+
+    def test_the_bin_upload_forwards_a_progress_callback(self):
+        session = FakeSession()
+        ConsoleModel(session).upload([0] * 1024, on_progress=lambda done, total: None)
+        self.assertIsNotNone(session.on_sample)
+
+    def test_a_file_that_is_not_one_table_is_refused_before_uploading(self):
+        session = FakeSession()
+        with self.assertRaises(RuntimeError) as caught:
+            ConsoleModel(session).upload([0] * 512)
+        self.assertIn("1024", str(caught.exception))
+        self.assertEqual(session.uploads, 0)
 
 
 class FrameSlotTest(unittest.TestCase):

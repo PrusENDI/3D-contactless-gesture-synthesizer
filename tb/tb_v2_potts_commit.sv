@@ -27,7 +27,7 @@ module tb_v2_potts_commit;
 
   initial begin : run
     logic [95:0] held;
-    // y-space levels: 135 is note 57, 978 is note 72.
+    // y-space levels: 135 is note 57, 978 is the top note 67 (G4).
     for (i = 0; i < 128; i = i + 1) c[i] = (i < 64) ? 135 : 978;
     repeat (2) @(posedge clk);
     rst_n = 1;

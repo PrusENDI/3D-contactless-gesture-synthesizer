@@ -8,6 +8,7 @@ module tb_live_track_pitch;
   logic touch = 0, bow = 1;
   logic [31:0] tick = 0;
   logic arp_mode = 0, tick_pulse = 0;
+  logic [1:0] arp_pattern = 2'd0;
   logic [6:0] mtick = 0;
   logic [7:0] velocity_in = 8'd100;
   logic [15:0] brightness_in = 0, gain_in = 16'd200;
@@ -25,7 +26,7 @@ module tb_live_track_pitch;
     .clk, .rst_n,
     .frame_in_valid, .frame_valid, .frame_degraded, .frame_gap, .rebased, .left_edge,
     .x, .y, .z, .touch, .bow, .tick,
-    .arp_mode, .tick_pulse, .mtick,
+    .arp_mode, .tick_pulse, .mtick, .arp_pattern,
     .velocity_in, .brightness_in, .gain_in,
     .event_valid, .event_ready, .event_data,
     .event_type, .event_note, .event_velocity, .event_count, .fault_code,
@@ -57,14 +58,15 @@ module tb_live_track_pitch;
     repeat (4) @(negedge clk);
 
     if (dut.active !== 1'b1) $fatal(1, "FAIL no note on a degraded frame stream (active=0)");
-    if (active_note !== 8'd60) $fatal(1, "FAIL note=%0d want 60 for y=20000", active_note);
+    // G natural minor: y=20000 is the third band, Bb3 (58), not the old C4 (60).
+    if (active_note !== 8'd58) $fatal(1, "FAIL note=%0d want 58 for y=20000", active_note);
     $display("PASS note started on degraded frames: note=%0d", active_note);
 
-    // Move up to G4 (y=45000) and let a few frames carry the change.
+    // Move up to Eb4 (y=45000) and let a few frames carry the change.
     for (i = 0; i < 6; i = i + 1) send_frame(16'd20000, 16'd45000);
     repeat (4) @(negedge clk);
-    if (active_note !== 8'd67)
-      $fatal(1, "FAIL pitch did not follow Y on degraded frames: note=%0d want 67", active_note);
+    if (active_note !== 8'd63)
+      $fatal(1, "FAIL pitch did not follow Y on degraded frames: note=%0d want 63", active_note);
     $display("PASS pitch follows Y on degraded frames: note=%0d", active_note);
     $finish;
   end

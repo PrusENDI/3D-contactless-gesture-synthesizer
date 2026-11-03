@@ -61,8 +61,10 @@ module v2_potts_commit_fsm #(
  // midpoint of that note's cursor_y interval, decided by the map in
  // v2_live_rule_engine and shifted by six), `midi_note` is what the event
  // carries.  Using one table for both would put 30..978 into the note field.
+ // LEVELS did not move with the scale: the seven y boundaries are unchanged.
+ // NOTES is G natural minor: 55 57 58 60 62 63 65 67.
  function automatic integer level(input integer k); case(k)0:level=30;1:level=135;2:level=286;3:level=421;4:level=557;5:level=707;6:level=858;default:level=978;endcase endfunction
- function automatic integer midi_note(input integer k); case(k)0:midi_note=55;1:midi_note=57;2:midi_note=60;3:midi_note=62;4:midi_note=64;5:midi_note=67;6:midi_note=69;default:midi_note=72;endcase endfunction
+ function automatic integer midi_note(input integer k); case(k)0:midi_note=55;1:midi_note=57;2:midi_note=58;3:midi_note=60;4:midi_note=62;5:midi_note=63;6:midi_note=65;default:midi_note=67;endcase endfunction
  function automatic [31:0] sat(input integer v); if(v>32'sh3fffffff)sat=32'sh3fffffff; else if(v<0)sat=32'd0; else sat=v[31:0]; endfunction
  assign busy=state!=IDLE; assign event_valid=ev_valid_q; assign event_data=ev_valid_q?ev_q:96'd0;
  assign dp_rd_addr = (state==RD1) ? s[7:0] : e[7:0];

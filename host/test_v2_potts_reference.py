@@ -27,11 +27,12 @@ class PottsTests(unittest.TestCase):
 
     def test_exact_h32_event_stream(self):
         # The same contour and the same expectation as tb_v2_potts_commit_fsm:
-        # level 30 is note 55, level 978 is note 72.
+        # level 30 is note 55, level 978 is the top note 67 (G4) in the
+        # G-natural-minor scale.
         contour = [30] * 8 + [978] * 24
         events = solve(contour, lambda_q16=0, min_length=4, horizon=32)
         got = sorted((e.tick, e.duration, e.note) for e in events)
-        self.assertEqual(got, [(0, 8, 55), (8, 24, 72)])
+        self.assertEqual(got, [(0, 8, 55), (8, 24, 67)])
 
     def test_constant_and_min_length(self):
         e = solve([30] * 32, lambda_q16=21600, min_length=4, horizon=32)
@@ -42,10 +43,10 @@ class PottsTests(unittest.TestCase):
         contour = [30] * 16 + [978] * 16
         e = solve(contour, lambda_q16=0, min_length=4, horizon=32)
         self.assertEqual([(a.tick, a.duration, a.note) for a in e],
-                         [(0, 16, 55), (16, 16, 72)])
+                         [(0, 16, 55), (16, 16, 67)])
         # A full rest on the first half forces the note to start at tick 16.
         e = solve(contour, rest_mask=(1 << 16) - 1, lambda_q16=0, horizon=32)
-        self.assertEqual([(a.tick, a.duration, a.note) for a in e], [(16, 16, 72)])
+        self.assertEqual([(a.tick, a.duration, a.note) for a in e], [(16, 16, 67)])
 
     def test_bounded_input(self):
         contour = [LEVELS[i % len(LEVELS)] for i in range(32)]

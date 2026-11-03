@@ -6,10 +6,10 @@ carries ``NOTES`` (the MIDI degree), exactly like the hardware's two tables.
 """
 from dataclasses import dataclass
 
-# y>>6 midpoints of the eight pentatonic degrees, from v2_live_rule_engine's
-# note map: 55, 57, 60, 62, 64, 67, 69, 72.
+# y>>6 midpoints of the eight G-natural-minor degrees, from
+# v2_live_rule_engine's note map: 55, 57, 58, 60, 62, 63, 65, 67.
 LEVELS = (30, 135, 286, 421, 557, 707, 858, 978)
-NOTES = (55, 57, 60, 62, 64, 67, 69, 72)
+NOTES = (55, 57, 58, 60, 62, 63, 65, 67)
 N = 128
 MIN_RUN = 4
 

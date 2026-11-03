@@ -338,8 +338,9 @@ module tb_stage2_loop_e2e;
     end
     if (ev_count != 1)
       $fatal(1, "partial take produced %0d events, expected 1", ev_count);
-    if (ev_tick != 0 || ev_dur != 12 || ev_note != 72)
-      $fatal(1, "partial take event t%0d/d%0d/n%0d expected t0/d12/n72",
+    // y=60000 >> 6 = 937, the top band: G4 (67) in the new G-natural-minor table.
+    if (ev_tick != 0 || ev_dur != 12 || ev_note != 67)
+      $fatal(1, "partial take event t%0d/d%0d/n%0d expected t0/d12/n67",
              ev_tick, ev_dur, ev_note);
 
     // ---- Two tracks ------------------------------------------------------

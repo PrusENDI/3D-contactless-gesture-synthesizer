@@ -12,13 +12,18 @@
 // and then with it on (three steps).
 //
 // The hand is injected at the cursor filter's output (cursor_x/y/z,
-// cursor_velocity, cursor_state, cursor_frame_done) and the arp tick is pulsed
-// by the bench, so the run is exact and does not depend on the 16.6 ms tick
-// divider; everything from that cursor boundary to i2s_sample is production
-// logic.  The sine goes through the real UART uploader.  cursor_velocity is
-// forced because it is a cursor-filter output in production: the P2b velocity
-// depth is part of the audible engine path, and with no reader its natural
-// value is 0, which would mute the engine.
+// cursor_velocity, cursor_state, cursor_frame_done) and the 125 ms arp step is
+// forced by the bench at the divider's output, so the run is exact and does not
+// wait 12.5 M clocks per step; everything from that cursor boundary to
+// i2s_sample is production logic.  The sine goes through the real UART
+// uploader.  cursor_velocity is forced because it is a cursor-filter output in
+// production: the P2b velocity depth is part of the audible engine path, and
+// with no reader its natural value is 0, which would mute the engine.
+//
+// The second non-arp window plays A3 (y=8000).  57 is the one scale degree
+// whose phase increment did not change when the scale moved to G natural minor,
+// so its samples are the before/after identity reference for the continuous
+// path (the G3 window is not: note 55's increment was corrected).
 //
 // Sample alignment: the activation write lands in the engine at a clock edge,
 // the scan after it produces mixed_sample, and the top then runs the FX, trims
@@ -26,12 +31,13 @@
 // rows later.  The window below covers that.
 //
 // Dumps (relative to the vsim working directory, .sim_unit under sim_unit.py):
-//   ../artifacts/live_arp_step/live_arp_off.txt   steady samples, arp off
-//   ../artifacts/live_arp_step/live_arp_on.txt    samples around each arp step
+//   ../artifacts/live_arp_step/live_arp_off.txt     steady G3 samples, arp off
+//   ../artifacts/live_arp_step/live_arp_off_a3.txt  steady A3 samples, arp off
+//   ../artifacts/live_arp_step/live_arp_on.txt      samples around each arp step
 // If the directory does not exist the files fall back to the working directory.
 module tb_live_arp_step;
   localparam integer SINE_AMP = 12288;        // 0x3000, headroom under the trim
-  localparam integer CAP      = 4096;         // capture depth
+  localparam integer CAP      = 8192;         // capture depth
   localparam integer WIN_PRE  = 2;            // samples shown before the activation
   localparam integer WIN_POST = 16;           // samples shown after the activation
   // max |sample[n]-sample[n-1]| limit.  The old single-voice LIVE path measured
@@ -54,7 +60,9 @@ module tb_live_arp_step;
   logic                tb_tick_pulse = 1'b0;
 
   integer i, j, k, guard, t, n = 0, mark = 0;
-  integer off_lo, off_hi, off_max, off_arg, off_sum, off_min, off_maxv;
+  integer off_lo, off_hi, off2_lo, off2_hi, arp_start;
+  integer off_max, off_arg, off_sum, off_min, off_maxv;
+  integer off_g3_min, off_g3_max;
   integer arp_max, arp_arg, hit_count;
   integer hit_list [0:7];
   integer act_count;
@@ -69,7 +77,7 @@ module tb_live_arp_step;
   logic [7:0] inject_value;
   logic [15:0] crc;
   logic signed [15:0] sine_tmp;
-  integer foff, fon;
+  integer foff, fon, foff2;
 
   always #5 clk = ~clk;
   GSR GSR(.GSRI(1'b1));
@@ -260,7 +268,9 @@ module tb_live_arp_step;
     force dut.degraded_frame    = 1'b0;
     force dut.calibrated_gap    = 1'b0;
     force dut.cursor_rebased    = 1'b0;
-    force dut.tick_pulse        = tb_tick_pulse;
+    // The arp step rate is now a fixed 125 ms divider; forcing its output lets
+    // this bench place the three steps exactly where it wants them.
+    force dut.u_live.arp_step_pulse = tb_tick_pulse;
 
     inject_control(8'h01, 8'hB0, 8'h30, 32'd0);
     if (dut.rsp_data !== 32'h5A5A_0003) $fatal(1, "0xB0=0x%08h", dut.rsp_data);
@@ -287,11 +297,43 @@ module tb_live_arp_step;
     off_hi = n;
     if (off_hi > CAP) $fatal(1, "capture overflow: %0d", off_hi);
 
+    // ---- half 1b: a fresh A3 (57) note, the before/after identity window ----
+    // 57 is the one degree whose ROM increment is unchanged by the scale move.
+    // Release G3 completely first, so the new note's phase starts at 0 and no
+    // decaying G3 voice (whose increment did change) leaks into the window.
+    tb_cursor_state = 2'd0;
+    send_frame(16'd20000);
+    send_frame(16'd20000);
+    guard = 0;
+    while (dut.live_active && guard < 200000) begin @(negedge clk); guard = guard + 1; end
+    if (dut.live_active) $fatal(1, "the G3 note never released");
+    // The release envelope is 48 samples, and a new NOTE_ON also needs the
+    // rule engine's MIN_EVENT_TICKS (4 sample ticks) since the OFF.
+    wait_samples(100);
+    guard = 0;
+    while (dut.active_voice_count != 0 && guard < 200000) begin @(negedge clk); guard = guard + 1; end
+    if (dut.active_voice_count != 0) $fatal(1, "the G3 voice never went silent");
+    tb_cursor_y = 32'sd8000;                             // A3 in both note tables
+    tb_cursor_state = 2'd1;
+    send_frame(16'd20000);
+    send_frame(16'd20000);
+    guard = 0;
+    while (!dut.live_active && guard < 200000) begin @(negedge clk); guard = guard + 1; end
+    if (!dut.live_active) $fatal(1, "the A3 note never started");
+    if (dut.live_active_note !== 8'd57)
+      $fatal(1, "A3 window note %0d, want 57 for y=8000", dut.live_active_note);
+    wait_samples(700);
+    off2_lo = n;
+    wait_samples(600);
+    off2_hi = n;
+    if (off2_hi > CAP) $fatal(1, "capture overflow: %0d", off2_hi);
+
     // ---- half 2: arpeggiator ON, same hand, same pitch ---------------------
-    inject_control(8'h02, 8'h30, 8'h32, 32'h0180_0000); // THRESHOLDS[23] = 1
+    arp_start = n;
+    inject_control(8'h02, 8'h30, 8'h32, 32'h0180_0000); // THRESHOLDS[23] = 1, pattern 0
     repeat (8) @(negedge clk);
     if (!dut.u_live.arp_mode) $fatal(1, "arp mode did not latch");
-    if (dut.live_active_note !== 8'd55) $fatal(1, "pitch moved into arp mode");
+    if (dut.live_active_note !== 8'd57) $fatal(1, "pitch moved into arp mode");
 
     for (t = 0; t < 3; t = t + 1) begin
       arp_tick();
@@ -314,10 +356,11 @@ module tb_live_arp_step;
       if (samp[k] > off_maxv) off_maxv = samp[k];
       off_sum = off_sum + samp[k];
     end
+    off_g3_min = off_min; off_g3_max = off_maxv;
 
     // ---- arp on: maximum step in the window of every activation ------------
     hit_count = 0;
-    for (k = off_hi; k < n; k = k + 1) begin
+    for (k = arp_start; k < n; k = k + 1) begin
       if (hit_buf[k] == 1'b1 && hit_count < 8) begin
         hit_list[hit_count] = k;
         hit_count = hit_count + 1;
@@ -345,6 +388,13 @@ module tb_live_arp_step;
       for (k = off_lo; k < off_hi; k = k + 1) $fdisplay(foff, "%0d %0d", k, samp[k]);
       $fclose(foff);
     end
+    foff2 = $fopen("../artifacts/live_arp_step/live_arp_off_a3.txt", "w");
+    if (foff2 == 0) foff2 = $fopen("live_arp_off_a3.txt", "w");
+    if (foff2 != 0) begin
+      $fdisplay(foff2, "n sample");
+      for (k = off2_lo; k < off2_hi; k = k + 1) $fdisplay(foff2, "%0d %0d", k, samp[k]);
+      $fclose(foff2);
+    end
     fon = $fopen("../artifacts/live_arp_step/live_arp_on.txt", "w");
     if (fon == 0) fon = $fopen("live_arp_on.txt", "w");
     if (fon != 0) begin
@@ -360,11 +410,20 @@ module tb_live_arp_step;
     $display("RESULT arp off: max step %0d at sample %0d (window %0d..%0d)",
              off_max, off_arg, off_lo, off_hi);
     $display("RESULT arp off: samples min=%0d max=%0d sum=%0d", off_min, off_maxv, off_sum);
+    off_min = 32767; off_maxv = -32768;
+    for (k = off2_lo; k < off2_hi; k = k + 1) begin
+      if (samp[k] < off_min) off_min = samp[k];
+      if (samp[k] > off_maxv) off_maxv = samp[k];
+    end
+    $display("RESULT arp off A3: samples min=%0d max=%0d (window %0d..%0d)",
+             off_min, off_maxv, off2_lo, off2_hi);
+    if (off_maxv - off_min < LEVEL_FLOOR)
+      $fatal(1, "the A3 identity window is silent (min=%0d max=%0d)", off_min, off_maxv);
     $display("RESULT arp on: %0d activation windows, max step %0d at sample %0d",
              hit_count, arp_max, arp_arg);
 
-    if (off_maxv - off_min < LEVEL_FLOOR)
-      $fatal(1, "the arp-off reference is silent (min=%0d max=%0d)", off_min, off_maxv);
+    if (off_g3_max - off_g3_min < LEVEL_FLOOR)
+      $fatal(1, "the arp-off reference is silent (min=%0d max=%0d)", off_g3_min, off_g3_max);
     if (off_max > STEP_LIMIT)
       $fatal(1, "the arp-off reference already steps %0d (limit %0d)", off_max, STEP_LIMIT);
     // Each arp step must still make sound: peak to peak inside its own window.

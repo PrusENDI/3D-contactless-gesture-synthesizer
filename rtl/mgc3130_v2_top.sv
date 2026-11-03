@@ -265,6 +265,13 @@ logic signed [31:0] cursor_last_z;
     logic [31:0] mode_reg;
     // THRESHOLDS[7:0] is the WT_PLAY test note (0 keeps the legacy 46.875 Hz walk)
     // THRESHOLDS[23] selects the LIVE rule: 0 = frame-level tracking, 1 = step arpeggiator.
+    // THRESHOLDS[26:25] is the arp walk pattern: 0 follow Y, 1 up, 2 up-down,
+    // 3 random (see v2_live_rule_engine).  [25:24] was NOT used: bit 24 is the
+    // de-facto padding that keeps data[15:0] < data[31:16] in every existing
+    // host write (0x0100_00NN / 0x0180_00NN), so reusing it would silently
+    // turn the current arp-enable word into pattern 1.  [26:25] leaves every
+    // existing word decoding as pattern 0, and a non-zero pattern can only
+    // raise the high half, so the contract's low < high rule still holds.
     // Host writes 0x0180_00NN to enable it (low half below the high half keeps the
     // contract's THRESHOLDS validity rule satisfied).
     logic [31:0] thresholds_reg;
@@ -312,6 +319,7 @@ logic [9:0] wt_read_index_sel;
         .x(cursor_x[15:0]), .y(cursor_y[15:0]), .z(cursor_z[15:0]),
         .touch(cursor_engaged), .bow(cursor_engaged), .tick(sample_index),
         .arp_mode(thresholds_reg[23]), .tick_pulse(tick_pulse), .mtick(tick_now),
+        .arp_pattern(thresholds_reg[26:25]),
         .velocity_in(cursor_velocity[7:0]), .brightness_in(cursor_depth), .gain_in(16'hffff),
         .event_valid(live_event_valid), .event_ready(live_event_ready), .event_data(live_event_data),
         .event_type(live_event_type), .event_note(live_event_note), .event_velocity(live_event_velocity),

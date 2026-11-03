@@ -8,7 +8,11 @@ module v2_live_rule_engine #(
   parameter integer HYSTERESIS = 1024,
   parameter integer MIN_EVENT_TICKS = 4,
   parameter integer GATE_TOUCH = 0,
-  parameter integer PIPELINE_NOTE = 0
+  parameter integer PIPELINE_NOTE = 0,
+  // Arp step period in 100 MHz clocks: 12_500_000 = 125 ms = 8 steps/s.  A
+  // bench may lower it; the top keeps the default.  No multiplier and no RAM:
+  // this is one 24-bit counter and a compare.
+  parameter integer ARP_STEP_CYCLES = 12_500_000
 ) (
   input  logic clk, input logic rst_n,
   input  logic frame_in_valid, input logic frame_valid,
@@ -17,6 +21,9 @@ module v2_live_rule_engine #(
   input  logic [15:0] x, input logic [15:0] y, input logic [15:0] z,
   input  logic touch, input logic bow, input logic [31:0] tick,
   input  logic        arp_mode, input logic tick_pulse, input logic [6:0] mtick,
+  // 0 = follow Y, 1 = walk up, 2 = up-down, 3 = pseudo-random.  Bits [26:25]
+  // of THRESHOLDS; see the top for why they are not [25:24].
+  input  logic [1:0]  arp_pattern,
   input logic [7:0] velocity_in, input logic [15:0] brightness_in,
   input logic [15:0] gain_in,
   output logic event_valid, input logic event_ready,
@@ -45,6 +52,16 @@ module v2_live_rule_engine #(
   arp_state_t arp_state;
   logic arp_pair;   // the queued OFF must be followed by an ON (tick), not a release
   logic [7:0] arp_note;
+  // Fixed 125 ms step source.  It replaces tick_pulse in arp mode, so the step
+  // rate no longer depends on the LIVE tempo (cursor X -> 30..59 BPM, i.e.
+  // 250..500 ms/tick), which made the arpeggiator drone.
+  logic [23:0] arp_div_q;
+  logic        arp_step_pulse;
+  // Walk state.  `arp_walk_idx` is the table index, `arp_walk_dir` is 1 = up.
+  // They only advance on a step and only in arp mode.
+  logic [2:0]  arp_walk_idx;
+  logic        arp_walk_dir;
+  logic [7:0]  arp_lfsr;
   logic edge_pending, arm_now;
   logic note_change_ok;
   logic note_change_ok_q;
@@ -84,23 +101,36 @@ module v2_live_rule_engine #(
   wire [15:0] emit_candidate_timbre = PIPELINE_NOTE ? candidate_timbre_q : candidate_timbre;
   wire [31:0] emit_candidate_tick = PIPELINE_NOTE ? candidate_tick_q : rule_tick;
 
-  // Pitch mapping from the design note (docs/lead-mapping-report-2026-10-22.md):
-  // hand height y in [11534, 54001] spans G3(55)..C5(72), one semitone every
-  // 2498 counts, quantised to the A minor pentatonic {55,57,60,62,64,67,69,72}.
-  // Only these eight notes exist in the voice engine note ROM.
+  // Pitch mapping: hand height y spans G3(55)..G4(67) in G natural minor,
+  // {55,57,58,60,62,63,65,67} = G3 A3 Bb3 C4 D4 Eb4 F4 G4.  The seven y
+  // boundaries are unchanged from the pentatonic map (they are the note
+  // centres the LOOP contour was tuned against); only the note numbers move.
+  // Only notes with a non-zero increment exist in the voice engine note ROM.
   function automatic [7:0] map_note(input logic [15:0] value);
     begin
-      // Full-range pentatonic: the old table packed every note into y=11535..54002,
-      // so 25% of the travel sat on G3 and 37% on C5. 1 semitone = 3855 counts,
-      // thresholds are the midpoints between adjacent note centres (design doc §2.1).
       if      (value < 16'd3855)  map_note = 8'd55;   // G3
       else if (value < 16'd13493) map_note = 8'd57;   // A3
-      else if (value < 16'd23130) map_note = 8'd60;   // C4
-      else if (value < 16'd30840) map_note = 8'd62;   // D4
-      else if (value < 16'd40478) map_note = 8'd64;   // E4
-      else if (value < 16'd50115) map_note = 8'd67;   // G4
-      else if (value < 16'd59753) map_note = 8'd69;   // A4
-      else                        map_note = 8'd72;   // C5
+      else if (value < 16'd23130) map_note = 8'd58;   // Bb3
+      else if (value < 16'd30840) map_note = 8'd60;   // C4
+      else if (value < 16'd40478) map_note = 8'd62;   // D4
+      else if (value < 16'd50115) map_note = 8'd63;   // Eb4
+      else if (value < 16'd59753) map_note = 8'd65;   // F4
+      else                        map_note = 8'd67;   // G4
+    end
+  endfunction
+  // The arp walk's eight-note table, in the same order as the y intervals.
+  function automatic [7:0] scale_note(input logic [2:0] index);
+    begin
+      case (index)
+      3'd0: scale_note = 8'd55;   // G3
+      3'd1: scale_note = 8'd57;   // A3
+      3'd2: scale_note = 8'd58;   // Bb3
+      3'd3: scale_note = 8'd60;   // C4
+      3'd4: scale_note = 8'd62;   // D4
+      3'd5: scale_note = 8'd63;   // Eb4
+      3'd6: scale_note = 8'd65;   // F4
+      default: scale_note = 8'd67; // G4
+      endcase
     end
   endfunction
   function automatic [31:0] note_boundary(input logic [7:0] note);
@@ -108,12 +138,12 @@ module v2_live_rule_engine #(
       case (note)
       8'd55: note_boundary = 32'd3855;
       8'd57: note_boundary = 32'd13493;
-      8'd60: note_boundary = 32'd23130;
-      8'd62: note_boundary = 32'd30840;
-      8'd64: note_boundary = 32'd40478;
-      8'd67: note_boundary = 32'd50115;
-      8'd69: note_boundary = 32'd59753;
-      8'd72: note_boundary = 32'd65535;
+      8'd58: note_boundary = 32'd23130;
+      8'd60: note_boundary = 32'd30840;
+      8'd62: note_boundary = 32'd40478;
+      8'd63: note_boundary = 32'd50115;
+      8'd65: note_boundary = 32'd59753;
+      8'd67: note_boundary = 32'd65535;
       default: note_boundary = 32'd0;
       endcase
     end
@@ -177,6 +207,29 @@ module v2_live_rule_engine #(
     event_velocity = event_data[63:56];
   end
 
+  // ---------------------------------------------------------- 125 ms divider --
+  // 100 MHz / 12_500_000 = 8 Hz.  The counter runs only in arp mode, so the
+  // frame-level path sees arp_step_pulse stay at 0 and is otherwise untouched.
+  always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      arp_div_q       <= 24'd0;
+      arp_step_pulse  <= 1'b0;
+    end else begin
+      if (arp_mode) begin
+        if (arp_div_q >= (ARP_STEP_CYCLES - 1)) begin
+          arp_div_q      <= 24'd0;
+          arp_step_pulse <= 1'b1;
+        end else begin
+          arp_div_q      <= arp_div_q + 24'd1;
+          arp_step_pulse <= 1'b0;
+        end
+      end else begin
+        arp_div_q      <= 24'd0;
+        arp_step_pulse <= 1'b0;
+      end
+    end
+  end
+
   always_ff @(posedge clk or negedge rst_n) begin : live_state
     logic [95:0] packed_event;
     if (!rst_n) begin
@@ -193,6 +246,10 @@ module v2_live_rule_engine #(
       arp_state <= ARP_IDLE;
       arp_pair  <= 1'b0;
       arp_note  <= 8'd0;
+      // The walk starts on the bottom note of the table for a fresh run.
+      arp_walk_idx <= 3'd0;
+      arp_walk_dir <= 1'b1;
+      arp_lfsr     <= 8'hA5;
     end else begin
       note_change_ok_q <= note_change_ok;
       if (PIPELINE_NOTE) begin
@@ -250,9 +307,37 @@ module v2_live_rule_engine #(
         fault_code <= V2_FAULT_INVALID;
       end
       if (arp_mode) begin
-        // No hand, no note: the tick may only start a step while the gate is up.
-        if (tick_pulse && gate_now && !(event_valid && !event_ready) && arp_state == ARP_IDLE) begin
-          arp_note  <= map_note(rule_y);
+        // No hand, no note: a step may only start while the gate is up.  The
+        // step source is the fixed 125 ms divider, not the BPM tick.
+        if (arp_step_pulse && gate_now && !(event_valid && !event_ready) && arp_state == ARP_IDLE) begin
+          case (arp_pattern)
+            2'd0: begin
+              // Follow the hand: exactly the old arp behaviour.
+              arp_note <= map_note(rule_y);
+            end
+            2'd1: begin
+              // Walk up, wrapping 67 -> 55.
+              arp_note     <= scale_note(arp_walk_idx);
+              arp_walk_idx <= arp_walk_idx + 3'd1;
+            end
+            2'd2: begin
+              // Up-down: bounce at both ends (…65 67 65…), no repeated end.
+              arp_note <= scale_note(arp_walk_idx);
+              if (arp_walk_dir) begin
+                if (arp_walk_idx == 3'd7) begin arp_walk_idx <= 3'd6; arp_walk_dir <= 1'b0; end
+                else                             arp_walk_idx <= arp_walk_idx + 3'd1;
+              end else begin
+                if (arp_walk_idx == 3'd0) begin arp_walk_idx <= 3'd1; arp_walk_dir <= 1'b1; end
+                else                             arp_walk_idx <= arp_walk_idx - 3'd1;
+              end
+            end
+            default: begin
+              // Pseudo-random degree: 8-bit maximal LFSR (taps 8,6,5,4).
+              arp_note <= scale_note(arp_lfsr[2:0]);
+              arp_lfsr <= {arp_lfsr[6:0],
+                           arp_lfsr[7] ^ arp_lfsr[5] ^ arp_lfsr[4] ^ arp_lfsr[3]};
+            end
+          endcase
           arp_pair  <= active;
           arp_state <= active ? ARP_OFF : ARP_ON;
         end else if (!gate_now && arp_state == ARP_IDLE && active && !candidate_valid_q) begin

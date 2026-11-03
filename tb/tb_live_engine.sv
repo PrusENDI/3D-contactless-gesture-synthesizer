@@ -302,7 +302,7 @@ module tb_live_engine;
     force dut.degraded_frame    = 1'b0;
     force dut.calibrated_gap    = 1'b0;
     force dut.cursor_rebased    = 1'b0;
-    force dut.tick_pulse        = tb_tick_pulse;
+    force dut.u_live.arp_step_pulse = tb_tick_pulse;
 
     inject_control(8'h01, 8'hB0, 8'h30, 32'd0);
     if (dut.rsp_data !== 32'h5A5A_0003) $fatal(1, "0xB0=0x%08h", dut.rsp_data);
@@ -492,22 +492,23 @@ module tb_live_engine;
     act0 = act_pulses;
     rev0 = dut.u_voice.revoice_count;
     mark_g = n;
-    tb_cursor_y = 32'sd20000;                            // map_note -> 60 (C4)
+    // G natural minor: y=20000 is Bb3 (58), not the old C4 (60).
+    tb_cursor_y = 32'sd20000;                            // map_note -> 58 (Bb3)
     send_frame(16'd20000);
     send_frame(16'd20000);
     guard = 0;
-    while (dut.live_active_note != 8'd60 && guard < 200000) begin
+    while (dut.live_active_note != 8'd58 && guard < 200000) begin
       @(negedge clk);
       guard = guard + 1;
     end
-    if (dut.live_active_note !== 8'd60)
+    if (dut.live_active_note !== 8'd58)
       $fatal(1, "(g) the pitch change never reached the rule engine");
     wait_samples(600);
     if (dut.u_voice.revoice_count == rev0)
       $fatal(1, "(g) the pitch change did not reach the engine (revoice_count stuck at %0d)",
              rev0);
-    if (dut.u_voice.note[dut.u_voice.last_active_slot] !== 8'd60)
-      $fatal(1, "(g) the engine still holds note %0d, expected 60",
+    if (dut.u_voice.note[dut.u_voice.last_active_slot] !== 8'd58)
+      $fatal(1, "(g) the engine still holds note %0d, expected 58",
              dut.u_voice.note[dut.u_voice.last_active_slot]);
     if (act_pulses != act0)
       $fatal(1, "(g) the pitch change reactivated the engine (%0d -> %0d)",
@@ -515,7 +516,7 @@ module tb_live_engine;
     peak_abs(mark_g + 300, mark_g + 600, step_peak);
     if (step_peak < 2)
       $fatal(1, "(g) the retuned note is silent (peak %0d)", step_peak);
-    $display("PASS (g) legato pitch change: revoice_count %0d -> %0d, note 60, no reactivation, peak %0d",
+    $display("PASS (g) legato pitch change: revoice_count %0d -> %0d, note 58, no reactivation, peak %0d",
              rev0, dut.u_voice.revoice_count, step_peak);
 
     $display("TB_LIVE_ENGINE RESULT: PASS");

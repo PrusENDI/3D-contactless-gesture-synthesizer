@@ -41,7 +41,8 @@ module tb_v2_potts_commit_fsm;
 
   initial begin : run
     // Two constant runs in the SAME units the capture produces (cursor_y>>6):
-    // level 30 is note 55, level 978 is note 72.  Beyond the horizon: rest.
+    // level 30 is note 55, level 978 is the top note 67 (G4) in the
+    // G-natural-minor scale.  Beyond the horizon: rest.
     for (i = 0; i < 128; i = i + 1) c[i] = (i < 8) ? 30 : ((i < 32) ? 978 : 0);
     repeat (2) @(posedge clk);
     rst_n = 1;
@@ -64,11 +65,11 @@ module tb_v2_potts_commit_fsm;
              n, count, tick0, dur0, note0, tick1, dur1, note1);
     // lambda_q16=0: the two constant runs have zero error, so the DP must split
     // them instead of paying for one mixed segment.  The backtrace publishes the
-    // last segment first, so the expected stream is (t8,d24,n72),(t0,d8,n55).
+    // last segment first, so the expected stream is (t8,d24,n67),(t0,d8,n55).
     if (n != 2) $fatal(1, "H32 potts events=%0d expected 2", n);
     if (count != 2) $fatal(1, "H32 potts event_count=%0d expected 2", count);
-    if (tick0 != 8 || dur0 != 24 || note0 != 72)
-      $fatal(1, "H32 potts event0 t%0d/d%0d/n%0d expected t8/d24/n72", tick0, dur0, note0);
+    if (tick0 != 8 || dur0 != 24 || note0 != 67)
+      $fatal(1, "H32 potts event0 t%0d/d%0d/n%0d expected t8/d24/n67", tick0, dur0, note0);
     if (tick1 != 0 || dur1 != 8 || note1 != 55)
       $fatal(1, "H32 potts event1 t%0d/d%0d/n%0d expected t0/d8/n55", tick1, dur1, note1);
     $display("PASS tb_v2_potts_commit_fsm events=%0d cycles=%0d ev0=t%0d/d%0d/n%0d ev1=t%0d/d%0d/n%0d",

@@ -612,8 +612,9 @@ logic [9:0] wt_read_index_sel;
         .active_bitmap(voice_bitmap), .voice_overflow(voice_overflow), .dbg_busy(voice_dbg_busy),
         .voice_steal_count(voice_steal_count), .revoice_count(revoice_count),
         .active_voice_count(active_voice_count), .vibrato_phase(), .vibrato_delta_cents(),
-        // PLAY reads the wavetable; LIVE and the test modes keep the saw.
-        .wt_source_sel(mode_play),
+        // PLAY and LIVE read the wavetable now; the on-board test modes keep
+        // the saw.
+        .wt_source_sel(mode_play || mode_live),
         .wt_sample_a(wt_voice_sample_a), .wt_sample_b(wt_voice_sample_b),
         .wt_rd_slot(wt_voice_rd_slot), .wt_wr_slot(wt_voice_wr_slot),
         .wt_phase_we(wt_voice_phase_we),
@@ -703,7 +704,7 @@ logic [9:0] wt_read_index_sel;
         .fx_reverb_mix_q15(fx_reverb_reg), .fx_status_level(fx_status), .fx_clip(fx_clip)
     );
 
-    assign i2s_sample_valid = (mode_wt_play || mode_live) ? wt_play_valid : test_active ? test_sample_valid : voice_sample_valid;
+    assign i2s_sample_valid = mode_wt_play ? wt_play_valid : test_active ? test_sample_valid : voice_sample_valid;
 
     // Paginated loop-plane probe: write the page to 0x34, read 0xF8.
     //   page 0: scheduler sweep state + voice busies
@@ -724,78 +725,36 @@ logic [9:0] wt_read_index_sel;
             default: loop_probe_word = 32'd0;
         endcase
     end
-    // Fixed -12 dB trim on the PLAY path, kept from before the master volume
-    // (0x90) existed so the default PLAY level does not change.
+    // Fixed -12 dB trim shared by the PLAY and LIVE outputs.  It predates the
+    // master volume (0x90), so the default PLAY level does not change.  LIVE
+    // takes the same trimmed fx_sample: at full hand depth the engine's two
+    // oscillators sum to about 1.3x the old single-voice table sample and the
+    // -12 dB trim lands within a few dB of the level LIVE had before.
     wire signed [15:0] fx_quiet = fx_sample >>> 2;
-    // Same story for the WT/LIVE path: a fixed -19.9 dB trim that predates the
+    // Same story for the WT_PLAY path: a fixed -19.9 dB trim that predates the
     // master volume, kept so the P1 listening baseline still holds.
     wire signed [15:0] wt_quiet = (wt_play_sample >>> 3) - (wt_play_sample >>> 6) - (wt_play_sample >>> 7);  // = 0.1016x = -19.9 dB
-    // Per-note envelope for the single-voice LIVE path. In frame-level tracking
-    // (THRESHOLDS[23] = 0) an explicit NOTE_ON is a new note, so the envelope
-    // restarts on the EVENT, not on the gate: a gate-driven envelope leaves
-    // repeated same-pitch notes as one long tone.
-    //
-    // The step arpeggiator (THRESHOLDS[23] = 1) is a different note source: a
-    // tick queues NOTE_OFF + NOTE_ON while u_wt_playback's phase keeps running
-    // (it is only ever reset by rst_n), so the pair carries a new pitch and
-    // nothing else. Restarting the envelope there drops it from sustain to 0 in
-    // one sample, which the audio path then turns into a full-amplitude step and
-    // a 10 ms re-attack - the knock heard on every step. In arp mode the
-    // envelope therefore keeps its level across a step; only the hand gate moves
-    // it, and a pitch change is legato. This is the only audio difference
-    // between the two LIVE rules and it is gated on thresholds_reg[23], so the
-    // frame-level tracking path keeps its per-NOTE_ON reset bit for bit.
-    wire live_note_hit = live_event_valid && (live_event_type == V2_EV_NOTE_ON);
-    wire live_env_hit  = live_note_hit && !thresholds_reg[23];
-    logic hit_sticky, wt_env_gate;
-    logic [15:0] wt_env;
-    localparam logic [15:0] ENV_ATT = 16'd96, ENV_DEC = 16'd8, ENV_SUS = 16'd45875;
-    assign wt_env_gate = mode_live && live_gate;
-    always_ff @(posedge clk_sys_100m or negedge rst_sys_n) begin
-        if (!rst_sys_n) hit_sticky <= 1'b0;
-        else if (live_env_hit) hit_sticky <= 1'b1;
-        else if (sample_ce) hit_sticky <= 1'b0;
-    end
-    always_ff @(posedge clk_sys_100m or negedge rst_sys_n) begin
-        if (!rst_sys_n) wt_env <= 16'd0;
-        else if (sample_ce) begin
-            if (hit_sticky)                     wt_env <= 16'd0;
-            else if (!wt_env_gate)              wt_env <= (wt_env > 16'd16) ? (wt_env - 16'd16) : 16'd0;
-            else if (wt_env < ENV_SUS)          wt_env <= wt_env + ENV_ATT;
-            else if (wt_env > ENV_SUS)          wt_env <= wt_env - ENV_DEC;
-        end
-    end
-    // The LIVE envelope multiply is pinned to a DSP slice.  DSP is full, so the
-    // synthesizer used to build it from a LUT array (~8 ns of carry tree) and
-    // that one operator alone would exceed the 12.5 ns period; the freed slice
-    // from the narrowed master volume (see below) pays for it.
-    (* multstyle = "dsp" *) logic signed [31:0] wt_env_prod;
-    assign wt_env_prod = wt_quiet * $signed({1'b0, wt_env});
 
-    // ---- P2a audio chain, stage 1: trim and LIVE envelope ------------------
-    // The trim (three shifts and two subtractions) and the envelope multiply
-    // leave their source through this register pair, so nothing between here
-    // and the audio mux holds more than one wide operator.
-    logic signed [15:0] wt_trim_q;   // PLAY/LIVE -19.9 dB trim, registered
-    logic signed [15:0] wt_live_q;   // LIVE envelope product, registered
+    // ---- P2a audio chain, stage 1: trim register ----------------------------
+    logic signed [15:0] wt_trim_q;         // WT_PLAY -19.9 dB trim, registered
     always_ff @(posedge clk_sys_100m or negedge rst_sys_n) begin
-        if (!rst_sys_n) begin
-            wt_trim_q <= 16'sd0;
-            wt_live_q <= 16'sd0;
-        end else if (sample_ce) begin
-            wt_trim_q <= wt_quiet;
-            wt_live_q <= wt_env_prod[31:16];
-        end
+        if (!rst_sys_n) wt_trim_q <= 16'sd0;
+        else if (sample_ce) wt_trim_q <= wt_quiet;
     end
 
     // ---- P2a audio chain, stage 2: the four-way audio mux ------------------
     // i2s_sample_raw is the post-mux sample and now a register on the 48 kHz
     // beat; the ladder, the bypass mux and the master volume all read this
     // register, never the mux combinationally.
+    //
+    // LIVE and PLAY share the FX output: both are the 32-voice engine's
+    // mixed_sample through u_fx_lite, so 0x84/0x88/0x8C reach LIVE exactly as
+    // they reach PLAY.  The trim above is the only difference from the engine
+    // output, and it is one shift between registers.
     always_ff @(posedge clk_sys_100m or negedge rst_sys_n) begin
         if (!rst_sys_n) i2s_sample_raw <= 16'sd0;
         else if (sample_ce)
-            i2s_sample_raw <= mode_wt_play ? wt_trim_q : mode_live ? wt_live_q :
+            i2s_sample_raw <= mode_wt_play ? wt_trim_q :
                               test_active ? test_sample : fx_quiet;
     end
 
@@ -1092,12 +1051,13 @@ end
                              ? wt_frame_b : wt_select_table;
 
     // ---- Per-voice wavetable bypass (stage 1.5) --------------------------
-    // In PLAY the 32-voice engine takes its oscillator samples from the buffer
-    // below instead of its internal saw.  The table engine fills that buffer
-    // after every voice scan: the scan writes each voice's next phase through
-    // the mirror ports, then the engine reads those phases and writes the two
-    // frame samples back.  The read channels belong to the table engine only
-    // while PLAY runs, so WT_PLAY/LIVE/IDLE keep the single-voice path.
+    // In PLAY and LIVE the 32-voice engine takes its oscillator samples from the
+    // buffer below instead of its internal saw.  The table engine fills that
+    // buffer after every voice scan: the scan writes each voice's next phase
+    // through the mirror ports, then the engine reads those phases and writes
+    // the two frame samples back.  The read channels belong to the table engine
+    // while PLAY or LIVE runs, so WT_PLAY/IDLE keep the single-voice path (the
+    // on-board test modes keep the saw in u_voice).
     logic [4:0]  wt_engine_slot;
     logic [1:0]  wt_engine_rd_table0, wt_engine_rd_table1;
     logic [9:0]  wt_engine_rd_index0, wt_engine_rd_index1;
@@ -1113,12 +1073,14 @@ end
     wire [1:0] wt_voice_frame_b = wt_morph_en ? wt_frame_b : wt_select_table;
     wire [7:0] wt_voice_frac    = wt_morph_en ? wt_frac : 8'd0;
     // One table sweep per sample, after the scan that consumed the last one.
-    wire wt_engine_start = mode_play && voice_sample_valid;
+    // LIVE needs it too now: the engine reads the buffer, so the buffer has to
+    // be filled in LIVE exactly as it is in PLAY.
+    wire wt_engine_start = (mode_play || mode_live) && voice_sample_valid;
 
-    assign wt_reader_table_a = mode_play ? wt_engine_rd_table0 : wt_play_table_a;
-    assign wt_reader_table_b = mode_play ? wt_engine_rd_table1 : wt_play_table_b;
-    assign wt_reader_index_a = mode_play ? wt_engine_rd_index0 : wt_read_index_sel;
-    assign wt_reader_index_b = mode_play ? wt_engine_rd_index1 : wt_read_index_sel;
+    assign wt_reader_table_a = (mode_play || mode_live) ? wt_engine_rd_table0 : wt_play_table_a;
+    assign wt_reader_table_b = (mode_play || mode_live) ? wt_engine_rd_table1 : wt_play_table_b;
+    assign wt_reader_index_a = (mode_play || mode_live) ? wt_engine_rd_index0 : wt_read_index_sel;
+    assign wt_reader_index_b = (mode_play || mode_live) ? wt_engine_rd_index1 : wt_read_index_sel;
 
     v2_wt_voice_bufs #(.VOICES(32)) u_wt_voice_bufs (
         .clk(clk_sys_100m), .rst_n(rst_sys_n),

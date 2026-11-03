@@ -1,26 +1,29 @@
 `timescale 1ns/1ps
 // The LIVE step arpeggiator must not step the output on a step.
 //
-// A tick in arp mode (THRESHOLDS[23] = 1) queues NOTE_OFF + NOTE_ON.  The audible
-// LIVE path is u_wt_playback -> -19.9 dB trim -> wt_env multiply -> I2S, and
-// u_wt_playback's phase is never reset by an event, so the only quantity the
-// NOTE_ON can step is wt_env.  This bench measures that: it plays a sine table at
-// G3, captures dut.i2s_sample once per sample_ce, and reports the largest
-// |sample[n] - sample[n-1]| around the note-on, first with the arpeggiator off
-// (frame-level tracking) and then with it on.
+// LIVE is now audible through the 32-voice engine and u_fx_lite: u_voice's
+// mixed_sample goes through the FX chain and the -12 dB trim PLAY uses, and is
+// muxed into I2S.  In arp mode (THRESHOLDS[23] = 1) a tick still queues
+// NOTE_OFF + NOTE_ON, so the ON activates a fresh voice: the engine writes
+// phase_a = 0 and restarts that voice's P2b envelope.  This bench measures the
+// resulting sample step: it plays a sine table, captures dut.i2s_sample once per
+// sample_ce, and reports the largest |sample[n] - sample[n-1]| around every note
+// activation, first with the arpeggiator off (frame-level tracking, one note)
+// and then with it on (three steps).
 //
-// The hand is injected at the cursor filter's output (cursor_x/y/z, cursor_state,
-// cursor_frame_done) and the arp tick is pulsed by the bench, so the run is exact
-// and does not depend on the 16.6 ms tick divider; everything from that cursor
-// boundary to i2s_sample is production logic.  The sine goes through the real
-// UART uploader.  u_voice still receives the LIVE events (it is simply not muxed
-// into I2S in LIVE), so the bench also counts its activation writes: that is how
-// the "phase resets on the event" hypothesis is tested.
+// The hand is injected at the cursor filter's output (cursor_x/y/z,
+// cursor_velocity, cursor_state, cursor_frame_done) and the arp tick is pulsed
+// by the bench, so the run is exact and does not depend on the 16.6 ms tick
+// divider; everything from that cursor boundary to i2s_sample is production
+// logic.  The sine goes through the real UART uploader.  cursor_velocity is
+// forced because it is a cursor-filter output in production: the P2b velocity
+// depth is part of the audible engine path, and with no reader its natural
+// value is 0, which would mute the engine.
 //
-// Sample alignment: i2s_sample_raw is registered on sample_ce from wt_live_q and
-// wt_live_q is registered from the wt_env product, so the envelope change lands
-// in samp[] two sample_ce later.  The windows below are wide enough for that, and
-// every row is dumped with its own env value so the lead is visible.
+// Sample alignment: the activation write lands in the engine at a clock edge,
+// the scan after it produces mixed_sample, and the top then runs the FX, trims
+// and registers the audio mux, so the audible change appears a few sample_ce
+// rows later.  The window below covers that.
 //
 // Dumps (relative to the vsim working directory, .sim_unit under sim_unit.py):
 //   ../artifacts/live_arp_step/live_arp_off.txt   steady samples, arp off
@@ -29,12 +32,13 @@
 module tb_live_arp_step;
   localparam integer SINE_AMP = 12288;        // 0x3000, headroom under the trim
   localparam integer CAP      = 4096;         // capture depth
-  localparam integer WIN_PRE  = 4;            // samples shown before the note-on
-  localparam integer WIN_POST = 12;           // samples shown after the note-on
-  // max |sample[n]-sample[n-1]| limit: the sine itself steps about 32 units at
-  // this note/amplitude, so 80 is well above the waveform and well below the
-  // ~800-unit envelope slam this bench is meant to catch.
+  localparam integer WIN_PRE  = 2;            // samples shown before the activation
+  localparam integer WIN_POST = 16;           // samples shown after the activation
+  // max |sample[n]-sample[n-1]| limit.  The old single-voice LIVE path measured
+  // 23 here; 80 is well above the sine's own step and well below the ~700-unit
+  // envelope slam that this bench was written to catch.
   localparam integer STEP_LIMIT = 80;
+  localparam integer LEVEL_FLOOR = 2;         // a step must actually make sound
 
   logic clk = 1'b0, uart_rx = 1'b1;
   tri mgc_sda, mgc_scl, mgc_ts, mgc_mclr;
@@ -45,6 +49,7 @@ module tb_live_arp_step;
   logic signed [31:0]  tb_cursor_x = 32'sd0;
   logic signed [31:0]  tb_cursor_y = 32'sd3000;     // map_note -> 55 (G3)
   logic signed [31:0]  tb_cursor_z = 32'sd30000;
+  logic [15:0]         tb_cursor_velocity = 16'h00ff;
   logic                tb_frame_done = 1'b0;
   logic                tb_tick_pulse = 1'b0;
 
@@ -52,18 +57,15 @@ module tb_live_arp_step;
   integer off_lo, off_hi, off_max, off_arg, off_sum, off_min, off_maxv;
   integer arp_max, arp_arg, hit_count;
   integer hit_list [0:7];
-  integer act_count, act_phase;
+  integer act_count;
   integer diff;
 
   logic signed [15:0] samp    [0:CAP-1];
-  logic [31:0]        env_buf [0:CAP-1];
-  logic signed [15:0] live_buf[0:CAP-1];
-  logic [9:0]         idx_buf [0:CAP-1];
-  logic [31:0]        ph_buf  [0:CAP-1];
+  logic signed [15:0] live_buf[0:CAP-1];   // dut.voice_sample at the same row
   logic               hit_buf [0:CAP-1];
 
   logic sample_ce_q = 1'b0;
-  logic hit_armed   = 1'b0;
+  logic act_armed   = 1'b0;
   logic [7:0] inject_value;
   logic [15:0] crc;
   logic signed [15:0] sine_tmp;
@@ -81,30 +83,23 @@ module tb_live_arp_step;
   );
 
   // ---------------------------------------------------------------- capture --
-  // One row per sample_ce while LIVE runs.  hit_buf marks the sample edge at
-  // which the envelope is (or would be) zeroed: it is raised by live_note_hit and
-  // consumed by the next sample edge.
+  // One row per sample_ce while LIVE runs.  hit_buf marks the row at which a
+  // voice activation happened since the previous row (the NOTE_ON of an arp
+  // step, or the initial tracking note).
   always @(posedge clk) begin
     if (dut.rst_sys_n) begin
-      if (dut.live_note_hit) hit_armed <= 1'b1;
-      else if (sample_ce_q)  hit_armed <= 1'b0;
+      if (dut.u_voice.pending_activate) act_armed <= 1'b1;
       sample_ce_q <= dut.sample_ce;
       if (sample_ce_q && dut.mode_live) begin
         if (n < CAP) begin
           samp[n]     = dut.i2s_sample;
-          env_buf[n]  = dut.wt_env;
-          live_buf[n] = dut.wt_live_q;
-          idx_buf[n]  = dut.wt_play_index;
-          ph_buf[n]   = dut.u_wt_playback.phase;
-          hit_buf[n]  = hit_armed;
+          live_buf[n] = dut.voice_sample;
+          hit_buf[n]  = act_armed | dut.u_voice.pending_activate;
         end
+        act_armed <= 1'b0;
         if (n < CAP) n = n + 1;
       end
-      // The voice engine still writes phase_a = 0 into its bank on activation.
-      if (dut.u_voice.pending_activate) begin
-        act_count = act_count + 1;
-        act_phase = dut.u_voice.bank_wr_data[31:0];
-      end
+      if (dut.u_voice.pending_activate) act_count = act_count + 1;
     end
   end
 
@@ -227,26 +222,21 @@ module tb_live_arp_step;
         guard = guard + 1;
       end
       if (dut.u_live.arp_state != 2'd0) $fatal(1, "arp FSM stuck before a tick");
-      guard = 0;
-      while (dut.live_note_hit && guard < 50000) begin
-        @(negedge clk);
-        guard = guard + 1;
-      end
+      act_count = 0;
       @(negedge clk); tb_tick_pulse = 1'b1;
       @(negedge clk); tb_tick_pulse = 1'b0;
       guard = 0;
-      while (!dut.live_note_hit && guard < 50000) begin
+      while (act_count == 0 && guard < 50000) begin
         @(negedge clk);
         guard = guard + 1;
       end
-      if (guard >= 50000) $fatal(1, "no NOTE_ON after the arp tick");
+      if (guard >= 50000) $fatal(1, "no voice activation after the arp tick");
     end
   endtask
 
   // ------------------------------------------------------------------ run ----
   initial begin : run_tb
     act_count = 0;
-    act_phase = 0;
     off_sum = 0; off_min = 0; off_maxv = 0;
     off_lo = 0; off_hi = 0; off_max = 0; off_arg = 0;
     arp_max = 0; arp_arg = 0; hit_count = 0;
@@ -265,6 +255,7 @@ module tb_live_arp_step;
     force dut.cursor_x          = tb_cursor_x;
     force dut.cursor_y          = tb_cursor_y;
     force dut.cursor_z          = tb_cursor_z;
+    force dut.cursor_velocity   = tb_cursor_velocity;
     force dut.cursor_frame_done = tb_frame_done;
     force dut.degraded_frame    = 1'b0;
     force dut.calibrated_gap    = 1'b0;
@@ -324,7 +315,7 @@ module tb_live_arp_step;
       off_sum = off_sum + samp[k];
     end
 
-    // ---- arp on: maximum step in the window of every note-on --------------
+    // ---- arp on: maximum step in the window of every activation ------------
     hit_count = 0;
     for (k = off_hi; k < n; k = k + 1) begin
       if (hit_buf[k] == 1'b1 && hit_count < 8) begin
@@ -332,14 +323,13 @@ module tb_live_arp_step;
         hit_count = hit_count + 1;
       end
     end
-    if (hit_count == 0) $fatal(1, "no NOTE_ON reached the audio capture in arp mode");
+    if (hit_count == 0) $fatal(1, "no voice activation reached the audio capture in arp mode");
     arp_max = 0; arp_arg = off_hi;
     for (i = 0; i < hit_count; i = i + 1) begin
       j = hit_list[i];
-      $display("BOUNDARY note-on at sample %0d", j);
+      $display("BOUNDARY activation at sample %0d", j);
       for (k = (j > WIN_PRE ? j - WIN_PRE : 1); k <= j + WIN_POST && k < n; k = k + 1)
-        $display("  n=%0d sample=%0d live=%0d env=%0d idx=%0d phase=0x%08h",
-                 k, samp[k], live_buf[k], env_buf[k], idx_buf[k], ph_buf[k]);
+        $display("  n=%0d sample=%0d voice=%0d", k, samp[k], live_buf[k]);
       for (k = (j > WIN_PRE ? j - WIN_PRE : 1); k <= j + WIN_POST && k < n; k = k + 1) begin
         diff = samp[k] - samp[k-1];
         if (diff < 0) diff = -diff;
@@ -358,12 +348,11 @@ module tb_live_arp_step;
     fon = $fopen("../artifacts/live_arp_step/live_arp_on.txt", "w");
     if (fon == 0) fon = $fopen("live_arp_on.txt", "w");
     if (fon != 0) begin
-      $fdisplay(fon, "n sample live env index phase");
+      $fdisplay(fon, "n sample voice");
       for (i = 0; i < hit_count; i = i + 1) begin
         j = hit_list[i];
         for (k = (j > WIN_PRE ? j - WIN_PRE : 1); k <= j + WIN_POST && k < n; k = k + 1)
-          $fdisplay(fon, "%0d %0d %0d %0d %0d %0d", k, samp[k], live_buf[k],
-                    env_buf[k], idx_buf[k], ph_buf[k]);
+          $fdisplay(fon, "%0d %0d %0d", k, samp[k], live_buf[k]);
       end
       $fclose(fon);
     end
@@ -371,15 +360,24 @@ module tb_live_arp_step;
     $display("RESULT arp off: max step %0d at sample %0d (window %0d..%0d)",
              off_max, off_arg, off_lo, off_hi);
     $display("RESULT arp off: samples min=%0d max=%0d sum=%0d", off_min, off_maxv, off_sum);
-    $display("RESULT arp on: %0d note-on windows, max step %0d at sample %0d",
+    $display("RESULT arp on: %0d activation windows, max step %0d at sample %0d",
              hit_count, arp_max, arp_arg);
-    $display("RESULT voice engine activations in LIVE: %0d, last bank phase write 0x%08h",
-             act_count, act_phase);
-    if (ph_buf[arp_arg] == ph_buf[arp_arg - 1] || ph_buf[arp_arg] == 32'd0)
-      $display("NOTE audible phase did not look continuous at the boundary");
 
+    if (off_maxv - off_min < LEVEL_FLOOR)
+      $fatal(1, "the arp-off reference is silent (min=%0d max=%0d)", off_min, off_maxv);
     if (off_max > STEP_LIMIT)
       $fatal(1, "the arp-off reference already steps %0d (limit %0d)", off_max, STEP_LIMIT);
+    // Each arp step must still make sound: peak to peak inside its own window.
+    for (i = 0; i < hit_count; i = i + 1) begin
+      j = hit_list[i];
+      off_min = 32767; off_maxv = -32768;
+      for (k = j; k <= j + WIN_POST && k < n; k = k + 1) begin
+        if (samp[k] < off_min) off_min = samp[k];
+        if (samp[k] > off_maxv) off_maxv = samp[k];
+      end
+      if (off_maxv - off_min < LEVEL_FLOOR)
+        $fatal(1, "arp step %0d is silent (min=%0d max=%0d)", i, off_min, off_maxv);
+    end
     if (arp_max > STEP_LIMIT)
       $fatal(1, "FAIL arp step steps the output by %0d (arp off was %0d, limit %0d)",
              arp_max, off_max, STEP_LIMIT);

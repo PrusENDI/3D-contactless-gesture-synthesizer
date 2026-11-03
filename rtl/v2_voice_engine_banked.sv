@@ -35,8 +35,8 @@ module v2_voice_engine_banked #(
     output logic signed [15:0]     vibrato_delta_cents,
     // Wavetable source: the sample pair for the slot being calculated, and the
     // phase mirror that keeps the buffers in step with this engine's bank.
-    // wt_source_sel picks the pair at run time, because the same engine also
-    // serves LIVE and the on-board test modes, which must keep the saw.
+    // wt_source_sel picks the pair at run time, because the same engine serves
+    // LIVE and PLAY from the wavetable while the on-board test modes keep the saw.
     input  logic                   wt_source_sel,
     input  logic signed [15:0]     wt_sample_a,
     input  logic signed [15:0]     wt_sample_b,
@@ -178,7 +178,7 @@ module v2_voice_engine_banked #(
     wire signed [47:0] wt_raw_a = {{32{wt_sample_a[15]}}, wt_sample_a};
     wire signed [47:0] wt_raw_b = {{32{wt_sample_b[15]}}, wt_sample_b};
     // The wavetable source only exists when the top wires it in, and only the
-    // modes that fill the buffers may use it.
+    // modes that fill the buffers (LIVE and PLAY) may use it.
     wire               wt_source = (USE_WT_SOURCE != 0) && wt_source_sel;
 
     // VCA: the slot's oscillator sum is scaled by envelope*velocity before it
@@ -199,6 +199,12 @@ module v2_voice_engine_banked #(
     logic revoice_pending;
     logic [7:0] revoice_note_pending;
     logic [31:0] revoice_target_a_pending, revoice_target_b_pending;
+    // A REVOICE that names no currently sounding note is a legato retune of the
+    // most recently activated voice (LIVE frame-level pitch change, or an arp
+    // step).  One 5-bit register is enough: the newest voice is the one the
+    // player last started, so no 32-entry age scan is needed on the event path.
+    logic        revoice_retune_pending;
+    logic [4:0]  last_active_slot;
     logic pending_activate;
 
     // Full-bank victim selection is deliberately serialized.  The metadata
@@ -524,6 +530,8 @@ module v2_voice_engine_banked #(
             revoice_note_pending <= 8'd0;
             revoice_target_a_pending <= 32'd0;
             revoice_target_b_pending <= 32'd0;
+            revoice_retune_pending <= 1'b0;
+            last_active_slot <= 5'd0;
             victim_scan_active <= 1'b0;
             victim_scan_index <= 6'd0;
             victim_scan_meta_valid <= 1'b0;
@@ -579,11 +587,28 @@ module v2_voice_engine_banked #(
                         // REVOICE is a mailbox command. It is applied by the
                         // next complete scan so the DPB has one serialized
                         // write owner and no event-side target array writes.
+                        // This is the pitch-bend form: the note is the one that
+                        // is sounding, and the delta bends its step.
                         revoice_pending <= 1'b1;
                         revoice_note_pending <= event_data[71:64];
                         revoice_target_a_pending <= apply_delta(rom_step, $signed({event_data[55], event_data[55:40]}));
                         revoice_target_b_pending <= apply_delta(rom_step, -$signed({event_data[55], event_data[55:40]}));
+                        revoice_retune_pending <= 1'b0;
                         revoice_count <= revoice_count + revoice_hits[7:0];
+                    end else if (active[last_active_slot]) begin
+                        // Legato form: no voice holds the named note, so retune
+                        // the voice the player started last (LIVE frame-level
+                        // pitch change, or an arp step).  The bank note is
+                        // rewritten to the new pitch so a later NOTE_OFF and
+                        // any further REVOICE match it.  The scan applies the
+                        // target to the rewritten note.
+                        revoice_pending <= 1'b1;
+                        revoice_note_pending <= event_data[71:64];
+                        revoice_target_a_pending <= apply_delta(rom_step, $signed({event_data[55], event_data[55:40]}));
+                        revoice_target_b_pending <= apply_delta(rom_step, -$signed({event_data[55], event_data[55:40]}));
+                        revoice_retune_pending <= 1'b1;
+                        note[last_active_slot] <= event_data[71:64];
+                        revoice_count <= revoice_count + 8'd1;
                     end
                 end else if (event_data[94:91] == V2_EV_ALL_NOTES_OFF) begin
                     for (i = 0; i < VOICES; i = i + 1)
@@ -650,6 +675,7 @@ module v2_voice_engine_banked #(
                 velocity[steal_slot_pending] <= steal_velocity_pending;
                 age[steal_slot_pending] <= age_counter;
                 age_counter <= age_counter + 16'd1;
+                last_active_slot <= steal_slot_pending;
                 steal_hold_value <= 16'd0;
                 steal_pending <= 1'b0;
             end
@@ -661,6 +687,7 @@ module v2_voice_engine_banked #(
                 mix_acc <= 48'sd0;
                 scan_busy <= 1'b0;
                 revoice_pending <= 1'b0;
+                revoice_retune_pending <= 1'b0;
             end
 
             // Compute stage.
@@ -752,7 +779,13 @@ module v2_voice_engine_banked #(
                 rd_step_b <= bank_rd_data[127:96];
                 if (revoice_pending && (note[bank_rd_slot_pending] == revoice_note_pending)) begin
                     rd_target_a <= revoice_target_a_pending;
-                    rd_target_b <= revoice_target_b_pending;
+                    if (revoice_retune_pending)
+                        // Legato retune keeps the voice's detune width: glide
+                        // oscillator B to the same detuned shape it was started
+                        // with, not to the bare new base step.
+                        rd_target_b <= detuned_step(revoice_target_a_pending, bank_rd_data[215:208]);
+                    else
+                        rd_target_b <= revoice_target_b_pending;
                 end else begin
                     rd_target_a <= bank_rd_data[159:128];
                     rd_target_b <= bank_rd_data[191:160];

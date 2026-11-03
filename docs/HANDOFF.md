@@ -110,6 +110,9 @@ arp 仍用 OFF+ON：实测 |Δsample| 726 → 23 → **9**。证据、bench（`t
 13. **PLAY/WT_PLAY 没声的常见原因是 morph**：两者都走 `WT_SELECT` 的 `morph` 位与 `shift` 位。
    只填了 A 却开 morph，三分之二的插值落在空表上；`shift`（WT_SELECT[7:4]，界面"增益移位"）
    是 `sample >>> shift`，**数值越小越响**（0 最响、可能削顶）。
+14. **"上传 .bin…" 曾经没有进度**：`ConsoleModel.upload()` 没把 `on_sample` 传给
+   `session.upload_table`，18 秒里进度条一动不动，看着像卡死。现在它接受 `on_progress(done,total)`
+   并转给上传循环（和"上传三帧"共用同一条进度条），另外非 1024 点的文件会在发命令**之前**被拒。
 
 **PC 侧 overdub（2026-11-02 晚）**：LOOP 页勾上"边听边录（放已录轨）"，对准一小节时主机把**已录的每条轨**
 混成一个 4 s WAV 循环播，板子照旧盲录。板内做不到不是懒：`voice_rst_n` 只在 LIVE/PLAY 放开，

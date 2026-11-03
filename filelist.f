@@ -55,4 +55,6 @@ rtl/v2_oled_image.sv
 rtl/v2_oled_static.sv
 rtl/v2_board_top.sv
 # Second top: the standalone DDS demo bitstream (design 2026-11-03).
+rtl/v2_demo_sequencer.sv
+rtl/v2_oled_tones.sv
 rtl/v2_demo_top.sv

@@ -6,32 +6,35 @@
 ## 0. 30 秒现状
 
 - 仓库：`C:\weizijian\documents\gowin fpga\mgc3130_clean`，HEAD 见 `git log -1`；工作区可能有
-  在途改动，先看 `git status --short`（本轮的 docs/score 改动不在 `1fc8df4` 里）。
-- **本轮（`minor_arp`，2026-11-03）**：音阶改 G 自然小调（55 57 58 60 62 63 65 67），
-  arp 固定 125 ms/步、四模式（`0x30[26:25]`）。提交 `1fc8df4`；构建
-  `impl/v2_board_top_minor_arp`：CLS 10745、DSP 28/28、BSRAM 34、Fmax 68.272 MHz、
-  worst −2.147 ns、`gate: OK`，sha `4141c59d…`。**未烧板**；该构建含工作区未提交的
-  `mode_rw_q` 路由改动，sha 不等同于 `1fc8df4` 的纯 RTL。
-- **板上是 P2b，构建门已过**：`impl/v2_board_top_p2b_no_patch`（sha256 `471fa9ba…`，`0xB0=0x5A5A0003`），
-  CLS **10750/11520**、DSP 28/28、BSRAM **34/56**、Fmax **62.925 MHz**、worst **−3.392 ns**
-  （`gate: OK`），比 P2a（10894 / 38 / 60.58 MHz / −4.007）全面更好。
-- **删 patch bank 的实测收益**：CLS −196（10946 → 10750）、LUT −934（18757 → 17823）、
-  寄存器 −334（9699 → 9365）、BSRAM −4（38 → 34）。对照 P2a 的 LUT 18373，则是 −550。
-- **P2b 寄存器已在硅上验收**：`0x94=0x01001000`、`0x98=0x0400C000`、`0x9C=0x02000000`；
-  写 `0x94=0x01000080` 读回同值，再写回 `0x01001000`；`0x48` 写/读都回 NACK `BAD_ADDRESS (0x02)`。
-- **P2b 听感仍未验证**（唯一剩下的验收缺口）：包络 / 力度深度 / 失谐宽度 / 滑音需要
-  **手**在传感器上做手势 + 一次 **LOOP 回放**。不要引用任何“听起来如何”的结论——本轮没有听。
-- **P2b 已完成并板上验收**：位流 `impl/v2_board_top_p2b_no_patch`（sha `471fa9ba…`，
-  CLS 10750、Fmax 62.93 MHz、worst −3.392 ns、`gate: OK`）。用户听感确认：attack 改慢 → 音头渐入、
-  `velocity_shift=3` → 轻重差别变小、`detune_shift=3` → 音色变薄。
-  **`glide_rate` 未在板上验证**（只影响 LIVE 的 REVOICE，LOOP 播放不经过它）。
-- **下一次的第一件事**：定 OLED（薄版 ~400 LUT，位置够）还是补 P2c（预设已改由上位机上传，无硬件改动）；见 §6。
+  在途改动，先看 `git status --short`（`docs/_build.docx`、`build_*.log` 是未跟踪的历史杂物）。
+- **板上是 `minor_arp`（2026-11-03 16:40 烧入）**：sha256 `4141c59d2e83aceb…`，
+  CLS **10745/11520**、DSP 28/28、BSRAM 34/56、Fmax **68.272 MHz**、worst **−2.147 ns**、
+  `gate: OK`（`impl/v2_board_top_minor_arp`）。比上一版 `live_dbg`（CLS 10824、worst −3.447）更好。
+- **本轮（2026-11-03）三件事，都已提交**：
+  1. 音阶 G 自然小调 `55 57 58 60 62 63 65 67`（`1fc8df4`）：八个音的增量按
+     `round(f·2^32/48000)` 重算，G3 的旧值 +103 LSB；`64/69/72` 留在 ROM 里只给 WT_PLAY。
+  2. arp 固定 **125 ms** 一步（24 位计数器，`ARP_STEP_CYCLES=12_500_000`，不再受 X→BPM 影响），
+     四种走位写在 `THRESHOLDS[26:25]`（0 跟随 y / 1 上行 / 2 上下 / 3 随机）。
+  3. 控制台加了走位下拉框（`a10583c`），只改这两位、保留 enable 与 y 阈值；"读取参数"会回读。
+- **LIVE 路由修复的源码已入库**（`aee92f3`）：`mode_rw_q` 一处寄存的 `PLAY||LIVE` 供
+  源选择/读 mux/缓冲使能/valid mux 共用，另加调试页 3（`wt_source_sel` / `live_active` /
+  `voice_sample`）。这条提交就是板上 `live_dbg` 的源码，此前只在工作区。
+- **听感状态：新的 arp 还没听**。板上跑的是 `minor_arp`，用户尚未用耳朵验收音阶与四种走位；
+  不要引用任何"听起来如何"的结论。
+- **下一次的第一件事**：OLED 静态图（计划已写、只差执行方式）或把 `host/scores/c-am-vamp-4s.json`
+  里旧音阶的三个音（64/69/72）改调；见 §6。
 
 ## 0.5 上位机控制台（2026-11-02 建成，`host/v2_console/`）
 
 入口 `python host/console.py --port COM4`；设计 `docs/superpowers/specs/2026-11-02-console-design.md`
 与 `2026-11-02-loop-canvas-assisted-recording-design.md`，计划 `docs/superpowers/plans/2026-11-02-console-v2.md`，
-过程 `docs/progress-2026-11-02.md`。**236 条 unittest 全绿**（`python -m unittest discover -s host -p "test_*.py"`）。
+过程 `docs/progress-2026-11-02.md`。**266 条 unittest 全绿**：`host/` 不是包（没有
+`__init__.py`），`unittest discover` 会报 "Start directory is not importable"，用
+
+```powershell
+$mods = @(Get-ChildItem host/test_*.py | ForEach-Object { 'host.' + $_.BaseName })
+python -m unittest @mods
+```
 
 板上验过的：身份/模式、`warm` 九条读回全等、正弦表上传+读回 1024/1024、手绘一帧（797 点轨迹 → 1024 点表、
 只传该帧 17.8 s）、morph 20 s 扫描、LOOP 的 Arm/Commit/Publish（32/32 覆盖、2 事件、`voices=1`）、

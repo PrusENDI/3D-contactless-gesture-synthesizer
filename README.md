@@ -22,6 +22,7 @@ FPGA：**GW5A-LV25MG121NES**（23,040 LUT 上限，实际约 17,400 LUT）。
 | 波表乐器：9 个预设 + 6 个 AKWF（CC0） | 可用 | `host/presets/` |
 | 静态 OLED（SSD1306 128×64，7 针 SPI） | **源码已写，未跑 P&R** | `rtl/v2_oled_static.sv` |
 | demo 位流：32 音 DDS + OLED 音高面板 | 另一条分支 | `rtl/v2_demo_top.sv` |
+| 实时意图推断：音区 / 节奏型 / 旋律型 | 可用（host 侧，端到端 ≤1 s） | `python host/intent_live.py`，见 `docs/intent-inference.md` |
 
 ## 三条命令
 

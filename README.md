@@ -1,67 +1,118 @@
-# mgc3130_clean 閳?楠炴彃鍣ｉ惃?V2 濠ф劗鐖滃銉р柤
+# mgc3130_clean — 非接触手势合成器（GW5A / Tang Primer 25K）
 
-FPGA閿涙W5A-LV25MG121NES閿?3,040 LUT 娑撳﹪妾洪敍澶堚偓鍌涙拱閻╊喖缍嶉弰?V2 閻?*閸烆垯绔村┃鎰垳閸╄櫣鍤?*閿?閻㈣鲸妫禒鎾崇氨 `mgc3130_uart/.worktrees/v2-integration` 閻?`50acf2e` 閸撴梹绀傞悽鐔稿灇閵?
-閻㈢喐鍨氭潻鍥┾柤閸欘垶鍣搁弨鎾呯礉娑撳秵妲搁幍瀣紣閺佸鎮婇敍?
+FPGA：**GW5A-LV25MG121NES**（23,040 LUT 上限，实际约 17,400 LUT）。
+一块 MGC3130 电场传感器测手的位置，FPGA 把高度变成音高、把前后／高低变成亮度与音量，
+再用波表合成器出声；上位机负责调音色、录循环、看遥测。
+
+本目录是 V2 的**唯一源码基线**，由旧仓库 `mgc3130_uart/.worktrees/v2-integration`
+的 `50acf2e` 剔洗生成，生成过程可重放（`python scripts/bootstrap.py --source <旧仓库>`）。
+
+## 现在能做什么
+
+| 功能 | 状态 | 入口 |
+| --- | --- | --- |
+| LIVE：手势直接演奏，单声部 | 可用，板上验收 | 模式 `1` |
+| 音阶：**G 自然小调** `55 57 58 60 62 63 65 67`，y 分七档 | 可用 | `rtl/v2_live_rule_engine.sv` |
+| 步进琶音：固定 **125 ms** 一步，四种走位（跟随／上行／上下／随机） | 可用，板上有声 | `THRESHOLDS[26:25]` |
+| 波表：3 × 1024 点，A/B/C 可 morph | 可用 | `0x60`（表/增益/morph）、`0x64` / `0x68`（索引/数据） |
+| PLAY：32 声部复音，事件来自 LOOP | 可用 | 模式 `4` |
+| LOOP：录制 32 tick 轮廓 → Potts 分段 → 事件表 → 回放 | 可用 | `LOOP_CTRL` 一组，见 `docs/DEBUG-AND-FLASH.md` |
+| 音色：锯齿梯滤波器 + LFO + FX + ADSR + 失谐／力度／滑音 | 可用 | `0x40 / 0x44 / 0x84…0x9C` |
+| 上位机控制台（tkinter，全中文） | 可用，板上验收 | `python host/console.py` |
+| 波表乐器：9 个预设 + 6 个 AKWF（CC0） | 可用 | `host/presets/` |
+| 静态 OLED（SSD1306 128×64，7 针 SPI） | **源码已写，未跑 P&R** | `rtl/v2_oled_static.sv` |
+| demo 位流：32 音 DDS + OLED 音高面板 | 另一条分支 | `rtl/v2_demo_top.sv` |
+
+## 三条命令
+
 ```bash
-python scripts/bootstrap.py --source "<閺冄傜波鎼?/.worktrees/v2-integration"
+python scripts/gate.py --compile   # 静态检查 + ModelSim 编译；警告即失败（应 0 error / 0 warning）
+python scripts/sim.py              # RAM=0 与 RAM=1 两套回归，逐条比对 sim_baseline.json
+python scripts/synth.py --run-id r1  # 生成 .gprj 并跑 syn + pnr（约 9 分钟），输出 synth_summary.json
 ```
 
-## 娑撹桨绮堟稊鍫ｎ洣閺堝绻栨稉顏嗘窗瑜?
-閺冄呮窗瑜版洜袧缁鳖垯绨℃稉瀣桨鏉╂瑤绨虹紒鎾寸€幀褏宸遍梽鍑ょ礉**濮ｅ繋绔撮弶锟犲厴娴兼俺顔€"閼崇晫绱潻?閸?閺勵垰顕惃?閸掑棗寮?*閿?
-| 閺冄呮窗瑜版洜濮搁幀?| 閸氬孩鐏?|
-|---|---|
-| `rtl/` 閺?71 娑?`.sv`閿涘本鐎鍝勫涧閻?30 娑?| 娴犺缍?`rtl/*.sv` 闁岸鍘ょ紓鏍槯闁垝绱板鏇炲弳閺冪姴鍙ч弬鍥︽ |
-| `mgc3130_v2_top` 鐞氼偄鐣炬稊澶夎⒈濞嗏槄绱?0 MHz 娑?100 MHz+DPB閿?| `vlog-2275` 閸欘亝妲?*鐠€锕€鎲?*閿涘苯鎮楃紓鏍畱闂堟瑩绮憰鍡欐磰閸撳秳绔存稉顏庣幢鐎圭偞绁?`CLKS_PER_BIT` 閸?100閵嗕焦鏁归崚鎵畱鐎涙濡崣妯诲灇 `f3 61 20 閳ヮ泦 |
-| `v2_potts_commit_fsm` 娑旂喕顫︾€规矮绠熸稉銈嗩偧 | 閸氬奔绗?|
-| 閸烆垯绔撮惃鍕€婄仦鍌滈獓閸ョ偛缍婇弨鎯ф躬 `impl/`閿涘矁鈧?`.gitignore` 閹烘帡娅?`impl/` | **濞屸剝婀佺悮顐ゅ閺堫剛顓搁悶?*閿涘矂娈㈤弮璺哄讲閼虫垝娑径?|
-| `scripts/` 閺?78 娑?`synth_*.tcl`閿涘苯鎮囬懛顏勫敶瀹撳奔绔存禒鑺ユ瀮娴犺埖绔婚崡?| 濠ф劗鐖滈崪灞剧€鐑樼閸楁洑绱板鍌溞?|
-| 閺傚洣娆㈠〒鍛礋閸欘亜鐡ㄩ崷銊ょ艾 Tcl 闁?| 濞屸剝婀佹禒璁崇秿瀹搞儱鍙块懗钘夋礀缁?鏉╂瑦顐奸崚鏉跨俺缂傛牔绨￠崫顏冪昂閺傚洣娆? |
+`sim.py` 的退出码即结论：观察到的失败必须是 `sim_baseline.json` 的子集
+（当前 **13 条通过 / 4 条已知失败**）。修掉某个已知缺陷后跑 `--update-baseline` 把它摘掉。
 
-閺堫剛娲拌ぐ鏇犳畱濮ｅ繋閲滄稉宥呭綁瀵繘鍏橀張澶夌娑擃亣鍓奸張顒€婀€瑰牞绱?
-1. **閸欘亝婀?`filelist.f` 娑撯偓娴犺姤鏋冩禒鑸电閸?*閿涘奔璞㈤惇鐔粹偓渚€妞勯梻銊ｂ偓浣烘偅閸氬牅绗佹径鍕彙閻劊鈧?2. **閸欘亝婀佹稉鈧稉顏堛€婄仦?* `v2_board_top`閿涘牆鎮庨幋鎰暏閿涘绱濇稉鏂跨暊鐞氼偅妯夊蹇擄紣閺勫骸婀?`MANIFEST.json`閵?3. **閻╊喖缍嶉柌灞剧梾閺堝婀担璺ㄦ暏閻ㄥ嫭鏋冩禒?*閿涙岸娅庢い璺虹湴婢舵牭绱漙filelist.f` 闁插本鐦℃稉顏吥侀崸妤呭厴韫囧懘銆忕悮顐㈢杽娓氬瀵查敍灞芥儊閸掓瑩妞勯梻銊ャ亼鐠愩儯鈧?4. **缂傛牞鐦ч梿鎯邦劅閸涘﹥妲哥涵顒冾洣濮?*閿涙矮鎹㈡担?`vlog` 鐠€锕€鎲￠敍鍫濇儓 `vlog-2275` 閸氬苯鎮曠憰鍡欐磰閿涘鍏橀崚銈呫亼鐠愩儯鈧?5. **瀹歌尙鐓＄紓娲鐠佹媽绻橀崺铏瑰殠**閿涙瓪sim_baseline.json` 閸掓鍤ぐ鎾冲瀹歌尙鐓℃径杈Е閻ㄥ嫭鏌囩懛鈧敍灞炬煀閸戣櫣骞囬惃鍕亼鐠愩儲澧犻崣顐㈡礀瑜版帇鈧?
-## 娑撳娼崨鎴掓姢
+位流在 `impl/<run-id>/impl/pnr/v2_board_top.fs`，`impl/` **不入库**。
+烧录：`scripts/board_program.ps1 -FsFile <fs> -Operation 4`，烧完读 `0xB0` 应为 `0x5A5A0003`。
+
+## 上位机
 
 ```bash
-python scripts/gate.py              # 闂堟瑦鈧焦顥呴弻銉窗闁插秴顦插Ο鈥虫健 / 妞よ泛鐪伴崬顖欑 / 濮濊鍞惍?/ 閸栧懘銆庢惔?python scripts/gate.py --compile    #   + ModelSim 缂傛牞鐦ч敍宀冾劅閸涘﹤宓嗘径杈Е
-python scripts/sim.py               # 缂傛牞鐦ч獮鎯扮獓 RAM=0 娑?RAM=1 娑撱倕顨滈崶鐐茬秺閿涘矂鈧劖娼В鏂款嚠閸╄櫣鍤?python scripts/sim.py --trace       #   + 閹垫挸宓冮崨鎴掓姢/APPLY/鎼存梻鐡熷ù渚婄礄CSR_TRACE閿?python scripts/synth.py --run-id r1  # 閻㈢喐鍨?.gprj 楠炴儼绐?syn + pnr閿涘矁绶崙?synth_summary.json
+python -m pip install ttkbootstrap
+python host/console.py --port COM4     # COM4 是板载 FTDI，同一个口也用于烧录
 ```
 
-`sim.py` 闁偓閸戣櫣鐖滈崡宕囩波鐠佺尨绱扮憴鍌氱檪閸掓壆娈戞径杈Е韫囧懘銆忛弰?`sim_baseline.json` 閻ㄥ嫬鐡欓梿鍡愨偓?娣囶喗甯€閺屾劒閲滃鑼叀缂傛椽娅￠崥搴ょ獓 `python scripts/sim.py --update-baseline` 閹跺﹤鐣犳禒搴＄唨缁惧潡鍣烽幗妯诲竴閵?
-## 閻╊喖缍?
+- 每命令约 17 ms（FTDI 16 ms 定时器），1024 点波表上传约 **18 s**，不能突发；
+- 波表帧：`python host/instrument_tables.py`（谐波配方五件）或 `python host/akwf_tables.py --all`
+  （AKWF，CC0，首次运行联网下载）；
+- 测试：`python -m unittest host.test_*`——**317 条**，全绿。
+
+## 目录
+
 ```
-filelist.f            閸烆垯绔撮弬鍥︽濞撳懎宕熼敍鍫ャ€庢惔蹇撳祮娓氭繆绂嗘い鍝勭碍閿?ip/filelist_ip.f      閸樺倸鏅?IP 濞撳懎宕熼敍灞藉涧缂佹瑧鎮ｉ崥鍫㈡暏
-MANIFEST.json         濮ｅ繋閲滈弬鍥︽閻?sha256 + 閺夈儲绨?commit + 閻╃顕弮褌绮ㄦ惔鎾舵畱鐞涖儰绔电拠瀛樻
-rtl/                  29 娑?RTL + v2_board_top.sv閿涘牆鏁稉鈧崥鍫熷灇妞よ泛鐪伴敍?ip/gowin_i2c_master/  Gowin I2C 閺嶉潻绱欓崝鐘茬槕 .vp + 妞よ泛鐪伴崠鍛邦棅 + 娑撱倓閲?.vh 鐎瑰繐鐣炬稊澶涚礆
-tb/                   tb_top_csr_gate.sv閿涘牓銆婄仦鍌滈獓閸ョ偛缍婇敍澶堚偓涔糱_sim_top.sv閿涘湙SR 缂佹垵鐣鹃敍澶堚偓涔祇n_csr_trace.sv
-constr/               mgc3130_v2.cst閵嗕沟gc3130_v2_top_observable.sdc
-scripts/              bootstrap.py / gate.py / sim.py / synth.py
-docs/BASELINE.md      瑜版挸澧犻弫鏉库偓闂寸瑢瀹歌尙鐓＄紓娲濞撳懎宕?sim_logs/, .sim/      娴犺法婀℃潏鎾冲毉閿涘牅绗夐崗銉ョ氨閿?impl/                 缂佺厧鎮庢潏鎾冲毉閿涘牅绗夐崗銉ョ氨閿?```
+filelist.f            唯一文件清单（顺序即依赖顺序；仿真、闸门、综合三处共用）
+ip/filelist_ip.f      厂商 IP 清单，只给综合用
+MANIFEST.json         每个文件的 sha256 + 来源 commit
+rtl/                  45 个 RTL，v2_board_top 是唯一合成顶层
+ip/gowin_i2c_master/  Gowin I2C 核（加密 .vp + 顶层包装 + 两个 .vh 宏）
+tb/                   41 个 testbench
+constr/               mgc3130_v2.cst（引脚）、mgc3130_v2_top_observable.sdc（时钟）
+scripts/              gate / sim / sim_unit / synth / gao_capture / board_*.ps1 / board_table.py
+host/                 上位机：控制台、波表生成、评分、频谱、OLED 图
+docs/                 HANDOFF.md（最新现状）、progress-*.md、specs/、plans/
+gao/                  GAO 探针定义
+```
 
-## 閸樺倸鏅?IP 娑撹桨绮堟稊鍫濆礋閻欘兛绔存稉顏呯閸?
-`mgc3130_reader` 鐎圭偘绶ラ崠鏍畱閺?**`Gowin_I2C_Master`**閳ユ柡鈧梹膩閸ф鎮曢悽?`ip/gowin_i2c_master/top_define.vh`
-闁插瞼娈?`` `define module_name `` 閸愬啿鐣鹃敍灞界杽閻滈缍嬮弰顖氬鐎靛棛娈?`I2C_MASTER.vp`閵嗗倹绱￠幒澶婄暊閿涘瞼鎮ｉ崥鍫滅窗閸嬫粌婀?`ERROR (EX3937) : Instantiating unknown module 'Gowin_I2C_Master'`閵?
-鐎瑰啩绗夐懗鍊熺箻 `filelist.f`閿涙艾濮炵€靛棛娈?`.vp` 閸犲倻绮?ModelSim 娴兼氨娲块幒銉х椽鐠囨垵銇戠拹銉礉閼板奔璞㈤惇鐔荤熅瀵板嫭鐗撮張顒傛暏娑撳秴鍩岀€?閿涘澅estbench 鐠?UART閿涘奔绗夌喊?I2C閿涘鈧倹澧嶆禒?`scripts/synth.py` 娴兼碍濡?`ip/filelist_ip.f` 閹烘帒婀?`filelist.f` 娑斿澧犳稉鈧挧宄板晸鏉?`.gprj`閿涘畭scripts/gate.py` 閸欘亜鍨庨弸鎰啎鐠佲剝婀版担鎾扁偓?
-## 娑撱倖娼€硅妲楅煪鈺冩畱绾剛瀹抽弶?
-**1. `rtl/` 闁插奔绗夌拋绋垮毉閻滄壆顑囨禍灞奸嚋 `module v2_board_top`閿涘奔绡冩稉宥堫啅閸旂姴娲?`mgc3130_v2_top_dpb.sv`閵?*
-ModelSim 鐎电懓鎮撻崥宥喣侀崸妤€褰ч幎?`vlog-2275` 鐠€锕€鎲￠悞璺烘倵鐟曞棛娲婇妴淇檊ate.py` 娴兼碍瀚ら敍灞肩稻閹靛浼愰幙宥勭稊閺冩儼顩﹂惌銉╀壕閵?
-**2. 娴犺法婀¤箛鍛淬€忕敮?`+define+V2_SIM`閵?*
-`rtl/v2_clock_gen.sv` 閸?`V2_SIM` 娑撳濡?`clk_sys_100m` 閻╁瓨甯存潻鐐插煂 `clk_in`閵嗕焦濡?`pll_locked`
-閻╁瓨甯存潻鐐插煂 `rst_n`閿涙稐绗夌敮锕佺箹娑擃亜鐣敍灞芥珤娴?PLL 閸樼喕顕㈤崷銊よ雹閻喖鍣锋稉宥呭毉闁夸緤绱漙por_n` 濮樻瓕绻欐稉宥埿掓径宥勭秴閿?閺佺繝閲滅拋鎹愵吀鐞涖劎骞囨稉?鐎瑰苯鍙忔稉宥呯安缁?閵嗕繖scripts/sim.py` 瀹歌尙绮℃妯款吇鐢缚绗傞妴?
-## 娣団€冲娇閸涜棄鎮曢惃鍕坊閸欐彃瀵樼悮鎲嬬礄娑撳秵鏁奸敍灞肩稻鐟曚胶鐓￠柆鎿勭礆
+## 本目录守的六条不变式
 
-`clk_sys_100m` 鐎圭偤妾弰?**80 MHz**閿涘湧LLA閿?0 MHz 鑴?16 / 10閿涘鈧倽绻栨稉顏堟晩鐠囶垰鎳￠崥宥呭嚒缂佸繘鈧姵鍨氭潻鍥︾濞?"濞夈垻澹掗悳鍥т焊 25%"閻ㄥ嫯顕ら崚銈忕礉`constr/*.sdc` 闁插苯甯崗鍫濆晸閻偓 "100 MHz" 閻ㄥ嫭鏁為柌濠佺瘍瀹歌弓绔撮獮鑸垫纯濮濓絻鈧?闁插秴鎳￠崥宥勭窗鐟欙箑寮?30 娑擃亝鏋冩禒璁圭礉閺€鍓佹抄娑撳秵濮锋搴ㄦ珦閿涘苯娲滃銈勭箽閻ｆ瑥鑻熼崷銊︻劃婢圭増妲戦妴?
-## 娑撳秴婀張顒傛窗瑜版洜娈戦崘鍛啇
+1. **只有 `filelist.f` 一份文件清单**，仿真、闸门、综合三处共用。
+2. **只有一个合成顶层** `v2_board_top`，且声明在 `MANIFEST.json`。
+3. **`filelist.f` 里每个模块都必须被实例化**，否则闸门失败（没有死代码）。
+4. **编译零警告是硬要求**：任何 `vlog` 警告（含 `vlog-2275` 同名覆盖）都判失败。
+5. **已知缺陷记进基线**：`sim_baseline.json` 列出当前已知失败，新出现的失败才叫回归。
+6. **每轮改动都提交**，工作区不留跨轮未提交的改动。
 
-`pc_receiver/`閿涘牅绗傛担宥嗘簚濡€崇€烽敍澶堚偓涔rtifacts/`閿涘牆宸婚崣鍙夋緲濞村妫╄箛妤嬬礆閵嗕梗docs/`閿涘牆顨栫痪锔跨瑢鐎孤ゎ吀閿涘绮涢崷銊︽＋娴犳挸绨遍妴?閺堫剛娲拌ぐ鏇炲涧鐠愮喕鐭?濠ф劗鐖?+ 閸欘垰顦查悳鎵畱閺嬪嫬缂撴稉搴ㄧ崣鐠?閵?
-## 鐗堟湰鎺у埗涓庤皟璇曟柟娉?
-鏈洰褰曡嚜 2026-10-30 璧锋槸涓€涓嫭绔?git 浠撳簱锛堟鍓嶅彧鏈?`MANIFEST.json` 鐨?sha256锛屾病鏈?VCS 鍏滃簳锛夛細
+## 四条容易踩的硬约束
 
-- 蹇界暐椤癸細`impl/`銆乣sim_logs/`銆乣.sim/`銆乣.gate/`銆乣artifacts/`銆乣work/`銆乣*.wlf`銆乣.synth_run*.txt`銆乣.sim_run*.txt`
-- 涓や釜鎻愪氦锛氬垵濮嬪共鍑€鏍戙€佸拷鐣ユ瘡娆¤繍琛岀殑涓存椂鏃ュ織
-- 棣栨鍦ㄥ埆鐨勬満鍣?璐﹀彿鍏嬮殕鏃堕渶瑕?`git config --global --add safe.directory <鏈洰褰?`锛堟湰鏈虹洰褰曞睘涓绘槸 Administrators锛?
-璋冭瘯鏂规硶璁哄凡鍥哄寲涓虹敤鎴风骇 skill `gowin-fpga-debug`
-锛坄~/.dsh/skills/gowin-fpga-debug/SKILL.md`锛夛紝瑕佺偣锛?
-1. **涓嶈鐢ㄨ娴嬫満鍒惰娴嬭娴嬪璞?*锛圕SR 鍥炶璇佹槑涓嶄簡 CSR 鏃跺簭锛夛紱
-2. 鎸夌棁鐘堕€変华鍣細鍛ㄦ湡绾?鈫?GAO锛屽抚绾?鈫?涓绘満 UART 闂幆锛岄暱鏃惰鏁?鈫?濂戠害瀵勫瓨鍣紝鍙鐜伴€昏緫 鈫?鍙?RAM 浠跨湡锛?3. GAO 鍏ㄦ祦绋嬪彲鑴氭湰鍖栵細鏄庢枃 `.rao` 鈫?`.gprj` 閲?`type="file.gao"` 鈫?`gw_sh run all` 鐢熸垚 `RTL_GAO/` 涓?`ao_0.fs` 鈫?`gao_sh -gao ... -out ...` 鎶撳彇锛?4. 棰勭畻锛? 鍧?BSRAM = 18,432 浣嶏紝`娣卞害 脳 浣嶅` 蹇呴』瑁呭緱涓嬶紱2048脳112 宸查獙璇佸崰 13 鍧楋紱
-5. 璇佹嵁绾緥锛氬共鍑€鍩虹嚎銆丄CK 鍏ㄥ瓧娈点€佸師濮嬫棩蹇椼€佷綅娴?sha256 + 鍐呭 hash銆佹湭璺戠殑椤硅鍐欐槑銆?
-娴嬭瘯娴佺▼缁嗚妭瑙?`docs/TEST-FLOW-GAO.md`銆
+**1. `rtl/` 里不许出现第二个 `module v2_board_top`。**
+ModelSim 对同名模块只报 `vlog-2275` 警告然后覆盖，后果是"编过了，但跑的不是这份代码"。
+`gate.py` 会拦；手工操作时要知道。
+
+**2. 仿真必须带 `+define+V2_SIM`。**
+`rtl/v2_clock_gen.sv` 在 `V2_SIM` 下把 `clk_sys_100m` 直接连到 `clk_in`、`pll_locked` 直接连到
+`rst_n`；不带这个宏，器件 PLL 原语在仿真里不出锁，整个设计表现为"完全不应答"。
+`scripts/sim.py` 与 `sim_unit.py` 已经默认带上。
+
+**3. `clk_sys_100m` 实际是 80 MHz**（PLLA：50 MHz × 16 / 10）。
+这个错误命名已经造成过一次"波特率偏 25%"的误判。重命名会触及 30 个文件，收益不抵风险，保留并在此声明。
+
+**4. 厂商 IP 不能进 `filelist.f`。**
+`mgc3130_reader` 实例化的是 `Gowin_I2C_Master`，实现体是加密的 `I2C_MASTER.vp`，
+喂给 ModelSim 会编译失败。所以 `synth.py` 单独把 `ip/filelist_ip.f` 排在 `filelist.f` 之前写进 `.gprj`。
+
+## 已知限制
+
+- **DSP 28/28 满**、CLS 约 10 745/11 520、最差建立时间约 −2.1 ns：器件是**布局受限**，
+  任何新增逻辑都要先看时序预算，不能只看 LUT 余量；
+- **LIVE 是单声部**（32 声部只在 PLAY）；上传波表会强制回 IDLE；
+- 上传一张表 18 s，三帧 morph 约一分钟；
+- **拔掉 MGC3130 会让读取器停在等 I2C 应答**（没有超时），表现为整机"死机"，需重烧；
+- OLED 静态图只到"源码 + 仿真台 + 编译门"，**没有跑过 P&R**。
+
+## 文档从哪读
+
+| 想知道 | 看 |
+| --- | --- |
+| 今天的真实状态、下一个任务 | `docs/HANDOFF.md` |
+| 每个功能怎么来的、当时测了什么 | `docs/progress-<日期>.md` |
+| 某个功能的验收标准 | `docs/superpowers/specs/` |
+| 任务拆解与执行顺序 | `docs/superpowers/plans/` |
+| 板级操作、寄存器表、烧录坑 | `docs/DEBUG-AND-FLASH.md`、`docs/host-tools-and-gui-controls.md` |
+| 波表从哪来 | `docs/wavetable-sources.md` |
+
+## 许可
+
+AKWF 波形为 **CC0 1.0**（Adventure Kid），原文见 `artifacts/akwf/LICENSE-CC0.txt`。
+其余代码与文档为本项目所有。

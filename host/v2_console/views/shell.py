@@ -790,6 +790,7 @@ class ConsoleWindow:
         self._pending_label = None
         self._capture_mark = None
         self._capture_until = 0.0
+        self._last_record_state = "idle"
         self._current = TABS[0]
 
         self.dpi_awareness = theme_mod.enable_dpi_awareness()
@@ -1493,7 +1494,11 @@ class ConsoleWindow:
             text = self.zh.t("loop.rec_countdown", self.model.record_track)
         elif state == "waiting":
             colour = self.palette.accent
-            text = self.zh.t("loop.rec_waiting", self.model.record_track)
+            # The board waits a whole bar before it captures; a still caption reads
+            # as a hang, so show the seconds draining and the length of the take.
+            left = max(0.0, self.model.record_started - time.monotonic())
+            text = self.zh.t("loop.rec_waiting_count", self.model.record_track, left,
+                             self.model.record_seconds)
         else:
             colour = self.palette.danger
             progress = self.model.record_progress()
@@ -1509,17 +1514,19 @@ class ConsoleWindow:
 
     def _update_record_label(self) -> None:
         state = self.model.record_state
+        if state == "waiting":
+            left = max(0.0, self.model.record_started - time.monotonic())
+            self.loop_label.config(
+                text=self.zh.t("loop.label_waiting_count", self.model.record_track, left),
+                fg=self.palette.accent,
+            )
+            return
         if getattr(self, "_pending_label", None):
             # A worker is running: say so, and stop saying it when it answers.
             if self.loop_label.cget("text") != self._pending_label:
                 self.loop_label.config(text=self._pending_label, fg=self.palette.dim)
             return
-        if state == "waiting":
-            self.loop_label.config(
-                text=self.zh.t("loop.label_waiting", self.model.record_track),
-                fg=self.palette.accent,
-            )
-        elif state == "armed":
+        if state == "armed":
             self.loop_label.config(
                 text=self.zh.t("loop.label_recording", self.model.record_track, self.model.record_ticks()),
                 fg=self.palette.danger,
@@ -1610,6 +1617,9 @@ class ConsoleWindow:
                     )
                 self._paint_record(canvas)
                 self._paint_capture(canvas)
+            if self.model.record_state == "armed" and self._last_record_state == "waiting":
+                self._beep(990, 90)          # the window really opened
+            self._last_record_state = self.model.record_state
             self._update_record_label()
             self.status.config(text=self._status_text())
         except Exception as exc:  # a render error must not kill the loop
